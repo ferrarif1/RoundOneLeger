@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #f9f9fc 0%, #f4f5fa 60%, #f0f1f7 100%);
+  background-attachment: fixed;
+  color: #1a1d2d;
+  font-smooth: always;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(94, 238, 247, 0.6), rgba(73, 78, 225, 0.8));
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(17, 20, 63, 0.4);
+}
+
+input, textarea, select {
+  @apply bg-night-900 border-night-700 text-night-100 placeholder-night-300;
+}
+
+a {
+  @apply text-neon-500 hover:text-neon-600 transition-colors;
+}
+
+.glass-panel {
+  @apply bg-white/80 backdrop-blur-2xl border border-white/60 shadow-glow;
+}
+
+.button-primary {
+  @apply relative inline-flex items-center justify-center px-5 py-3 text-sm font-semibold tracking-wide text-white;
+  @apply bg-night-50 rounded-full shadow-glow transition-transform duration-200;
+}
+
+.button-primary:hover {
+  transform: translateY(-1px) scale(1.01);
+}
+
+.button-primary:active {
+  transform: translateY(1px) scale(0.99);
+}
+
+.section-title {
+  @apply text-lg font-semibold text-night-50 flex items-center gap-2;
+}
+
+.section-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  margin-left: 8px;
+  background: linear-gradient(90deg, rgba(248, 155, 84, 0.4), transparent);
+}

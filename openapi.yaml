@@ -1,0 +1,763 @@
+openapi: 3.0.3
+info:
+  title: Ledger API
+  version: 0.1.0
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: Successful health check
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+  /ledger/ips:
+    get:
+      summary: List IP ledger entries
+      responses:
+        '200':
+          description: A collection of IP address records
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ips:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/IPEntry'
+    post:
+      summary: Create an IP ledger entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IPWrite'
+      responses:
+        '201':
+          description: Created IP entry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IPEntry'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /ledger/ips/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+    put:
+      summary: Update an IP ledger entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IPWrite'
+      responses:
+        '200':
+          description: Updated IP entry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IPEntry'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Entry not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Remove an IP ledger entry
+      responses:
+        '204':
+          description: Entry removed
+        '404':
+          description: Entry not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /ledger/ips/order:
+    put:
+      summary: Reorder IP entries
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderRequest'
+      responses:
+        '200':
+          description: Order updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: reordered
+        '400':
+          description: Invalid order payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /ledger/state:
+    get:
+      summary: Fetch the combined ledger snapshot with history counters
+      responses:
+        '200':
+          description: Current ledger state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerStateEnvelope'
+  /ledger/history:
+    get:
+      summary: Retrieve available undo/redo steps
+      responses:
+        '200':
+          description: Current history counters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  history:
+                    $ref: '#/components/schemas/HistoryStatus'
+  /ledger/history/undo:
+    post:
+      summary: Undo the most recent ledger mutation
+      responses:
+        '200':
+          description: Ledger state after undo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerStateEnvelope'
+        '409':
+          description: Undo history is empty
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  history:
+                    $ref: '#/components/schemas/HistoryStatus'
+  /ledger/history/redo:
+    post:
+      summary: Redo the latest undone ledger mutation
+      responses:
+        '200':
+          description: Ledger state after redo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerStateEnvelope'
+        '409':
+          description: Redo history is empty
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  history:
+                    $ref: '#/components/schemas/HistoryStatus'
+  /ledger/devices:
+    get:
+      summary: List device ledger entries
+      responses:
+        '200':
+          description: A collection of device records
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  devices:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DeviceEntry'
+    post:
+      summary: Create a device ledger entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceWrite'
+      responses:
+        '201':
+          description: Created device entry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceEntry'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /ledger/devices/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+    put:
+      summary: Update a device ledger entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceWrite'
+      responses:
+        '200':
+          description: Updated device entry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceEntry'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Entry not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Remove a device ledger entry
+      responses:
+        '204':
+          description: Entry removed
+        '404':
+          description: Entry not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /ledger/devices/order:
+    put:
+      summary: Reorder device entries
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderRequest'
+      responses:
+        '200':
+          description: Order updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: reordered
+        '400':
+          description: Invalid order payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /ledger/personnel:
+    get:
+      summary: List personnel ledger entries
+      responses:
+        '200':
+          description: A collection of personnel records
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  personnel:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PersonnelEntry'
+    post:
+      summary: Create a personnel ledger entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonnelWrite'
+      responses:
+        '201':
+          description: Created personnel entry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonnelEntry'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /ledger/personnel/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+    put:
+      summary: Update a personnel ledger entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonnelWrite'
+      responses:
+        '200':
+          description: Updated personnel entry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonnelEntry'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Entry not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Remove a personnel ledger entry
+      responses:
+        '204':
+          description: Entry removed
+        '404':
+          description: Entry not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /ledger/personnel/order:
+    put:
+      summary: Reorder personnel entries
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderRequest'
+      responses:
+        '200':
+          description: Order updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: reordered
+        '400':
+          description: Invalid order payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /ledger/systems:
+    get:
+      summary: List system ledger entries
+      responses:
+        '200':
+          description: A collection of system records
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  systems:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SystemEntry'
+    post:
+      summary: Create a system ledger entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SystemWrite'
+      responses:
+        '201':
+          description: Created system entry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemEntry'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /ledger/systems/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int64
+    put:
+      summary: Update a system ledger entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SystemWrite'
+      responses:
+        '200':
+          description: Updated system entry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemEntry'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Entry not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Remove a system ledger entry
+      responses:
+        '204':
+          description: Entry removed
+        '404':
+          description: Entry not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /ledger/systems/order:
+    put:
+      summary: Reorder system entries
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderRequest'
+      responses:
+        '200':
+          description: Order updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: reordered
+        '400':
+          description: Invalid order payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /ledger/combined:
+    get:
+      summary: Cartesian export of all ledger dimensions
+      responses:
+        '200':
+          description: Combined ledger rows for matrix views
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  combined:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CombinedEntry'
+  /ledger/import:
+    post:
+      summary: Import ledger data from Excel
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Excel workbook containing ledger sheets
+      responses:
+        '200':
+          description: Import completed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: imported
+        '400':
+          description: Invalid import payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /ledger/export:
+    get:
+      summary: Export ledger data as Excel workbook
+      responses:
+        '200':
+          description: Binary Excel file containing ledger data
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '500':
+          description: Export failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    IPEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        address:
+          type: string
+        description:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+    DeviceEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        identifier:
+          type: string
+        type:
+          type: string
+        owner:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+    PersonnelEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        role:
+          type: string
+        contact:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+    SystemEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        environment:
+          type: string
+        owner:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+    CombinedEntry:
+      type: object
+      properties:
+        personnel:
+          $ref: '#/components/schemas/PersonnelEntry'
+        device:
+          $ref: '#/components/schemas/DeviceEntry'
+        system:
+          $ref: '#/components/schemas/SystemEntry'
+        ip:
+          $ref: '#/components/schemas/IPEntry'
+    IPWrite:
+      type: object
+      required:
+        - address
+      properties:
+        address:
+          type: string
+        description:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+    DeviceWrite:
+      type: object
+      required:
+        - identifier
+      properties:
+        identifier:
+          type: string
+        type:
+          type: string
+        owner:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+    PersonnelWrite:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        role:
+          type: string
+        contact:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+    SystemWrite:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        environment:
+          type: string
+        owner:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+    OrderRequest:
+      type: object
+      required:
+        - order
+      properties:
+        order:
+          type: array
+          items:
+            type: integer
+            format: int64
+    LedgerState:
+      type: object
+      properties:
+        ips:
+          type: array
+          items:
+            $ref: '#/components/schemas/IPEntry'
+        devices:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceEntry'
+        personnel:
+          type: array
+          items:
+            $ref: '#/components/schemas/PersonnelEntry'
+        systems:
+          type: array
+          items:
+            $ref: '#/components/schemas/SystemEntry'
+    HistoryStatus:
+      type: object
+      properties:
+        undoSteps:
+          type: integer
+          format: int32
+        redoSteps:
+          type: integer
+          format: int32
+    LedgerStateEnvelope:
+      type: object
+      properties:
+        state:
+          $ref: '#/components/schemas/LedgerState'
+        history:
+          $ref: '#/components/schemas/HistoryStatus'
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
