@@ -1,0 +1,36 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: ledger
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+  app:
+    build: .
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: ledger
+      DB_USER: postgres
+      DB_PASS: postgres
+    depends_on:
+      - db
+    ports:
+      - "8080:8080"
+  frontend:
+    build:
+      context: ./web
+    environment:
+      - VITE_API_URL=http://app:8080
+    depends_on:
+      - app
+    ports:
+      - "5173:80"
+volumes:
+  pgdata: {}
