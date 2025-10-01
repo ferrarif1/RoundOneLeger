@@ -7,7 +7,7 @@ RoundOneLeger is a full-stack asset ledger system that centralizes inventory for
 - **Ledger management APIs** for IPs, devices, personnel, and systems with support for manual CRUD, ordering, and tag metadata.
 - **Excel import/export pipeline** that can normalize header variations, detect IP columns via regex, and generate multi-sheet or Cartesian reports.
 - **Undo/redo history** that captures mutating operations so operators can roll back up to ten steps in either direction.
-- **Authentication and allowlisting hooks** covering username/password access, SDID-based device login, enrollment, fingerprint verification, and IP restrictions.
+- **Authentication and allowlisting hooks** supporting administrator-signed SDID device enrollment, fingerprint verification, and per-device IP binding with allowlist enforcement.
 - **Tamper-evident audit log** endpoints capable of exporting signed chains and verifying historical integrity.
 
 ## Architecture
@@ -32,8 +32,6 @@ RoundOneLeger is a full-stack asset ledger system that centralizes inventory for
    make run
    ```
    The health endpoint responds at `http://localhost:8080/health` with `{"status":"ok"}`.
-   The default admin credentials are `admin` / `admin123456` and can be overridden with the `ADMIN_USERNAME` / `ADMIN_PASSWORD` environment variables.
-
 4. Run the test suite:
    ```bash
    make test
@@ -57,6 +55,12 @@ docker-compose up --build
 ```
 This brings up Postgres alongside the backend container. Adjust environment variables inside `docker-compose.yml` before running if you need custom credentials.
 
+### Authentication
+- Configure the administrator signing key via `ADMIN_SIGNING_PUBLIC_KEY` (Base64-encoded Ed25519 public key). The server refuses to start without it.
+- During enrollment the frontend submits the device public key and SDID; an administrator must sign the string `<username>:<device_id>:<public_key_base64>` with the matching Ed25519 private key. Username defaults to `admin` when omitted.
+- The resulting signature is stored with the device and re-validated on every login alongside the device-generated nonce signature, browser fingerprint hash, and fixed IP allowlist.
+- All `/auth/*` endpoints accept empty `username` fields; they automatically fall back to the administrator account to simplify SDID-only deployments.
+
 ## Project Layout
 ```
 .
@@ -64,9 +68,8 @@ This brings up Postgres alongside the backend container. Adjust environment vari
 ├── internal/api          # HTTP handlers and router wiring
 ├── internal/auth         # Enrollment, nonce, and signature helpers
 ├── internal/db           # Database configuration helpers
-├── internal/ledger       # In-memory ledger store with history and tagging
 ├── internal/middleware   # Shared Gin middleware (IP allowlist, etc.)
-├── internal/models       # Data model definitions
+├── internal/models       # Data models and in-memory store
 ├── internal/xlsx         # Excel reader/writer utilities
 ├── migrations            # Database migration files (create your own)
 ├── openapi.yaml          # OpenAPI v3 specification

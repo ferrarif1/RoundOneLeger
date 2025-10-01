@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -34,17 +36,21 @@ func main() {
 
 	fingerprintSecret := []byte(os.Getenv("FINGERPRINT_SECRET"))
 	store := models.NewLedgerStore(fingerprintSecret)
-	adminUser := os.Getenv("ADMIN_USERNAME")
-	if adminUser == "" {
-		adminUser = "admin"
+	adminKeyEncoded := strings.TrimSpace(os.Getenv("ADMIN_SIGNING_PUBLIC_KEY"))
+	if adminKeyEncoded == "" {
+		log.Fatal("ADMIN_SIGNING_PUBLIC_KEY must be provided")
 	}
-	adminPass := os.Getenv("ADMIN_PASSWORD")
-	if adminPass == "" {
-		adminPass = "admin123456"
+	adminKey, err := base64.StdEncoding.DecodeString(adminKeyEncoded)
+	if err != nil {
+		adminKey, err = base64.RawStdEncoding.DecodeString(adminKeyEncoded)
+		if err != nil {
+			log.Fatalf("invalid ADMIN_SIGNING_PUBLIC_KEY: %v", err)
+		}
 	}
-	if err := store.SetPassword(adminUser, adminPass); err != nil {
-		log.Printf("failed to configure admin credentials: %v", err)
+	if err := store.SetAdminPublicKey(adminKey); err != nil {
+		log.Fatalf("configure admin signing key: %v", err)
 	}
+
 	sessions := auth.NewManager(12 * time.Hour)
 
 	router := api.NewRouter(api.Config{Database: database, Store: store, Sessions: sessions})

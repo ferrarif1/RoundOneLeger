@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/base64"
 	"errors"
+	"net"
 	"net/http"
 	"regexp"
 	"sort"
@@ -34,7 +35,6 @@ func (s *Server) RegisterRoutes(router *gin.Engine) {
 		authGroup.POST("/enroll-request", s.handleEnrollRequest)
 		authGroup.POST("/enroll-complete", s.handleEnrollComplete)
 		authGroup.POST("/request-nonce", s.handleRequestNonce)
-		authGroup.POST("/login-password", s.handleLoginPassword)
 		authGroup.POST("/login", s.handleLogin)
 	}
 
@@ -94,12 +94,13 @@ func (s *Server) handleEnrollRequest(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
 		return
 	}
-	key, err := base64.RawStdEncoding.DecodeString(req.PublicKey)
+	key, err := decodeWebBase64(req.PublicKey)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_public_key"})
 		return
 	}
-	enrollment, err := s.Store.StartEnrollment(req.Username, req.DeviceName, key)
+	username := models.NormaliseUsername(req.Username)
+	enrollment, err := s.Store.StartEnrollment(username, req.DeviceName, key)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -108,11 +109,12 @@ func (s *Server) handleEnrollRequest(c *gin.Context) {
 }
 
 type enrollCompleteRequest struct {
-	Username    string `json:"username"`
-	DeviceID    string `json:"device_id"`
-	Nonce       string `json:"nonce"`
-	Signature   string `json:"signature"`
-	Fingerprint string `json:"fingerprint"`
+	Username       string `json:"username"`
+	DeviceID       string `json:"device_id"`
+	Nonce          string `json:"nonce"`
+	Signature      string `json:"signature"`
+	AdminSignature string `json:"admin_signature"`
+	Fingerprint    string `json:"fingerprint"`
 }
 
 func (s *Server) handleEnrollComplete(c *gin.Context) {
@@ -121,17 +123,23 @@ func (s *Server) handleEnrollComplete(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
 		return
 	}
-	sig, err := base64.RawStdEncoding.DecodeString(req.Signature)
+	sig, err := decodeWebBase64(req.Signature)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_signature"})
 		return
 	}
-	device, err := s.Store.CompleteEnrollment(req.Username, req.DeviceID, req.Nonce, sig, req.Fingerprint)
+	adminSig, err := decodeWebBase64(req.AdminSignature)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_admin_signature"})
+		return
+	}
+	username := models.NormaliseUsername(req.Username)
+	device, err := s.Store.CompleteEnrollment(username, req.DeviceID, req.Nonce, sig, adminSig, req.Fingerprint, clientIP(c.Request))
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"device_id": device.ID, "fingerprint_sum": device.FingerprintSum})
+	c.JSON(http.StatusOK, gin.H{"device_id": device.ID, "fingerprint_sum": device.FingerprintSum, "bound_ip": device.BoundIP})
 }
 
 type nonceRequest struct {
@@ -144,6 +152,17 @@ type nonceResponse struct {
 	Nonce string `json:"nonce"`
 }
 
+func decodeWebBase64(value string) ([]byte, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil, errors.New("empty")
+	}
+	if decoded, err := base64.RawStdEncoding.DecodeString(trimmed); err == nil {
+		return decoded, nil
+	}
+	return base64.StdEncoding.DecodeString(trimmed)
+}
+
 func (s *Server) handleRequestNonce(c *gin.Context) {
 	var req nonceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -154,11 +173,12 @@ func (s *Server) handleRequestNonce(c *gin.Context) {
 	if deviceID == "" {
 		deviceID = req.SDID
 	}
-	if deviceID == "" || req.Username == "" {
+	if deviceID == "" {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
 		return
 	}
-	challenge, err := s.Store.RequestLoginNonce(req.Username, deviceID)
+	username := models.NormaliseUsername(req.Username)
+	challenge, err := s.Store.RequestLoginNonce(username, deviceID)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -175,11 +195,6 @@ type loginRequest struct {
 	Fingerprint string `json:"fingerprint"`
 }
 
-type loginPasswordRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
 func (s *Server) handleLogin(c *gin.Context) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -190,43 +205,22 @@ func (s *Server) handleLogin(c *gin.Context) {
 	if deviceID == "" {
 		deviceID = req.SDID
 	}
-	if deviceID == "" || req.Username == "" {
+	if deviceID == "" {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
 		return
 	}
-	sig, err := base64.RawStdEncoding.DecodeString(req.Signature)
+	sig, err := decodeWebBase64(req.Signature)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_signature"})
 		return
 	}
 	ip := clientIP(c.Request)
-	if _, err := s.Store.ValidateLogin(req.Username, deviceID, req.Nonce, sig, req.Fingerprint, ip); err != nil {
+	username := models.NormaliseUsername(req.Username)
+	if _, err := s.Store.ValidateLogin(username, deviceID, req.Nonce, sig, req.Fingerprint, ip); err != nil {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
-	session, err := s.Sessions.Issue(strings.ToLower(req.Username), deviceID)
-	if err != nil {
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "session_issue_failed"})
-		return
-	}
-	c.JSON(http.StatusOK, session)
-}
-
-func (s *Server) handleLoginPassword(c *gin.Context) {
-	var req loginPasswordRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
-		return
-	}
-	if req.Username == "" || req.Password == "" {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
-		return
-	}
-	if _, err := s.Store.AuthenticatePassword(req.Username, req.Password); err != nil {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-		return
-	}
-	session, err := s.Sessions.Issue(strings.ToLower(req.Username), "password")
+	session, err := s.Sessions.Issue(username, deviceID)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "session_issue_failed"})
 		return
@@ -240,11 +234,20 @@ func clientIP(r *http.Request) string {
 	}
 	if v := r.Header.Get("X-Forwarded-For"); v != "" {
 		parts := strings.Split(v, ",")
-		return strings.TrimSpace(parts[0])
+		candidate := strings.TrimSpace(parts[0])
+		if ip := net.ParseIP(candidate); ip != nil {
+			return ip.String()
+		}
 	}
-	host := r.RemoteAddr
-	if strings.Contains(host, ":") {
-		host, _, _ = strings.Cut(host, ":")
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		if ip := net.ParseIP(strings.TrimSpace(r.RemoteAddr)); ip != nil {
+			return ip.String()
+		}
+		return r.RemoteAddr
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.String()
 	}
 	return host
 }

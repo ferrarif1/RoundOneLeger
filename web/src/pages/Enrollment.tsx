@@ -6,12 +6,12 @@ import { ArrowPathIcon, FingerPrintIcon } from '@heroicons/react/24/outline';
 const encoder = new TextEncoder();
 
 const Enrollment = () => {
-  const [username, setUsername] = useState('');
   const [deviceName, setDeviceName] = useState('');
   const [step, setStep] = useState<'collect' | 'verify' | 'done'>('collect');
   const [nonce, setNonce] = useState('');
   const [fingerprint, setFingerprint] = useState('');
   const [deviceId, setDeviceId] = useState('');
+  const [adminSignature, setAdminSignature] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const exportPublicKey = async (): Promise<string> => {
@@ -33,7 +33,6 @@ const Enrollment = () => {
       setFingerprint(fp);
       const publicKey = await exportPublicKey();
       const { data } = await api.post('/auth/enroll-request', {
-        username,
         device_name: deviceName,
         public_key: publicKey
       });
@@ -50,6 +49,11 @@ const Enrollment = () => {
     event.preventDefault();
     try {
       setError(null);
+      const trimmedAdminSignature = adminSignature.trim();
+      if (!trimmedAdminSignature) {
+        setError('请粘贴管理员签名。');
+        return;
+      }
       if (!(window as any).ledgerPrivateKey) {
         throw new Error('缺少私钥');
       }
@@ -60,11 +64,11 @@ const Enrollment = () => {
       );
       const signatureB64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
       await api.post('/auth/enroll-complete', {
-        username,
         device_id: deviceId,
         nonce,
         fingerprint,
-        signature: signatureB64
+        signature: signatureB64,
+        admin_signature: trimmedAdminSignature
       });
       setStep('done');
     } catch (err) {
@@ -80,6 +84,7 @@ const Enrollment = () => {
           <div>
             <h1 className="text-2xl font-semibold text-night-50">设备注册</h1>
             <p className="text-sm text-night-200">采集浏览器指纹并绑定可信终端。</p>
+            <p className="mt-2 text-xs text-night-300">当前访问 IP 将自动写入设备绑定，如需变更请在新的固定地址重新注册。</p>
           </div>
           <div className="flex items-center gap-2 rounded-full border border-ink-200 bg-white px-4 py-2 text-xs text-night-300 shadow-sm">
             <FingerPrintIcon className="h-4 w-4 text-neon-500" />
@@ -91,17 +96,6 @@ const Enrollment = () => {
 
         {step === 'collect' && (
           <div className="space-y-6">
-            <div>
-              <label className="text-sm text-night-200">账号</label>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="mt-2 w-full rounded-2xl border border-ink-200 bg-white px-4 py-3 text-sm focus:border-neon-500 focus:ring-neon-500/40"
-                placeholder="admin"
-                required
-              />
-            </div>
             <div>
               <label className="text-sm text-night-200">设备名称</label>
               <input
@@ -128,6 +122,17 @@ const Enrollment = () => {
               <p className="break-all text-xs text-night-300">{deviceId}</p>
               <p className="mt-3 text-xs text-night-300">指纹哈希</p>
               <p className="break-all text-xs text-neon-500">{fingerprint}</p>
+            </div>
+            <div>
+              <label className="text-sm text-night-200">管理员批准签名</label>
+              <textarea
+                value={adminSignature}
+                onChange={(e) => setAdminSignature(e.target.value)}
+                className="mt-2 h-28 w-full rounded-2xl border border-ink-200 bg-white px-4 py-3 text-sm focus:border-neon-500 focus:ring-neon-500/40"
+                placeholder="请粘贴管理员使用私钥对设备 SDID 和公钥的签名（Base64）"
+                required
+              />
+              <p className="mt-2 text-xs text-night-300">签名内容需包含设备标识与公钥，后续登录将复核该签名。</p>
             </div>
             <button type="submit" className="button-primary w-full">
               使用本地私钥签名并完成注册

@@ -3,6 +3,7 @@ package models
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
 	"testing"
 )
 
@@ -47,12 +48,21 @@ func TestLedgerStoreEnrollmentAndLogin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
+	adminPub, adminPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate admin key: %v", err)
+	}
+	if err := store.SetAdminPublicKey(adminPub); err != nil {
+		t.Fatalf("set admin key: %v", err)
+	}
 	enrollment, err := store.StartEnrollment("alice", "Laptop", pub)
 	if err != nil {
 		t.Fatalf("start enrollment: %v", err)
 	}
 	sig := ed25519.Sign(priv, []byte(enrollment.Nonce))
-	if _, err := store.CompleteEnrollment("alice", enrollment.DeviceID, enrollment.Nonce, sig, "fingerprint-1"); err != nil {
+	adminMessage := store.adminApprovalMessage(enrollment.Username, enrollment.DeviceID, enrollment.PublicKey)
+	adminSig := ed25519.Sign(adminPriv, adminMessage)
+	if _, err := store.CompleteEnrollment("alice", enrollment.DeviceID, enrollment.Nonce, sig, adminSig, "fingerprint-1", "192.168.1.10"); err != nil {
 		t.Fatalf("complete enrollment: %v", err)
 	}
 	if _, err := store.AppendAllowlist(&IPAllowlistEntry{CIDR: "0.0.0.0/0", Label: "any"}, "system"); err != nil {
@@ -75,6 +85,15 @@ func TestLedgerStoreEnrollmentAndLogin(t *testing.T) {
 	loginSig2 := ed25519.Sign(priv, []byte(challenge2.Nonce))
 	if _, err := store.ValidateLogin("alice", enrollment.DeviceID, challenge2.Nonce, loginSig2, "fingerprint-bad", "192.168.1.10"); err == nil {
 		t.Fatalf("expected fingerprint mismatch error")
+	}
+
+	challenge3, err := store.RequestLoginNonce("alice", enrollment.DeviceID)
+	if err != nil {
+		t.Fatalf("request nonce 3: %v", err)
+	}
+	loginSig3 := ed25519.Sign(priv, []byte(challenge3.Nonce))
+	if _, err := store.ValidateLogin("alice", enrollment.DeviceID, challenge3.Nonce, loginSig3, "fingerprint-1", "192.168.1.11"); !errors.Is(err, ErrDeviceIPMismatch) {
+		t.Fatalf("expected device ip mismatch error, got %v", err)
 	}
 }
 

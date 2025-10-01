@@ -7,7 +7,7 @@ RoundOneLeger 是一套资产台账系统，用于集中管理 IP 地址、设�
 - **台账管理接口**：覆盖 IP、设备、人员与系统等实体，支持手动新增、修改、删除、排序以及标签元数据。
 - **Excel 导入导出流程**：能够自动规范表头、基于正则识别 IP 字段，并生成多表或笛卡尔积式的报表文件。
 - **撤销/重做历史**：记录所有变更操作，允许管理员在双向最多十步内撤销或重做。
-- **认证与白名单能力**：支持账号密码登录、SDID 设备登录、设备注册、随机数校验以及 IP 白名单限制。
+- **认证与白名单能力**：支持管理员签名的 SDID 设备注册与登录、随机数校验以及结合白名单的终端固定 IP 绑定。
 - **可验证的审计日志**：提供导出签名链和校验历史完整性的接口，保障日志不可篡改。
 
 ## 架构组成
@@ -32,8 +32,6 @@ RoundOneLeger 是一套资产台账系统，用于集中管理 IP 地址、设�
    make run
    ```
    健康检查地址 `http://localhost:8080/health` 会返回 `{"status":"ok"}`。
-   默认的管理员账号为 `admin`，密码为 `admin123456`，可通过环境变量 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 覆盖。
-
 4. 运行测试：
    ```bash
    make test
@@ -57,6 +55,12 @@ docker-compose up --build
 ```
 该命令会启动 Postgres 与后端容器。运行前可根据需要修改 `docker-compose.yml` 中的环境变量。
 
+### 认证
+- 通过 `ADMIN_SIGNING_PUBLIC_KEY` 配置管理员签名公钥（Base64 编码的 Ed25519 公钥），未设置时服务将拒绝启动。
+- 注册流程会提交设备公钥与 SDID；管理员需使用对应私钥对字符串 `<username>:<device_id>:<public_key_base64>` 进行签名。若未提供 `username` 字段则默认使用 `admin`。
+- 该签名会随设备一同存储，并在每次登录时与设备签名、浏览器指纹哈希及固定 IP 白名单一并校验。
+- 所有 `/auth/*` 接口的 `username` 字段均可留空，后端会自动回退到管理员账号以适配仅依赖 SDID 的环境。
+
 ## 目录结构
 ```
 .
@@ -64,9 +68,8 @@ docker-compose up --build
 ├── internal/api          # HTTP 处理器与路由注册
 ├── internal/auth         # 注册、随机数与签名验证辅助
 ├── internal/db           # 数据库配置与连接工具
-├── internal/ledger       # 带历史与标签能力的内存台账
 ├── internal/middleware   # Gin 中间件（如 IP 白名单）
-├── internal/models       # 数据模型定义
+├── internal/models       # 数据模型与内存存储实现
 ├── internal/xlsx         # Excel 读写工具
 ├── migrations            # 数据库迁移文件（请自行补充）
 ├── openapi.yaml          # OpenAPI v3 规范

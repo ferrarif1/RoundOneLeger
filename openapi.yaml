@@ -146,12 +146,12 @@ components:
     EnrollmentRequest:
       type: object
       required:
-        - username
         - device_name
         - public_key
       properties:
         username:
           type: string
+          description: Optional operator account; defaults to the administrator when omitted
         device_name:
           type: string
         public_key:
@@ -167,14 +167,15 @@ components:
     EnrollmentCompleteRequest:
       type: object
       required:
-        - username
         - device_id
         - nonce
         - signature
+        - admin_signature
         - fingerprint
       properties:
         username:
           type: string
+          description: Optional operator account; defaults to the administrator when omitted
         device_id:
           type: string
         nonce:
@@ -182,16 +183,18 @@ components:
         signature:
           type: string
           description: Base64 signature of the nonce
+        admin_signature:
+          type: string
+          description: Administrator-signed approval for the device public key (Base64)
         fingerprint:
           type: string
           description: Client fingerprint payload
     NonceRequest:
       type: object
-      required:
-        - username
       properties:
         username:
           type: string
+          description: Optional operator account; defaults to the administrator when omitted
         device_id:
           type: string
         sdid:
@@ -205,13 +208,13 @@ components:
     LoginRequest:
       type: object
       required:
-        - username
         - nonce
         - signature
         - fingerprint
       properties:
         username:
           type: string
+          description: Optional operator account; defaults to the administrator when omitted
         device_id:
           type: string
         sdid:
@@ -223,17 +226,6 @@ components:
           type: string
         fingerprint:
           type: string
-    LoginPasswordRequest:
-      type: object
-      required:
-        - username
-        - password
-      properties:
-        username:
-          type: string
-        password:
-          type: string
-          format: password
     HistoryStatus:
       type: object
       properties:
@@ -289,6 +281,9 @@ paths:
                     type: string
                   fingerprint_sum:
                     type: string
+                  bound_ip:
+                    type: string
+                    description: Canonical IP captured during enrollment for SDID binding
   /auth/request-nonce:
     post:
       summary: Request login nonce
@@ -314,22 +309,6 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/LoginRequest'
-      responses:
-        '200':
-          description: Session issued
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Session'
-  /auth/login-password:
-    post:
-      summary: Authenticate using username and password
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/LoginPasswordRequest'
       responses:
         '200':
           description: Session issued

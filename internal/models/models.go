@@ -1,6 +1,21 @@
 package models
 
-import "time"
+import (
+	"strings"
+	"time"
+)
+
+// DefaultUsername is used when no explicit operator account is supplied.
+const DefaultUsername = "admin"
+
+// NormaliseUsername lowercases and defaults empty usernames to the administrator account.
+func NormaliseUsername(username string) string {
+	trimmed := strings.TrimSpace(username)
+	if trimmed == "" {
+		return DefaultUsername
+	}
+	return strings.ToLower(trimmed)
+}
 
 // LedgerType represents the category of a ledger entry.
 type LedgerType string
@@ -86,6 +101,8 @@ type UserDevice struct {
 	Name           string    `json:"name"`
 	PublicKey      []byte    `json:"-"`
 	FingerprintSum string    `json:"fingerprint_sum"`
+	BoundIP        string    `json:"bound_ip,omitempty"`
+	AdminSignature string    `json:"admin_signature,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 }
