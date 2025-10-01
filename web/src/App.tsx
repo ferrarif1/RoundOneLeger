@@ -4,7 +4,6 @@ import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
 import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
-import Enrollment from './pages/Enrollment';
 import Assets from './pages/Assets';
 import Devices from './pages/Devices';
 import IPAllowlist from './pages/IPAllowlist';
@@ -28,7 +27,6 @@ const App = () => {
           <AnimatePresence mode="wait">
             <Routes>
               <Route path="/login" element={<Login />} />
-              <Route path="/enroll" element={<Enrollment />} />
               <Route
                 path="/dashboard"
                 element={

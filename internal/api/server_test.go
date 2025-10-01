@@ -28,7 +28,7 @@ func TestParseLedgerSheetDetectsIP(t *testing.T) {
 }
 
 func TestBuildCartesianRows(t *testing.T) {
-	store := models.NewLedgerStore([]byte("secret"))
+	store := models.NewLedgerStore()
 	ip, err := store.CreateEntry(models.LedgerTypeIP, models.LedgerEntry{Name: "Gateway IP"}, "tester")
 	if err != nil {
 		t.Fatalf("create ip: %v", err)
