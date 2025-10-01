@@ -70,39 +70,9 @@ type AuditLogEntry struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// User represents an authenticated operator of the system.
-type User struct {
-	Username  string                 `json:"username"`
-	Devices   map[string]*UserDevice `json:"devices"`
-	Roles     []string               `json:"roles"`
-	CreatedAt time.Time              `json:"created_at"`
-	UpdatedAt time.Time              `json:"updated_at"`
-}
-
-// UserDevice represents a registered device bound to a user.
-type UserDevice struct {
-	ID             string    `json:"id"`
-	Name           string    `json:"name"`
-	PublicKey      []byte    `json:"-"`
-	FingerprintSum string    `json:"fingerprint_sum"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
-}
-
-// Enrollment describes an in-flight enrollment challenge.
-type Enrollment struct {
-	Username   string
-	DeviceID   string
-	DeviceName string
-	Nonce      string
-	PublicKey  []byte
-	CreatedAt  time.Time
-}
-
-// LoginChallenge stores a nonce waiting to be signed by a device.
+// LoginChallenge stores a nonce waiting to be signed by an SDID wallet.
 type LoginChallenge struct {
-	Username  string
-	DeviceID  string
-	Nonce     string
-	CreatedAt time.Time
+	Nonce     string    `json:"nonce"`
+	Message   string    `json:"message"`
+	CreatedAt time.Time `json:"created_at"`
 }

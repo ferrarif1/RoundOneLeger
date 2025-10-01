@@ -1,13 +1,12 @@
 package models
 
 import (
-	"crypto/ed25519"
-	"crypto/rand"
+	"errors"
 	"testing"
 )
 
 func TestLedgerStoreUndoRedo(t *testing.T) {
-	store := NewLedgerStore([]byte("secret"))
+	store := NewLedgerStore()
 
 	if store.CanUndo() {
 		t.Fatalf("expected no undo available initially")
@@ -40,40 +39,23 @@ func TestLedgerStoreUndoRedo(t *testing.T) {
 	}
 }
 
-func TestLedgerStoreEnrollmentAndLogin(t *testing.T) {
-	store := NewLedgerStore([]byte("secret"))
-
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+func TestLedgerStoreLoginChallengeLifecycle(t *testing.T) {
+	store := NewLedgerStore()
+	challenge := store.CreateLoginChallenge()
+	if challenge.Nonce == "" {
+		t.Fatalf("expected nonce to be generated")
+	}
+	if challenge.Message == "" {
+		t.Fatalf("expected message to be populated")
+	}
+	consumed, err := store.ConsumeLoginChallenge(challenge.Nonce)
 	if err != nil {
-		t.Fatalf("generate key: %v", err)
+		t.Fatalf("consume challenge: %v", err)
 	}
-	enrollment, err := store.StartEnrollment("alice", "Laptop", pub)
-	if err != nil {
-		t.Fatalf("start enrollment: %v", err)
+	if consumed.Nonce != challenge.Nonce {
+		t.Fatalf("expected consumed nonce to match original")
 	}
-	sig := ed25519.Sign(priv, []byte(enrollment.Nonce))
-	if _, err := store.CompleteEnrollment("alice", enrollment.DeviceID, enrollment.Nonce, sig, "fingerprint-1"); err != nil {
-		t.Fatalf("complete enrollment: %v", err)
-	}
-	if _, err := store.AppendAllowlist(&IPAllowlistEntry{CIDR: "0.0.0.0/0", Label: "any"}, "system"); err != nil {
-		t.Fatalf("allowlist: %v", err)
-	}
-
-	challenge, err := store.RequestLoginNonce("alice", enrollment.DeviceID)
-	if err != nil {
-		t.Fatalf("request nonce: %v", err)
-	}
-	loginSig := ed25519.Sign(priv, []byte(challenge.Nonce))
-	if _, err := store.ValidateLogin("alice", enrollment.DeviceID, challenge.Nonce, loginSig, "fingerprint-1", "192.168.1.10"); err != nil {
-		t.Fatalf("validate login: %v", err)
-	}
-
-	challenge2, err := store.RequestLoginNonce("alice", enrollment.DeviceID)
-	if err != nil {
-		t.Fatalf("request nonce 2: %v", err)
-	}
-	loginSig2 := ed25519.Sign(priv, []byte(challenge2.Nonce))
-	if _, err := store.ValidateLogin("alice", enrollment.DeviceID, challenge2.Nonce, loginSig2, "fingerprint-bad", "192.168.1.10"); err == nil {
-		t.Fatalf("expected fingerprint mismatch error")
+	if _, err := store.ConsumeLoginChallenge(challenge.Nonce); !errors.Is(err, ErrLoginChallengeNotFound) {
+		t.Fatalf("expected challenge to be single-use, got %v", err)
 	}
 }

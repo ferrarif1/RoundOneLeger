@@ -1,7 +1,18 @@
 import axios from 'axios';
 
+const resolveBaseURL = (): string | undefined => {
+  const explicit = import.meta.env.VITE_API_URL;
+  if (explicit && explicit.trim()) {
+    return explicit.trim();
+  }
+  if (typeof window !== 'undefined') {
+    return window.location.origin;
+  }
+  return undefined;
+};
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8080',
+  baseURL: resolveBaseURL(),
   withCredentials: true
 });
 
