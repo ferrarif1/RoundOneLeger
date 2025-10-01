@@ -146,12 +146,12 @@ components:
     EnrollmentRequest:
       type: object
       required:
-        - username
         - device_name
         - public_key
       properties:
         username:
           type: string
+          description: Optional operator account; defaults to the administrator when omitted
         device_name:
           type: string
         public_key:
@@ -167,14 +167,15 @@ components:
     EnrollmentCompleteRequest:
       type: object
       required:
-        - username
         - device_id
         - nonce
         - signature
+        - admin_signature
         - fingerprint
       properties:
         username:
           type: string
+          description: Optional operator account; defaults to the administrator when omitted
         device_id:
           type: string
         nonce:
@@ -182,19 +183,23 @@ components:
         signature:
           type: string
           description: Base64 signature of the nonce
+        admin_signature:
+          type: string
+          description: Administrator-signed approval for the device public key (Base64)
         fingerprint:
           type: string
           description: Client fingerprint payload
     NonceRequest:
       type: object
-      required:
-        - username
-        - device_id
       properties:
         username:
           type: string
+          description: Optional operator account; defaults to the administrator when omitted
         device_id:
           type: string
+        sdid:
+          type: string
+          description: Alternative identifier for the enrolled device
     NonceResponse:
       type: object
       properties:
@@ -203,16 +208,18 @@ components:
     LoginRequest:
       type: object
       required:
-        - username
-        - device_id
         - nonce
         - signature
         - fingerprint
       properties:
         username:
           type: string
+          description: Optional operator account; defaults to the administrator when omitted
         device_id:
           type: string
+        sdid:
+          type: string
+          description: Alias for device_id when using SDID 登录
         nonce:
           type: string
         signature:
@@ -274,6 +281,9 @@ paths:
                     type: string
                   fingerprint_sum:
                     type: string
+                  bound_ip:
+                    type: string
+                    description: Canonical IP captured during enrollment for SDID binding
   /auth/request-nonce:
     post:
       summary: Request login nonce
