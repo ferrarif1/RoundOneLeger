@@ -47,6 +47,26 @@ func (e *Engine) GET(path string, handler HandlerFunc) {
 	e.addRoute(http.MethodGet, path, handler)
 }
 
+func (e *Engine) POST(path string, handler HandlerFunc) {
+	e.addRoute(http.MethodPost, path, handler)
+}
+
+func (e *Engine) PUT(path string, handler HandlerFunc) {
+	e.addRoute(http.MethodPut, path, handler)
+}
+
+func (e *Engine) DELETE(path string, handler HandlerFunc) {
+	e.addRoute(http.MethodDelete, path, handler)
+}
+
+func (e *Engine) PATCH(path string, handler HandlerFunc) {
+	e.addRoute(http.MethodPatch, path, handler)
+}
+
+func (e *Engine) OPTIONS(path string, handler HandlerFunc) {
+	e.addRoute(http.MethodOptions, path, handler)
+}
+
 func (c *Context) JSON(code int, obj any) {
 	c.Writer.Header().Set("Content-Type", "application/json")
 	c.Writer.WriteHeader(code)
