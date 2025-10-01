@@ -1,48 +1,140 @@
-import { FormEvent, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../api/client';
-import { fingerprintHash } from '../utils/fingerprint';
 import { useSession } from '../hooks/useSession';
 import { LockClosedIcon } from '@heroicons/react/24/outline';
 
-const encoder = new TextEncoder();
+type SdidWallet = {
+  requestAccount: () => Promise<{ sdid: string; publicKey: string } | { account: { sdid: string; publicKey: string } } | { sdid: string; publicKey: string }[]>;
+  signMessage: (message: string) => Promise<{ signature: string; sdid?: string; publicKey?: string } | string>;
+};
+
+const pickAccount = (value: any): { sdid: string; publicKey: string } | null => {
+  if (!value) {
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    return pickAccount(value[0]);
+  }
+
+  if (typeof value === 'object') {
+    const sdidValue = typeof value.sdid === 'string' ? value.sdid : typeof value.did === 'string' ? value.did : undefined;
+    const pubKeyValue =
+      typeof value.publicKey === 'string'
+        ? value.publicKey
+        : typeof value.pubKey === 'string'
+        ? value.pubKey
+        : typeof value.public_key === 'string'
+        ? value.public_key
+        : undefined;
+
+    if (sdidValue && pubKeyValue) {
+      return { sdid: sdidValue, publicKey: pubKeyValue };
+    }
+
+    if (value.account) {
+      return pickAccount(value.account);
+    }
+  }
+
+  return null;
+};
+
+const normalizeSignature = (value: any): { signature: string; sdid?: string; publicKey?: string } | null => {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value === 'string') {
+    return { signature: value };
+  }
+
+  const signatureValue =
+    typeof value.signature === 'string'
+      ? value.signature
+      : typeof value.sig === 'string'
+      ? value.sig
+      : typeof value.signedMessage === 'string'
+      ? value.signedMessage
+      : undefined;
+
+  if (signatureValue) {
+    return {
+      signature: signatureValue,
+      sdid: value.sdid,
+      publicKey: value.publicKey
+    };
+  }
+
+  if (value.result) {
+    return normalizeSignature(value.result);
+  }
+
+  if (value.data) {
+    return normalizeSignature(value.data);
+  }
+
+  return null;
+};
+
+const getWallet = (): SdidWallet => {
+  const anyWindow = window as any;
+  const wallet: SdidWallet | undefined = anyWindow.sdid?.wallet || anyWindow.sdid || anyWindow.SDID?.wallet || anyWindow.SDID;
+
+  if (!wallet || typeof wallet.requestAccount !== 'function' || typeof wallet.signMessage !== 'function') {
+    throw new Error('未检测到 SDID 浏览器插件，请安装或启用扩展。');
+  }
+
+  return wallet;
+};
 
 const Login = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [email, setEmail] = useState('');
   const navigate = useNavigate();
   const { setToken } = useSession();
 
-  const handleSubmit = async (event: FormEvent) => {
-    event.preventDefault();
+  const handleSdidLogin = async () => {
+    if (loading) {
+      return;
+    }
     setLoading(true);
-    setError(null);
 
     try {
-      const { data: nonceResp } = await api.post('/auth/request-nonce', { email });
-      const fp = await fingerprintHash();
-      if (!(window as any).ledgerPrivateKey) {
-        throw new Error('缺少私钥');
+      const wallet = getWallet();
+      const [{ data: nonceResp }, accountResult] = await Promise.all([
+        api.post('/auth/request-nonce'),
+        wallet.requestAccount()
+      ]);
+      const account = pickAccount(accountResult);
+      if (!account) {
+        throw new Error('无法获取 SDID 账号信息，请确认插件已登录。');
       }
-      const signature = await window.crypto.subtle.sign(
-        { name: 'NODE-ED25519' } as AlgorithmIdentifier,
-        (window as any).ledgerPrivateKey,
-        encoder.encode(nonceResp.nonce + fp)
-      );
-      const signatureB64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
 
+      const message = nonceResp.message || nonceResp.nonce;
+      const signaturePayload = await wallet.signMessage(message);
+      const signatureResult = normalizeSignature(signaturePayload);
+      const sdid = signatureResult?.sdid || account.sdid;
+      const publicKey = signatureResult?.publicKey || account.publicKey;
+      const signature = signatureResult?.signature;
+      if (!sdid || !publicKey || !signature) {
+        throw new Error('SDID 插件未返回完整的账号或签名信息。');
+      }
       const { data } = await api.post('/auth/login', {
-        email,
-        fingerprint: fp,
-        signature: signatureB64
+        sdid,
+        nonce: nonceResp.nonce,
+        signature,
+        public_key: publicKey
       });
 
       setToken(data.token);
       navigate('/dashboard');
     } catch (err) {
       console.error(err);
-      setError('认证失败，请确认指纹和私钥签名。');
+      setError(
+        err instanceof Error ? err.message : 'SDID 登录失败，请确认插件已开启并在受信任网络中访问。'
+      );
     } finally {
       setLoading(false);
     }
@@ -57,32 +149,19 @@ const Login = () => {
           </div>
           <div>
             <h1 className="text-2xl font-semibold text-night-50">登录控制台</h1>
-            <p className="text-sm text-night-200">延续样例中柔和的卡片式质感与留白</p>
+            <p className="text-sm text-night-200">使用 SDID 钱包进行一键验证，无需注册，身份管理由 SDID 负责。</p>
           </div>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div>
-            <label className="text-sm text-night-200">邮箱</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="mt-2 w-full rounded-2xl border border-night-600 bg-night-900 px-4 py-3 text-sm focus:border-neon-500 focus:ring-neon-500/40"
-              placeholder="admin@ledger"
-              required
-            />
+
+        <div className="space-y-5">
+          <div className="rounded-2xl bg-night-900/30 px-4 py-3 text-xs text-night-200">
+            点击下方按钮后，浏览器会请求 SDID 插件获取账号并对一次性登录消息进行签名。
           </div>
           {error && <p className="rounded-2xl bg-red-100 px-4 py-3 text-sm text-red-500">{error}</p>}
-          <button type="submit" className="button-primary w-full" disabled={loading}>
-            {loading ? '登录中...' : '登录'}
+          <button type="button" className="button-primary w-full" onClick={handleSdidLogin} disabled={loading}>
+            {loading ? '签名验证中...' : '使用 SDID 一键登录'}
           </button>
-        </form>
-        <p className="text-xs text-night-300">
-          第一次访问？
-          <Link className="ml-2 text-neon-500" to="/enroll">
-            立即注册设备
-          </Link>
-        </p>
+        </div>
       </div>
     </div>
   );
