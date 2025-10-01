@@ -325,6 +325,18 @@ func (s *LedgerStore) CanRedo() bool {
 	return s.history.CanRedo()
 }
 
+// HistoryDepth returns the counts of undo and redo steps currently available.
+func (s *LedgerStore) HistoryDepth() (int, int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	undo := 0
+	if len(s.history.states) > 0 {
+		undo = len(s.history.states) - 1
+	}
+	redo := len(s.history.future)
+	return undo, redo
+}
+
 func cloneSnapshot(snapshot storeSnapshot) map[LedgerType][]LedgerEntry {
 	cloned := make(map[LedgerType][]LedgerEntry, len(snapshot.entries))
 	for typ, items := range snapshot.entries {
