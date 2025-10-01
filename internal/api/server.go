@@ -34,6 +34,7 @@ func (s *Server) RegisterRoutes(router *gin.Engine) {
 		authGroup.POST("/enroll-request", s.handleEnrollRequest)
 		authGroup.POST("/enroll-complete", s.handleEnrollComplete)
 		authGroup.POST("/request-nonce", s.handleRequestNonce)
+		authGroup.POST("/login-password", s.handleLoginPassword)
 		authGroup.POST("/login", s.handleLogin)
 	}
 
@@ -136,6 +137,7 @@ func (s *Server) handleEnrollComplete(c *gin.Context) {
 type nonceRequest struct {
 	Username string `json:"username"`
 	DeviceID string `json:"device_id"`
+	SDID     string `json:"sdid"`
 }
 
 type nonceResponse struct {
@@ -148,7 +150,15 @@ func (s *Server) handleRequestNonce(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
 		return
 	}
-	challenge, err := s.Store.RequestLoginNonce(req.Username, req.DeviceID)
+	deviceID := req.DeviceID
+	if deviceID == "" {
+		deviceID = req.SDID
+	}
+	if deviceID == "" || req.Username == "" {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+		return
+	}
+	challenge, err := s.Store.RequestLoginNonce(req.Username, deviceID)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -159,14 +169,28 @@ func (s *Server) handleRequestNonce(c *gin.Context) {
 type loginRequest struct {
 	Username    string `json:"username"`
 	DeviceID    string `json:"device_id"`
+	SDID        string `json:"sdid"`
 	Nonce       string `json:"nonce"`
 	Signature   string `json:"signature"`
 	Fingerprint string `json:"fingerprint"`
 }
 
+type loginPasswordRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
 func (s *Server) handleLogin(c *gin.Context) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+		return
+	}
+	deviceID := req.DeviceID
+	if deviceID == "" {
+		deviceID = req.SDID
+	}
+	if deviceID == "" || req.Username == "" {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
 		return
 	}
@@ -176,11 +200,33 @@ func (s *Server) handleLogin(c *gin.Context) {
 		return
 	}
 	ip := clientIP(c.Request)
-	if _, err := s.Store.ValidateLogin(req.Username, req.DeviceID, req.Nonce, sig, req.Fingerprint, ip); err != nil {
+	if _, err := s.Store.ValidateLogin(req.Username, deviceID, req.Nonce, sig, req.Fingerprint, ip); err != nil {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
-	session, err := s.Sessions.Issue(strings.ToLower(req.Username), req.DeviceID)
+	session, err := s.Sessions.Issue(strings.ToLower(req.Username), deviceID)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "session_issue_failed"})
+		return
+	}
+	c.JSON(http.StatusOK, session)
+}
+
+func (s *Server) handleLoginPassword(c *gin.Context) {
+	var req loginPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+		return
+	}
+	if req.Username == "" || req.Password == "" {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+		return
+	}
+	if _, err := s.Store.AuthenticatePassword(req.Username, req.Password); err != nil {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+	session, err := s.Sessions.Issue(strings.ToLower(req.Username), "password")
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "session_issue_failed"})
 		return

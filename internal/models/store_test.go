@@ -77,3 +77,19 @@ func TestLedgerStoreEnrollmentAndLogin(t *testing.T) {
 		t.Fatalf("expected fingerprint mismatch error")
 	}
 }
+
+func TestLedgerStoreAuthenticatePassword(t *testing.T) {
+	store := NewLedgerStore([]byte("secret"))
+	if err := store.SetPassword("Admin", "p@ssword"); err != nil {
+		t.Fatalf("set password: %v", err)
+	}
+	if _, err := store.AuthenticatePassword("admin", "p@ssword"); err != nil {
+		t.Fatalf("authenticate: %v", err)
+	}
+	if _, err := store.AuthenticatePassword("admin", "wrong"); err == nil {
+		t.Fatalf("expected invalid credentials for wrong password")
+	}
+	if _, err := store.AuthenticatePassword("missing", "p@ssword"); err == nil {
+		t.Fatalf("expected invalid credentials for unknown user")
+	}
+}

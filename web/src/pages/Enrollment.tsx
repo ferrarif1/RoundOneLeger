@@ -6,23 +6,43 @@ import { ArrowPathIcon, FingerPrintIcon } from '@heroicons/react/24/outline';
 const encoder = new TextEncoder();
 
 const Enrollment = () => {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
+  const [deviceName, setDeviceName] = useState('');
   const [step, setStep] = useState<'collect' | 'verify' | 'done'>('collect');
   const [nonce, setNonce] = useState('');
   const [fingerprint, setFingerprint] = useState('');
+  const [deviceId, setDeviceId] = useState('');
   const [error, setError] = useState<string | null>(null);
+
+  const exportPublicKey = async (): Promise<string> => {
+    const anyWindow = window as any;
+    const key: CryptoKey | undefined = anyWindow.ledgerPublicKey || anyWindow.ledgerKeyPair?.publicKey;
+    if (!key) {
+      throw new Error('缺少公钥');
+    }
+    const raw = await window.crypto.subtle.exportKey('raw', key);
+    const bytes = new Uint8Array(raw);
+    const base64 = btoa(String.fromCharCode(...bytes));
+    return base64.replace(/=+$/g, '');
+  };
 
   const handleCollect = async () => {
     try {
       setError(null);
       const fp = await fingerprintHash();
       setFingerprint(fp);
-      const { data } = await api.post('/auth/enroll-request', { email, fingerprint: fp });
+      const publicKey = await exportPublicKey();
+      const { data } = await api.post('/auth/enroll-request', {
+        username,
+        device_name: deviceName,
+        public_key: publicKey
+      });
       setNonce(data.nonce);
+      setDeviceId(data.device_id);
       setStep('verify');
     } catch (err) {
       console.error(err);
-      setError('无法生成指纹或请求注册，请稍后重试。');
+      setError('无法生成公钥或请求注册，请稍后重试。');
     }
   };
 
@@ -40,7 +60,9 @@ const Enrollment = () => {
       );
       const signatureB64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
       await api.post('/auth/enroll-complete', {
-        email,
+        username,
+        device_id: deviceId,
+        nonce,
         fingerprint,
         signature: signatureB64
       });
@@ -70,13 +92,24 @@ const Enrollment = () => {
         {step === 'collect' && (
           <div className="space-y-6">
             <div>
-              <label className="text-sm text-night-200">邮箱</label>
+              <label className="text-sm text-night-200">账号</label>
               <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 className="mt-2 w-full rounded-2xl border border-ink-200 bg-white px-4 py-3 text-sm focus:border-neon-500 focus:ring-neon-500/40"
-                placeholder="admin@ledger"
+                placeholder="admin"
+                required
+              />
+            </div>
+            <div>
+              <label className="text-sm text-night-200">设备名称</label>
+              <input
+                type="text"
+                value={deviceName}
+                onChange={(e) => setDeviceName(e.target.value)}
+                className="mt-2 w-full rounded-2xl border border-ink-200 bg-white px-4 py-3 text-sm focus:border-neon-500 focus:ring-neon-500/40"
+                placeholder="例如：办公终端"
                 required
               />
             </div>
@@ -91,6 +124,8 @@ const Enrollment = () => {
             <div className="rounded-2xl border border-ink-200 bg-white p-5 text-sm text-night-200 shadow-sm">
               <p className="font-medium text-night-100">签名挑战</p>
               <p className="mt-2 break-all text-xs text-night-300">{nonce}</p>
+              <p className="mt-3 text-xs text-night-300">设备 SDID</p>
+              <p className="break-all text-xs text-night-300">{deviceId}</p>
               <p className="mt-3 text-xs text-night-300">指纹哈希</p>
               <p className="break-all text-xs text-neon-500">{fingerprint}</p>
             </div>

@@ -189,12 +189,14 @@ components:
       type: object
       required:
         - username
-        - device_id
       properties:
         username:
           type: string
         device_id:
           type: string
+        sdid:
+          type: string
+          description: Alternative identifier for the enrolled device
     NonceResponse:
       type: object
       properties:
@@ -204,7 +206,6 @@ components:
       type: object
       required:
         - username
-        - device_id
         - nonce
         - signature
         - fingerprint
@@ -213,12 +214,26 @@ components:
           type: string
         device_id:
           type: string
+        sdid:
+          type: string
+          description: Alias for device_id when using SDID 登录
         nonce:
           type: string
         signature:
           type: string
         fingerprint:
           type: string
+    LoginPasswordRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          format: password
     HistoryStatus:
       type: object
       properties:
@@ -299,6 +314,22 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Session issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+  /auth/login-password:
+    post:
+      summary: Authenticate using username and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginPasswordRequest'
       responses:
         '200':
           description: Session issued
