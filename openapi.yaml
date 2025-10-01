@@ -143,89 +143,32 @@ components:
         expires_at:
           type: string
           format: date-time
-    EnrollmentRequest:
-      type: object
-      required:
-        - device_name
-        - public_key
-      properties:
-        username:
-          type: string
-          description: Optional operator account; defaults to the administrator when omitted
-        device_name:
-          type: string
-        public_key:
-          type: string
-          description: Base64-encoded Ed25519 public key
-    EnrollmentResponse:
-      type: object
-      properties:
-        device_id:
-          type: string
-        nonce:
-          type: string
-    EnrollmentCompleteRequest:
-      type: object
-      required:
-        - device_id
-        - nonce
-        - signature
-        - admin_signature
-        - fingerprint
-      properties:
-        username:
-          type: string
-          description: Optional operator account; defaults to the administrator when omitted
-        device_id:
-          type: string
-        nonce:
-          type: string
-        signature:
-          type: string
-          description: Base64 signature of the nonce
-        admin_signature:
-          type: string
-          description: Administrator-signed approval for the device public key (Base64)
-        fingerprint:
-          type: string
-          description: Client fingerprint payload
-    NonceRequest:
-      type: object
-      properties:
-        username:
-          type: string
-          description: Optional operator account; defaults to the administrator when omitted
-        device_id:
-          type: string
-        sdid:
-          type: string
-          description: Alternative identifier for the enrolled device
     NonceResponse:
       type: object
       properties:
         nonce:
           type: string
+        message:
+          type: string
+          description: Human-readable message that must be signed by the SDID wallet
     LoginRequest:
       type: object
       required:
+        - sdid
         - nonce
         - signature
-        - fingerprint
+        - public_key
       properties:
-        username:
-          type: string
-          description: Optional operator account; defaults to the administrator when omitted
-        device_id:
-          type: string
         sdid:
           type: string
-          description: Alias for device_id when using SDID 登录
+          description: Identifier reported by the SDID wallet
         nonce:
           type: string
         signature:
           type: string
-        fingerprint:
+        public_key:
           type: string
+          description: Base64-encoded Ed25519 public key supplied by the SDID wallet
     HistoryStatus:
       type: object
       properties:
@@ -244,55 +187,9 @@ paths:
             application/json:
               schema:
                 type: object
-  /auth/enroll-request:
-    post:
-      summary: Initiate device enrollment
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/EnrollmentRequest'
-      responses:
-        '200':
-          description: Enrollment nonce issued
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EnrollmentResponse'
-  /auth/enroll-complete:
-    post:
-      summary: Complete device enrollment
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/EnrollmentCompleteRequest'
-      responses:
-        '200':
-          description: Device enrolled
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  device_id:
-                    type: string
-                  fingerprint_sum:
-                    type: string
-                  bound_ip:
-                    type: string
-                    description: Canonical IP captured during enrollment for SDID binding
   /auth/request-nonce:
     post:
       summary: Request login nonce
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/NonceRequest'
       responses:
         '200':
           description: Nonce issued

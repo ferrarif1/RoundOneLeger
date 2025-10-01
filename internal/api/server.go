@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/ed25519"
 	"encoding/base64"
 	"errors"
 	"net"
@@ -32,8 +33,6 @@ func (s *Server) RegisterRoutes(router *gin.Engine) {
 
 	authGroup := router.Group("/auth")
 	{
-		authGroup.POST("/enroll-request", s.handleEnrollRequest)
-		authGroup.POST("/enroll-complete", s.handleEnrollComplete)
 		authGroup.POST("/request-nonce", s.handleRequestNonce)
 		authGroup.POST("/login", s.handleLogin)
 	}
@@ -77,79 +76,9 @@ func (s *Server) handleHealth(c *gin.Context) {
 	c.JSON(http.StatusOK, payload)
 }
 
-type enrollRequest struct {
-	Username   string `json:"username"`
-	DeviceName string `json:"device_name"`
-	PublicKey  string `json:"public_key"`
-}
-
-type enrollResponse struct {
-	DeviceID string `json:"device_id"`
-	Nonce    string `json:"nonce"`
-}
-
-func (s *Server) handleEnrollRequest(c *gin.Context) {
-	var req enrollRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
-		return
-	}
-	key, err := decodeWebBase64(req.PublicKey)
-	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_public_key"})
-		return
-	}
-	username := models.NormaliseUsername(req.Username)
-	enrollment, err := s.Store.StartEnrollment(username, req.DeviceName, key)
-	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, enrollResponse{DeviceID: enrollment.DeviceID, Nonce: enrollment.Nonce})
-}
-
-type enrollCompleteRequest struct {
-	Username       string `json:"username"`
-	DeviceID       string `json:"device_id"`
-	Nonce          string `json:"nonce"`
-	Signature      string `json:"signature"`
-	AdminSignature string `json:"admin_signature"`
-	Fingerprint    string `json:"fingerprint"`
-}
-
-func (s *Server) handleEnrollComplete(c *gin.Context) {
-	var req enrollCompleteRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
-		return
-	}
-	sig, err := decodeWebBase64(req.Signature)
-	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_signature"})
-		return
-	}
-	adminSig, err := decodeWebBase64(req.AdminSignature)
-	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_admin_signature"})
-		return
-	}
-	username := models.NormaliseUsername(req.Username)
-	device, err := s.Store.CompleteEnrollment(username, req.DeviceID, req.Nonce, sig, adminSig, req.Fingerprint, clientIP(c.Request))
-	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"device_id": device.ID, "fingerprint_sum": device.FingerprintSum, "bound_ip": device.BoundIP})
-}
-
-type nonceRequest struct {
-	Username string `json:"username"`
-	DeviceID string `json:"device_id"`
-	SDID     string `json:"sdid"`
-}
-
 type nonceResponse struct {
-	Nonce string `json:"nonce"`
+	Nonce   string `json:"nonce"`
+	Message string `json:"message"`
 }
 
 func decodeWebBase64(value string) ([]byte, error) {
@@ -164,35 +93,15 @@ func decodeWebBase64(value string) ([]byte, error) {
 }
 
 func (s *Server) handleRequestNonce(c *gin.Context) {
-	var req nonceRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
-		return
-	}
-	deviceID := req.DeviceID
-	if deviceID == "" {
-		deviceID = req.SDID
-	}
-	if deviceID == "" {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
-		return
-	}
-	username := models.NormaliseUsername(req.Username)
-	challenge, err := s.Store.RequestLoginNonce(username, deviceID)
-	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, nonceResponse{Nonce: challenge.Nonce})
+	challenge := s.Store.CreateLoginChallenge()
+	c.JSON(http.StatusOK, nonceResponse{Nonce: challenge.Nonce, Message: challenge.Message})
 }
 
 type loginRequest struct {
-	Username    string `json:"username"`
-	DeviceID    string `json:"device_id"`
-	SDID        string `json:"sdid"`
-	Nonce       string `json:"nonce"`
-	Signature   string `json:"signature"`
-	Fingerprint string `json:"fingerprint"`
+	SDID      string `json:"sdid"`
+	Nonce     string `json:"nonce"`
+	Signature string `json:"signature"`
+	PublicKey string `json:"public_key"`
 }
 
 func (s *Server) handleLogin(c *gin.Context) {
@@ -201,26 +110,36 @@ func (s *Server) handleLogin(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
 		return
 	}
-	deviceID := req.DeviceID
-	if deviceID == "" {
-		deviceID = req.SDID
-	}
-	if deviceID == "" {
+	sdid := strings.TrimSpace(req.SDID)
+	if sdid == "" || strings.TrimSpace(req.Nonce) == "" || strings.TrimSpace(req.Signature) == "" || strings.TrimSpace(req.PublicKey) == "" {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
 		return
 	}
 	sig, err := decodeWebBase64(req.Signature)
-	if err != nil {
+	if err != nil || len(sig) != ed25519.SignatureSize {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_signature"})
 		return
 	}
-	ip := clientIP(c.Request)
-	username := models.NormaliseUsername(req.Username)
-	if _, err := s.Store.ValidateLogin(username, deviceID, req.Nonce, sig, req.Fingerprint, ip); err != nil {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+	publicKey, err := decodeWebBase64(req.PublicKey)
+	if err != nil || len(publicKey) != ed25519.PublicKeySize {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_public_key"})
 		return
 	}
-	session, err := s.Sessions.Issue(username, deviceID)
+	challenge, err := s.Store.ConsumeLoginChallenge(req.Nonce)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": models.ErrLoginChallengeNotFound.Error()})
+		return
+	}
+	message := challenge.Message
+	if message == "" {
+		message = challenge.Nonce
+	}
+	if !ed25519.Verify(ed25519.PublicKey(publicKey), []byte(message), sig) {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": models.ErrSignatureInvalid.Error()})
+		return
+	}
+	s.Store.RecordLogin(sdid)
+	session, err := s.Sessions.Issue(sdid, sdid)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "session_issue_failed"})
 		return

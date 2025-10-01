@@ -1,91 +1,110 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import api from '../api/client';
-import { fingerprintHash } from '../utils/fingerprint';
 import { useSession } from '../hooks/useSession';
 import { LockClosedIcon } from '@heroicons/react/24/outline';
-
-const encoder = new TextEncoder();
 
 const Login = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sdidError, setSdidError] = useState<string | null>(null);
-  const [sdid, setSdid] = useState('');
-  const [showSdidModal, setShowSdidModal] = useState(false);
   const navigate = useNavigate();
   const { setToken } = useSession();
 
-  const signChallenge = async (nonce: string, fingerprint: string) => {
+  const getWallet = () => {
     const anyWindow = window as any;
-    const payload = nonce + fingerprint;
-    if (anyWindow.SDID && typeof anyWindow.SDID.sign === 'function') {
-      const result = await anyWindow.SDID.sign(payload);
-      if (typeof result === 'string') {
-        return result;
-      }
-      if (result && typeof result.signature === 'string') {
-        return result.signature;
-      }
-      throw new Error('未能获取 SDID 签名。');
+    if (!anyWindow.SDID) {
+      throw new Error('未检测到 SDID 浏览器插件，请安装或启用扩展。');
     }
-
-    if (!anyWindow.ledgerPrivateKey) {
-      throw new Error('缺少 SDID 私钥');
-    }
-
-    const signature = await window.crypto.subtle.sign(
-      { name: 'NODE-ED25519' } as AlgorithmIdentifier,
-      anyWindow.ledgerPrivateKey,
-      encoder.encode(payload)
-    );
-    return btoa(String.fromCharCode(...new Uint8Array(signature)));
+    return anyWindow.SDID;
   };
 
-  const confirmSdidLogin = async () => {
+  const resolveAccount = async () => {
+    const wallet = getWallet();
+    if (typeof wallet.getAccount === 'function') {
+      const result = await wallet.getAccount();
+      if (result && typeof result === 'object' && result.sdid && result.publicKey) {
+        return result;
+      }
+    }
+    if (wallet.account && typeof wallet.account === 'object' && wallet.account.sdid && wallet.account.publicKey) {
+      return wallet.account;
+    }
+    if (typeof wallet.request === 'function') {
+      const result = await wallet.request({ method: 'sdid_getAccount' });
+      if (result && typeof result === 'object' && result.sdid && result.publicKey) {
+        return result;
+      }
+    }
+    throw new Error('无法获取 SDID 账号信息，请确认插件已登录。');
+  };
+
+  const signMessage = async (message: string) => {
+    const wallet = getWallet();
+    if (typeof wallet.signMessage === 'function') {
+      const result = await wallet.signMessage(message);
+      if (typeof result === 'string') {
+        return { signature: result };
+      }
+      if (result && typeof result.signature === 'string') {
+        return result;
+      }
+    }
+    if (typeof wallet.sign === 'function') {
+      const result = await wallet.sign(message);
+      if (typeof result === 'string') {
+        return { signature: result };
+      }
+      if (result && typeof result.signature === 'string') {
+        return result;
+      }
+    }
+    if (typeof wallet.request === 'function') {
+      const result = await wallet.request({ method: 'sdid_signMessage', params: { message } });
+      if (result && typeof result.signature === 'string') {
+        return result;
+      }
+      if (typeof result === 'string') {
+        return { signature: result };
+      }
+    }
+    throw new Error('未能完成 SDID 签名，请重试。');
+  };
+
+  const handleSdidLogin = async () => {
     if (loading) {
       return;
     }
-    setSdidError(null);
     setLoading(true);
 
     try {
-      const { data: nonceResp } = await api.post('/auth/request-nonce', {
-        sdid
-      });
-      const fp = await fingerprintHash();
-      const signatureB64 = await signChallenge(nonceResp.nonce, fp);
+      const [{ data: nonceResp }, account] = await Promise.all([
+        api.post('/auth/request-nonce'),
+        resolveAccount()
+      ]);
+      const message = nonceResp.message || nonceResp.nonce;
+      const signatureResult = await signMessage(message);
+      const sdid = signatureResult.sdid || account.sdid;
+      const publicKey = signatureResult.publicKey || account.publicKey;
+      const signature = signatureResult.signature;
+      if (!sdid || !publicKey || !signature) {
+        throw new Error('SDID 插件未返回完整的账号或签名信息。');
+      }
       const { data } = await api.post('/auth/login', {
         sdid,
         nonce: nonceResp.nonce,
-        fingerprint: fp,
-        signature: signatureB64
+        signature,
+        public_key: publicKey
       });
 
       setToken(data.token);
-      setShowSdidModal(false);
       navigate('/dashboard');
     } catch (err) {
       console.error(err);
-      setSdidError('SDID 登录失败，请确认签名插件已开启且当前 IP 在允许列表中。');
+      setError(
+        err instanceof Error ? err.message : 'SDID 登录失败，请确认插件已开启并在受信任网络中访问。'
+      );
     } finally {
       setLoading(false);
-    }
-  };
-
-  const openSdidModal = () => {
-    if (!sdid) {
-      setError('请输入设备 SDID。');
-      return;
-    }
-    setError(null);
-    setSdidError(null);
-    setShowSdidModal(true);
-  };
-
-  const closeSdidModal = () => {
-    if (!loading) {
-      setShowSdidModal(false);
     }
   };
 
@@ -98,68 +117,20 @@ const Login = () => {
           </div>
           <div>
             <h1 className="text-2xl font-semibold text-night-50">登录控制台</h1>
-            <p className="text-sm text-night-200">仅支持 SDID 一键认证，需在允许的固定 IP 环境内使用。</p>
+            <p className="text-sm text-night-200">使用 SDID 钱包进行一键验证，无需注册，身份管理由 SDID 负责。</p>
           </div>
         </div>
 
         <div className="space-y-5">
-          <div>
-            <label className="text-sm text-night-200">SDID</label>
-            <input
-              type="text"
-              value={sdid}
-              onChange={(e) => {
-                setSdid(e.target.value);
-                if (error) {
-                  setError(null);
-                }
-              }}
-              className="mt-2 w-full rounded-2xl border border-night-600 bg-night-900 px-4 py-3 text-sm focus:border-neon-500 focus:ring-neon-500/40"
-              placeholder="例如：device-xxxxxxxx"
-              required
-            />
-          </div>
           <div className="rounded-2xl bg-night-900/30 px-4 py-3 text-xs text-night-200">
-            浏览器将弹出 SDID 签名确认窗口；设备需绑定当前 IP，并携带管理员批准的签名才能通过允许清单验证。
+            点击下方按钮后，浏览器会请求 SDID 插件获取账号并对一次性登录消息进行签名。
           </div>
           {error && <p className="rounded-2xl bg-red-100 px-4 py-3 text-sm text-red-500">{error}</p>}
-          <button type="button" className="button-primary w-full" onClick={openSdidModal} disabled={loading}>
-            {loading ? '处理中...' : '一键发起 SDID 登录'}
+          <button type="button" className="button-primary w-full" onClick={handleSdidLogin} disabled={loading}>
+            {loading ? '签名验证中...' : '使用 SDID 一键登录'}
           </button>
         </div>
-
-        <p className="text-xs text-night-300">
-          第一次访问？
-          <Link className="ml-2 text-neon-500" to="/enroll">
-            立即注册设备
-          </Link>
-        </p>
       </div>
-
-      {showSdidModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-night-900/70 backdrop-blur-sm">
-          <div className="w-full max-w-md space-y-5 rounded-[28px] bg-white p-8 shadow-2xl">
-            <div>
-              <h2 className="text-lg font-semibold text-night-700">确认 SDID 签名</h2>
-              <p className="mt-2 text-sm text-night-400">设备 {sdid || '（未填写）'} 将执行一次性签名完成登录，请确认管理员签名已通过。</p>
-            </div>
-            {sdidError && <p className="rounded-2xl bg-red-100 px-4 py-3 text-sm text-red-500">{sdidError}</p>}
-            <div className="flex gap-3">
-              <button type="button" className="button-primary flex-1" onClick={confirmSdidLogin} disabled={loading}>
-                {loading ? '签名中...' : '确认签名并登录'}
-              </button>
-              <button
-                type="button"
-                className="flex-1 rounded-2xl border border-night-200 bg-white px-4 py-3 text-sm text-night-400 hover:border-night-300"
-                onClick={closeSdidModal}
-                disabled={loading}
-              >
-                取消
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

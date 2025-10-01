@@ -7,7 +7,7 @@ RoundOneLeger is a full-stack asset ledger system that centralizes inventory for
 - **Ledger management APIs** for IPs, devices, personnel, and systems with support for manual CRUD, ordering, and tag metadata.
 - **Excel import/export pipeline** that can normalize header variations, detect IP columns via regex, and generate multi-sheet or Cartesian reports.
 - **Undo/redo history** that captures mutating operations so operators can roll back up to ten steps in either direction.
-- **Authentication and allowlisting hooks** supporting administrator-signed SDID device enrollment, fingerprint verification, and per-device IP binding with allowlist enforcement.
+- **Authentication and allowlisting hooks** supporting SDID wallet challenge/response logins plus optional fixed-network allowlisting.
 - **Tamper-evident audit log** endpoints capable of exporting signed chains and verifying historical integrity.
 
 ## Architecture
@@ -56,17 +56,17 @@ docker-compose up --build
 This brings up Postgres alongside the backend container. Adjust environment variables inside `docker-compose.yml` before running if you need custom credentials.
 
 ### Authentication
-- Configure the administrator signing key via `ADMIN_SIGNING_PUBLIC_KEY` (Base64-encoded Ed25519 public key). The server refuses to start without it.
-- During enrollment the frontend submits the device public key and SDID; an administrator must sign the string `<username>:<device_id>:<public_key_base64>` with the matching Ed25519 private key. Username defaults to `admin` when omitted.
-- The resulting signature is stored with the device and re-validated on every login alongside the device-generated nonce signature, browser fingerprint hash, and fixed IP allowlist.
-- All `/auth/*` endpoints accept empty `username` fields; they automatically fall back to the administrator account to simplify SDID-only deployments.
+- Click the “SDID one-click login” button on the web console to request a challenge from `/auth/request-nonce`; the response includes both the nonce and the human-readable message your SDID wallet should sign.
+- The browser extension (from [ferrarif1/SDID](https://github.com/ferrarif1/SDID)) returns the wallet SDID, the associated public key, and a Base64 signature over the challenge message.
+- Submit those fields to `/auth/login`; the Go backend verifies the Ed25519 signature against the provided public key and issues a session token. No local enrollment or administrator approval is required—identity and key management live entirely inside the SDID wallet.
+- You can still manage IP allowlists from the console to restrict which networks may reach the authenticated APIs.
 
 ## Project Layout
 ```
 .
 ├── cmd/server            # API entry point and HTTP server bootstrap
 ├── internal/api          # HTTP handlers and router wiring
-├── internal/auth         # Enrollment, nonce, and signature helpers
+├── internal/auth         # Session token manager
 ├── internal/db           # Database configuration helpers
 ├── internal/middleware   # Shared Gin middleware (IP allowlist, etc.)
 ├── internal/models       # Data models and in-memory store
