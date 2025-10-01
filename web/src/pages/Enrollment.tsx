@@ -1,0 +1,119 @@
+import { FormEvent, useState } from 'react';
+import api from '../api/client';
+import { fingerprintHash } from '../utils/fingerprint';
+import { ArrowPathIcon, FingerPrintIcon } from '@heroicons/react/24/outline';
+
+const encoder = new TextEncoder();
+
+const Enrollment = () => {
+  const [email, setEmail] = useState('');
+  const [step, setStep] = useState<'collect' | 'verify' | 'done'>('collect');
+  const [nonce, setNonce] = useState('');
+  const [fingerprint, setFingerprint] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const handleCollect = async () => {
+    try {
+      setError(null);
+      const fp = await fingerprintHash();
+      setFingerprint(fp);
+      const { data } = await api.post('/auth/enroll-request', { email, fingerprint: fp });
+      setNonce(data.nonce);
+      setStep('verify');
+    } catch (err) {
+      console.error(err);
+      setError('无法生成指纹或请求注册，请稍后重试。');
+    }
+  };
+
+  const handleComplete = async (event: FormEvent) => {
+    event.preventDefault();
+    try {
+      setError(null);
+      if (!(window as any).ledgerPrivateKey) {
+        throw new Error('缺少私钥');
+      }
+      const signature = await window.crypto.subtle.sign(
+        { name: 'NODE-ED25519' } as AlgorithmIdentifier,
+        (window as any).ledgerPrivateKey,
+        encoder.encode(nonce + fingerprint)
+      );
+      const signatureB64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
+      await api.post('/auth/enroll-complete', {
+        email,
+        fingerprint,
+        signature: signatureB64
+      });
+      setStep('done');
+    } catch (err) {
+      console.error(err);
+      setError('注册流程失败，请确认浏览器支持私钥签名。');
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen items-center justify-center px-6 py-16">
+      <div className="w-full max-w-2xl space-y-6 rounded-[32px] border border-white bg-white/90 p-10 shadow-glow">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-night-50">设备注册</h1>
+            <p className="text-sm text-night-200">采集浏览器指纹并绑定可信终端。</p>
+          </div>
+          <div className="flex items-center gap-2 rounded-full border border-ink-200 bg-white px-4 py-2 text-xs text-night-300 shadow-sm">
+            <FingerPrintIcon className="h-4 w-4 text-neon-500" />
+            通过 HMAC-SHA256 保护的浏览器指纹
+          </div>
+        </div>
+
+        {error && <p className="rounded-2xl bg-red-100 px-4 py-3 text-sm text-red-500">{error}</p>}
+
+        {step === 'collect' && (
+          <div className="space-y-6">
+            <div>
+              <label className="text-sm text-night-200">邮箱</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="mt-2 w-full rounded-2xl border border-ink-200 bg-white px-4 py-3 text-sm focus:border-neon-500 focus:ring-neon-500/40"
+                placeholder="admin@ledger"
+                required
+              />
+            </div>
+            <button onClick={handleCollect} className="button-primary w-full">
+              采集指纹并请求注册
+            </button>
+          </div>
+        )}
+
+        {step === 'verify' && (
+          <form onSubmit={handleComplete} className="space-y-6">
+            <div className="rounded-2xl border border-ink-200 bg-white p-5 text-sm text-night-200 shadow-sm">
+              <p className="font-medium text-night-100">签名挑战</p>
+              <p className="mt-2 break-all text-xs text-night-300">{nonce}</p>
+              <p className="mt-3 text-xs text-night-300">指纹哈希</p>
+              <p className="break-all text-xs text-neon-500">{fingerprint}</p>
+            </div>
+            <button type="submit" className="button-primary w-full">
+              使用本地私钥签名并完成注册
+            </button>
+          </form>
+        )}
+
+        {step === 'done' && (
+          <div className="space-y-4 text-center">
+            <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-neon-500/20">
+              <ArrowPathIcon className="h-10 w-10 text-neon-500" />
+            </div>
+            <h2 className="text-xl font-semibold text-night-50">设备注册完成</h2>
+            <p className="text-sm text-night-200">
+              您现在可以返回并使用该设备登录后台控制台。
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default Enrollment;
