@@ -40,19 +40,57 @@ type SdidBridge = {
   requestLogin: (options: SdidRequestOptions) => Promise<SdidLoginResponse>;
 };
 
+type SdidInitDetail = {
+  provider?: unknown;
+  SDID?: unknown;
+  sdid?: unknown;
+};
+
 declare global {
   interface Window {
     SDID?: SdidBridge;
   }
 }
 
+const isBridge = (candidate: unknown): candidate is SdidBridge => {
+  return Boolean(candidate && typeof (candidate as SdidBridge).requestLogin === 'function');
+};
+
+const promoteBridge = (candidate: unknown): SdidBridge | null => {
+  if (!isBridge(candidate)) {
+    return null;
+  }
+  try {
+    (window as any).SDID = candidate;
+  } catch (error) {
+    console.warn('Unable to promote SDID provider to window.SDID', error);
+  }
+  return candidate;
+};
+
+const bridgeFromDetail = (detail: SdidInitDetail | undefined | null): SdidBridge | null => {
+  if (!detail || typeof detail !== 'object') {
+    return null;
+  }
+  const { provider, SDID, sdid } = detail;
+  return promoteBridge(provider || SDID || sdid);
+};
+
 const getSdidBridge = (): SdidBridge | null => {
   if (typeof window === 'undefined') {
     return null;
   }
-  const candidate: unknown = (window as any).SDID;
-  if (candidate && typeof (candidate as SdidBridge).requestLogin === 'function') {
-    return candidate as SdidBridge;
+  const direct = promoteBridge((window as any).SDID);
+  if (direct) {
+    return direct;
+  }
+  const lowercase = promoteBridge((window as any).sdid);
+  if (lowercase) {
+    return lowercase;
+  }
+  const nested = promoteBridge((window as any).wallet?.sdid);
+  if (nested) {
+    return nested;
   }
   return null;
 };
@@ -66,20 +104,33 @@ const waitForSdidBridge = (): Promise<SdidBridge> => {
     return Promise.resolve(immediate);
   }
   return new Promise<SdidBridge>((resolve, reject) => {
+    const dispose = () => {
+      window.removeEventListener('sdid#initialized', handleInitialized as EventListener);
+      window.removeEventListener('sdid#ready', handleInitialized as EventListener);
+      document.removeEventListener('sdid#initialized', handleInitialized as EventListener);
+      document.removeEventListener('sdid#ready', handleInitialized as EventListener);
+    };
+
     const timeout = window.setTimeout(() => {
-      window.removeEventListener('sdid#initialized' as any, handler as any);
+      dispose();
       reject(new Error('未检测到 SDID 浏览器插件，请安装或启用扩展。'));
-    }, 5000);
-    const handler = () => {
-      const bridge = getSdidBridge();
+    }, 8000);
+
+    const handleInitialized = (event: Event) => {
+      const detail = (event as CustomEvent<SdidInitDetail>).detail;
+      const bridge = bridgeFromDetail(detail) || getSdidBridge();
       if (!bridge) {
         return;
       }
       window.clearTimeout(timeout);
-      window.removeEventListener('sdid#initialized' as any, handler as any);
+      dispose();
       resolve(bridge);
     };
-    window.addEventListener('sdid#initialized' as any, handler as any);
+
+    window.addEventListener('sdid#initialized', handleInitialized as EventListener);
+    window.addEventListener('sdid#ready', handleInitialized as EventListener);
+    document.addEventListener('sdid#initialized', handleInitialized as EventListener);
+    document.addEventListener('sdid#ready', handleInitialized as EventListener);
   });
 };
 
@@ -95,10 +146,21 @@ const Login = () => {
       setSdidReady(true);
       return;
     }
-    const handler = () => setSdidReady(true);
-    window.addEventListener('sdid#initialized' as any, handler as any);
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<SdidInitDetail>).detail;
+      if (bridgeFromDetail(detail) || getSdidBridge()) {
+        setSdidReady(true);
+      }
+    };
+    const targets: Array<EventTarget> = [window, document];
+    const events: Array<string> = ['sdid#initialized', 'sdid#ready'];
+    targets.forEach((target) => {
+      events.forEach((name) => target.addEventListener(name, handler as EventListener));
+    });
     return () => {
-      window.removeEventListener('sdid#initialized' as any, handler as any);
+      targets.forEach((target) => {
+        events.forEach((name) => target.removeEventListener(name, handler as EventListener));
+      });
     };
   }, []);
 

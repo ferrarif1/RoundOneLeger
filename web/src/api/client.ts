@@ -1,14 +1,28 @@
 import axios from 'axios';
 
-const resolveBaseURL = (): string | undefined => {
+const DEV_PORTS = new Set(['5173', '5174', '4173', '4174']);
+
+const resolveBaseURL = (): string => {
   const explicit = import.meta.env.VITE_API_URL;
   if (explicit && explicit.trim()) {
     return explicit.trim();
   }
+
   if (typeof window !== 'undefined') {
-    return window.location.origin;
+    const { protocol, hostname, port } = window.location;
+
+    if (port && DEV_PORTS.has(port)) {
+      return `${protocol}//${hostname}:8080`;
+    }
+
+    if (port) {
+      return `${protocol}//${hostname}:${port}`;
+    }
+
+    return `${protocol}//${hostname}`;
   }
-  return undefined;
+
+  return 'http://localhost:8080';
 };
 
 const api = axios.create({
