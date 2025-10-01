@@ -7,7 +7,7 @@ RoundOneLeger is a full-stack asset ledger system that centralizes inventory for
 - **Ledger management APIs** for IPs, devices, personnel, and systems with support for manual CRUD, ordering, and tag metadata.
 - **Excel import/export pipeline** that can normalize header variations, detect IP columns via regex, and generate multi-sheet or Cartesian reports.
 - **Undo/redo history** that captures mutating operations so operators can roll back up to ten steps in either direction.
-- **Authentication and allowlisting hooks** for enrollment, nonce-based login, device fingerprint verification, and IP restrictions.
+- **Authentication and allowlisting hooks** covering username/password access, SDID-based device login, enrollment, fingerprint verification, and IP restrictions.
 - **Tamper-evident audit log** endpoints capable of exporting signed chains and verifying historical integrity.
 
 ## Architecture
@@ -32,6 +32,7 @@ RoundOneLeger is a full-stack asset ledger system that centralizes inventory for
    make run
    ```
    The health endpoint responds at `http://localhost:8080/health` with `{"status":"ok"}`.
+   The default admin credentials are `admin` / `admin123456` and can be overridden with the `ADMIN_USERNAME` / `ADMIN_PASSWORD` environment variables.
 
 4. Run the test suite:
    ```bash

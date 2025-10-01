@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -33,6 +34,8 @@ var (
 	ErrSignatureInvalid = errors.New("signature invalid")
 	// ErrIPNotAllowed indicates the source IP is not within the allowlist.
 	ErrIPNotAllowed = errors.New("ip not allowed")
+	// ErrInvalidCredentials is returned when username/password authentication fails.
+	ErrInvalidCredentials = errors.New("invalid credentials")
 )
 
 var (
@@ -56,6 +59,7 @@ type LedgerStore struct {
 	history historyStack
 
 	fingerprintSecret []byte
+	passwordPepper    []byte
 }
 
 // NewLedgerStore constructs a ledger store with an optional fingerprint secret.
@@ -66,6 +70,7 @@ func NewLedgerStore(secret []byte) *LedgerStore {
 			secret = []byte("default-secret")
 		}
 	}
+	pepperSum := sha256.Sum256(secret)
 	store := &LedgerStore{
 		entries:            make(map[LedgerType][]LedgerEntry),
 		allow:              make(map[string]*IPAllowlistEntry),
@@ -73,6 +78,7 @@ func NewLedgerStore(secret []byte) *LedgerStore {
 		pendingEnrollments: make(map[string]*Enrollment),
 		loginChallenges:    make(map[string]*LoginChallenge),
 		fingerprintSecret:  secret,
+		passwordPepper:     pepperSum[:],
 	}
 	store.history.limit = 11
 	store.history.Reset(store.snapshotLocked())
@@ -486,14 +492,51 @@ func (s *LedgerStore) getOrCreateUserLocked(username string) *User {
 		return user
 	}
 	user := &User{
-		Username:  username,
-		Devices:   make(map[string]*UserDevice),
-		Roles:     []string{"admin"},
-		CreatedAt: time.Now().UTC(),
-		UpdatedAt: time.Now().UTC(),
+		Username:     username,
+		Devices:      make(map[string]*UserDevice),
+		Roles:        []string{"admin"},
+		PasswordHash: "",
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
 	}
 	s.users[username] = user
 	return user
+}
+
+// SetPassword stores a password hash for the user, creating the user if necessary.
+func (s *LedgerStore) SetPassword(username, password string) error {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return fmt.Errorf("username required")
+	}
+	if password == "" {
+		return fmt.Errorf("password required")
+	}
+	hash := s.hashPassword(password)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	user := s.getOrCreateUserLocked(username)
+	user.PasswordHash = hash
+	user.UpdatedAt = time.Now().UTC()
+	s.appendAuditLocked(username, "password_set", "")
+	return nil
+}
+
+// AuthenticatePassword validates the username/password combination.
+func (s *LedgerStore) AuthenticatePassword(username, password string) (*User, error) {
+	hash := s.hashPassword(password)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	user, ok := s.users[strings.ToLower(username)]
+	if !ok || user.PasswordHash == "" {
+		return nil, ErrInvalidCredentials
+	}
+	if subtle.ConstantTimeCompare([]byte(user.PasswordHash), []byte(hash)) != 1 {
+		return nil, ErrInvalidCredentials
+	}
+	user.UpdatedAt = time.Now().UTC()
+	s.appendAuditLocked(username, "login_password", "password")
+	return user, nil
 }
 
 // StartEnrollment registers a new enrollment challenge.
@@ -614,6 +657,12 @@ func (s *LedgerStore) ValidateLogin(username, deviceID, nonce string, signature 
 
 func (s *LedgerStore) hashFingerprint(value string) string {
 	mac := hmac.New(sha256.New, s.fingerprintSecret)
+	mac.Write([]byte(value))
+	return base64.RawStdEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func (s *LedgerStore) hashPassword(value string) string {
+	mac := hmac.New(sha256.New, s.passwordPepper)
 	mac.Write([]byte(value))
 	return base64.RawStdEncoding.EncodeToString(mac.Sum(nil))
 }

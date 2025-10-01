@@ -72,11 +72,12 @@ type AuditLogEntry struct {
 
 // User represents an authenticated operator of the system.
 type User struct {
-	Username  string                 `json:"username"`
-	Devices   map[string]*UserDevice `json:"devices"`
-	Roles     []string               `json:"roles"`
-	CreatedAt time.Time              `json:"created_at"`
-	UpdatedAt time.Time              `json:"updated_at"`
+	Username     string                 `json:"username"`
+	Devices      map[string]*UserDevice `json:"devices"`
+	Roles        []string               `json:"roles"`
+	PasswordHash string                 `json:"-"`
+	CreatedAt    time.Time              `json:"created_at"`
+	UpdatedAt    time.Time              `json:"updated_at"`
 }
 
 // UserDevice represents a registered device bound to a user.

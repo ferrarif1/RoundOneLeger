@@ -34,6 +34,17 @@ func main() {
 
 	fingerprintSecret := []byte(os.Getenv("FINGERPRINT_SECRET"))
 	store := models.NewLedgerStore(fingerprintSecret)
+	adminUser := os.Getenv("ADMIN_USERNAME")
+	if adminUser == "" {
+		adminUser = "admin"
+	}
+	adminPass := os.Getenv("ADMIN_PASSWORD")
+	if adminPass == "" {
+		adminPass = "admin123456"
+	}
+	if err := store.SetPassword(adminUser, adminPass); err != nil {
+		log.Printf("failed to configure admin credentials: %v", err)
+	}
 	sessions := auth.NewManager(12 * time.Hour)
 
 	router := api.NewRouter(api.Config{Database: database, Store: store, Sessions: sessions})
