@@ -4,12 +4,15 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"ledger/internal/api"
+	"ledger/internal/auth"
 	"ledger/internal/db"
+	"ledger/internal/models"
 )
 
 func main() {
@@ -29,7 +32,11 @@ func main() {
 		}()
 	}
 
-	router := api.NewRouter(database)
+	fingerprintSecret := []byte(os.Getenv("FINGERPRINT_SECRET"))
+	store := models.NewLedgerStore(fingerprintSecret)
+	sessions := auth.NewManager(12 * time.Hour)
+
+	router := api.NewRouter(api.Config{Database: database, Store: store, Sessions: sessions})
 
 	srv := &http.Server{
 		Addr:              ":8080",

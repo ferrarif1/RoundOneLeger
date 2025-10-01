@@ -1,34 +1,27 @@
 package api
 
 import (
-	"net/http"
-
 	"github.com/gin-gonic/gin"
 
+	"ledger/internal/auth"
 	"ledger/internal/db"
+	"ledger/internal/models"
 )
 
+// Config configures the router dependencies.
+type Config struct {
+	Database *db.Database
+	Store    *models.LedgerStore
+	Sessions *auth.Manager
+}
+
 // NewRouter configures HTTP routes for the application.
-func NewRouter(database *db.Database) *gin.Engine {
+func NewRouter(cfg Config) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery(), gin.Logger())
 
-	r.GET("/health", func(c *gin.Context) {
-		payload := gin.H{"status": "ok"}
-
-		if database != nil {
-			if err := database.PingContext(c.Request.Context()); err != nil {
-				payload["database"] = gin.H{
-					"status": "unavailable",
-					"error":  err.Error(),
-				}
-			} else {
-				payload["database"] = gin.H{"status": "ok"}
-			}
-		}
-
-		c.JSON(http.StatusOK, payload)
-	})
+	server := &Server{Database: cfg.Database, Store: cfg.Store, Sessions: cfg.Sessions}
+	server.RegisterRoutes(r)
 
 	return r
 }

@@ -12,341 +12,56 @@ import (
 	"strings"
 )
 
+// Workbook represents a simplified XLSX workbook with inline string cells.
 type Workbook struct {
 	Sheets []Sheet
 }
 
+// Sheet represents a sheet with ordered rows and columns.
 type Sheet struct {
 	Name string
 	Rows [][]string
 }
 
-func Parse(data []byte) (*Workbook, error) {
-	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
-	if err != nil {
-		return nil, fmt.Errorf("open zip: %w", err)
-	}
-
-	workbook := &Workbook{}
-
-	sharedStrings, err := parseSharedStrings(reader)
-	if err != nil {
-		return nil, err
-	}
-
-	sheetsInfo, err := parseWorkbookRelationships(reader)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, info := range sheetsInfo {
-		file, err := reader.Open(info.Path)
-		if err != nil {
-			return nil, fmt.Errorf("open sheet %s: %w", info.Name, err)
-		}
-		content, err := io.ReadAll(file)
-		file.Close()
-		if err != nil {
-			return nil, fmt.Errorf("read sheet %s: %w", info.Name, err)
-		}
-
-		rows, err := parseSheet(content, sharedStrings)
-		if err != nil {
-			return nil, fmt.Errorf("parse sheet %s: %w", info.Name, err)
-		}
-
-		workbook.Sheets = append(workbook.Sheets, Sheet{Name: info.Name, Rows: rows})
-	}
-
-	return workbook, nil
-}
-
-func NewWorkbook() *Workbook {
-	return &Workbook{}
-}
-
-func (w *Workbook) AddSheet(name string, rows [][]string) {
-	clone := make([][]string, len(rows))
-	for i, row := range rows {
-		rowClone := make([]string, len(row))
-		copy(rowClone, row)
-		clone[i] = rowClone
-	}
-	w.Sheets = append(w.Sheets, Sheet{Name: name, Rows: clone})
-}
-
-func (w *Workbook) Rows(name string) ([][]string, bool) {
-	for _, sheet := range w.Sheets {
-		if strings.EqualFold(sheet.Name, name) {
-			clone := make([][]string, len(sheet.Rows))
-			for i, row := range sheet.Rows {
-				rowClone := make([]string, len(row))
-				copy(rowClone, row)
-				clone[i] = rowClone
-			}
-			return clone, true
-		}
-	}
-	return nil, false
-}
-
-func (w *Workbook) Bytes() ([]byte, error) {
-	buf := &bytes.Buffer{}
+// Encode produces an XLSX binary containing the workbook data.
+func Encode(wb Workbook) ([]byte, error) {
+	buf := new(bytes.Buffer)
 	zw := zip.NewWriter(buf)
 
-	if err := writeFile(zw, "[Content_Types].xml", buildContentTypes(len(w.Sheets))); err != nil {
+	if err := writeFile(zw, "[Content_Types].xml", contentTypesXML(len(wb.Sheets))); err != nil {
 		return nil, err
 	}
-	if err := writeFile(zw, "_rels/.rels", []byte(rootRels)); err != nil {
+	if err := writeFile(zw, "_rels/.rels", rootRelsXML); err != nil {
 		return nil, err
 	}
-	if err := writeFile(zw, "xl/workbook.xml", buildWorkbookXML(w.Sheets)); err != nil {
+	if err := writeFile(zw, "xl/workbook.xml", workbookXML(wb)); err != nil {
 		return nil, err
 	}
-	if err := writeFile(zw, "xl/_rels/workbook.xml.rels", buildWorkbookRels(len(w.Sheets))); err != nil {
+	if err := writeFile(zw, "xl/_rels/workbook.xml.rels", workbookRelsXML(len(wb.Sheets))); err != nil {
 		return nil, err
 	}
-
-	for i, sheet := range w.Sheets {
-		sheetPath := fmt.Sprintf("xl/worksheets/sheet%d.xml", i+1)
-		if err := writeFile(zw, sheetPath, buildSheetXML(sheet.Rows)); err != nil {
+	for i, sheet := range wb.Sheets {
+		name := fmt.Sprintf("xl/worksheets/sheet%d.xml", i+1)
+		if err := writeFile(zw, name, sheetXML(sheet)); err != nil {
 			return nil, err
 		}
 	}
-
 	if err := zw.Close(); err != nil {
-		return nil, fmt.Errorf("close zip: %w", err)
+		return nil, err
 	}
 	return buf.Bytes(), nil
 }
 
 func writeFile(zw *zip.Writer, name string, data []byte) error {
-	writer, err := zw.Create(name)
+	w, err := zw.Create(name)
 	if err != nil {
-		return fmt.Errorf("create %s: %w", name, err)
+		return err
 	}
-	if _, err := writer.Write(data); err != nil {
-		return fmt.Errorf("write %s: %w", name, err)
-	}
-	return nil
+	_, err = w.Write(data)
+	return err
 }
 
-type sheetInfo struct {
-	Name string
-	Path string
-}
-
-func parseSharedStrings(reader *zip.Reader) ([]string, error) {
-	file, err := reader.Open("xl/sharedStrings.xml")
-	if err != nil {
-		return nil, nil
-	}
-	defer file.Close()
-
-	type text struct {
-		T string `xml:"t"`
-	}
-	type si struct {
-		Text text `xml:"t"`
-		IS   struct {
-			Text text `xml:"t"`
-		} `xml:"is"`
-	}
-	type sharedStrings struct {
-		Items []si `xml:"si"`
-	}
-
-	data, err := io.ReadAll(file)
-	if err != nil {
-		return nil, fmt.Errorf("read shared strings: %w", err)
-	}
-	var doc sharedStrings
-	if err := xml.Unmarshal(data, &doc); err != nil {
-		return nil, fmt.Errorf("parse shared strings: %w", err)
-	}
-
-	strings := make([]string, len(doc.Items))
-	for i, item := range doc.Items {
-		if item.Text.T != "" {
-			strings[i] = item.Text.T
-		} else {
-			strings[i] = item.IS.Text.T
-		}
-	}
-	return strings, nil
-}
-
-func parseWorkbookRelationships(reader *zip.Reader) ([]sheetInfo, error) {
-	workbookFile, err := reader.Open("xl/workbook.xml")
-	if err != nil {
-		return nil, fmt.Errorf("workbook.xml missing: %w", err)
-	}
-	workbookData, err := io.ReadAll(workbookFile)
-	workbookFile.Close()
-	if err != nil {
-		return nil, fmt.Errorf("read workbook.xml: %w", err)
-	}
-
-	type sheet struct {
-		Name  string
-		ID    string
-		Order int
-	}
-	sheets := []sheet{}
-	decoder := xml.NewDecoder(bytes.NewReader(workbookData))
-	for {
-		token, err := decoder.Token()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("parse workbook.xml: %w", err)
-		}
-		start, ok := token.(xml.StartElement)
-		if !ok || start.Name.Local != "sheet" {
-			continue
-		}
-		item := sheet{}
-		for _, attr := range start.Attr {
-			switch attr.Name.Local {
-			case "name":
-				item.Name = attr.Value
-			case "id":
-				item.ID = attr.Value
-			case "sheetId":
-				if v, err := strconv.Atoi(attr.Value); err == nil {
-					item.Order = v
-				}
-			}
-		}
-		if item.Name != "" && item.ID != "" {
-			sheets = append(sheets, item)
-		}
-	}
-	if len(sheets) == 0 {
-		return nil, fmt.Errorf("no sheets defined")
-	}
-
-	relFile, err := reader.Open("xl/_rels/workbook.xml.rels")
-	if err != nil {
-		return nil, fmt.Errorf("workbook relations missing: %w", err)
-	}
-	relData, err := io.ReadAll(relFile)
-	relFile.Close()
-	if err != nil {
-		return nil, fmt.Errorf("read workbook relations: %w", err)
-	}
-
-	type relationship struct {
-		ID     string `xml:"Id,attr"`
-		Target string `xml:"Target,attr"`
-	}
-	type relationships struct {
-		Relations []relationship `xml:"Relationship"`
-	}
-	var rels relationships
-	if err := xml.Unmarshal(relData, &rels); err != nil {
-		return nil, fmt.Errorf("parse workbook relations: %w", err)
-	}
-
-	idToTarget := map[string]string{}
-	for _, rel := range rels.Relations {
-		idToTarget[rel.ID] = rel.Target
-	}
-
-	sort.Slice(sheets, func(i, j int) bool {
-		return sheets[i].Order < sheets[j].Order
-	})
-
-	infos := make([]sheetInfo, 0, len(sheets))
-	for _, sheet := range sheets {
-		target, ok := idToTarget[sheet.ID]
-		if !ok {
-			continue
-		}
-		sheetPath := path.Clean(path.Join("xl", target))
-		infos = append(infos, sheetInfo{Name: sheet.Name, Path: sheetPath})
-	}
-	if len(infos) == 0 {
-		return nil, fmt.Errorf("no sheet targets resolved")
-	}
-	return infos, nil
-}
-
-func parseSheet(data []byte, sharedStrings []string) ([][]string, error) {
-	type cell struct {
-		Ref    string `xml:"r,attr"`
-		Type   string `xml:"t,attr"`
-		Value  string `xml:"v"`
-		Inline struct {
-			Text string `xml:"t"`
-		} `xml:"is"`
-	}
-	type row struct {
-		R     int    `xml:"r,attr"`
-		Cells []cell `xml:"c"`
-	}
-	type sheet struct {
-		Rows []row `xml:"sheetData>row"`
-	}
-
-	var sh sheet
-	if err := xml.Unmarshal(data, &sh); err != nil {
-		return nil, fmt.Errorf("unmarshal sheet: %w", err)
-	}
-
-	resolve := func(c cell) string {
-		switch c.Type {
-		case "s":
-			idx, err := strconv.Atoi(strings.TrimSpace(c.Value))
-			if err == nil && idx >= 0 && idx < len(sharedStrings) {
-				return sharedStrings[idx]
-			}
-			return ""
-		case "inlineStr":
-			return c.Inline.Text
-		default:
-			return c.Value
-		}
-	}
-
-	rows := make([][]string, len(sh.Rows))
-	for i, row := range sh.Rows {
-		maxCol := 0
-		cols := make(map[int]string)
-		for _, cell := range row.Cells {
-			col := columnIndex(cell.Ref)
-			if col > maxCol {
-				maxCol = col
-			}
-			cols[col] = resolve(cell)
-		}
-		line := make([]string, maxCol)
-		for c := 1; c <= maxCol; c++ {
-			line[c-1] = cols[c]
-		}
-		rows[i] = line
-	}
-	return rows, nil
-}
-
-func columnIndex(ref string) int {
-	ref = strings.ToUpper(ref)
-	letters := 0
-	for _, r := range ref {
-		if r >= 'A' && r <= 'Z' {
-			letters = letters*26 + int(r-'A'+1)
-		} else {
-			break
-		}
-	}
-	if letters == 0 {
-		return 1
-	}
-	return letters
-}
-
-func buildContentTypes(sheetCount int) []byte {
+func contentTypesXML(sheetCount int) []byte {
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
 	b.WriteString(`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">`)
@@ -354,89 +69,334 @@ func buildContentTypes(sheetCount int) []byte {
 	b.WriteString(`<Default Extension="xml" ContentType="application/xml"/>`)
 	b.WriteString(`<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>`)
 	for i := 1; i <= sheetCount; i++ {
-		fmt.Fprintf(&b, `<Override PartName="/xl/worksheets/sheet%d.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`, i)
+		b.WriteString(fmt.Sprintf(`<Override PartName="/xl/worksheets/sheet%d.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`, i))
 	}
 	b.WriteString(`</Types>`)
 	return []byte(b.String())
 }
 
-const rootRels = `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`
+var rootRelsXML = []byte(`<?xml version="1.0" encoding="UTF-8"?>` +
+	`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+	`<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>` +
+	`</Relationships>`)
 
-func buildWorkbookXML(sheets []Sheet) []byte {
+func workbookXML(wb Workbook) []byte {
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
-	b.WriteString(`<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">`)
+	b.WriteString(`<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" `)
+	b.WriteString(`xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">`)
 	b.WriteString(`<sheets>`)
-	for i, sheet := range sheets {
-		fmt.Fprintf(&b, `<sheet name="%s" sheetId="%d" r:id="rId%d"/>`, xmlEscape(sheet.Name), i+1, i+1)
+	for i, sheet := range wb.Sheets {
+		b.WriteString(fmt.Sprintf(`<sheet name="%s" sheetId="%d" r:id="rId%d"/>`, escapeXML(sheet.Name), i+1, i+1))
 	}
-	b.WriteString(`</sheets>`)
-	b.WriteString(`</workbook>`)
+	b.WriteString(`</sheets></workbook>`)
 	return []byte(b.String())
 }
 
-func buildWorkbookRels(sheetCount int) []byte {
+func workbookRelsXML(sheetCount int) []byte {
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
 	b.WriteString(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`)
 	for i := 1; i <= sheetCount; i++ {
-		fmt.Fprintf(&b, `<Relationship Id="rId%d" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet%d.xml"/>`, i, i)
+		b.WriteString(fmt.Sprintf(`<Relationship Id="rId%d" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet%d.xml"/>`, i, i))
 	}
 	b.WriteString(`</Relationships>`)
 	return []byte(b.String())
 }
 
-func buildSheetXML(rows [][]string) []byte {
+func sheetXML(sheet Sheet) []byte {
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
 	b.WriteString(`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">`)
 	b.WriteString(`<sheetData>`)
-	for i, row := range rows {
-		rIdx := i + 1
-		b.WriteString(fmt.Sprintf(`<row r="%d">`, rIdx))
-		for j, value := range row {
-			if value == "" {
+	for i, row := range sheet.Rows {
+		b.WriteString(fmt.Sprintf(`<row r="%d">`, i+1))
+		for j, cell := range row {
+			if cell == "" {
 				continue
 			}
-			colRef := columnLetters(j + 1)
-			b.WriteString(`<c t="inlineStr" r="` + colRef + fmt.Sprint(rIdx) + `"><is><t>`) // xml escape
-			b.WriteString(xmlEscape(value))
-			b.WriteString(`</t></is></c>`)
+			ref := cellRef(i, j)
+			b.WriteString(fmt.Sprintf(`<c r="%s" t="inlineStr"><is><t>%s</t></is></c>`, ref, escapeXML(cell)))
 		}
 		b.WriteString(`</row>`)
 	}
-	b.WriteString(`</sheetData>`)
-	b.WriteString(`</worksheet>`)
+	b.WriteString(`</sheetData></worksheet>`)
 	return []byte(b.String())
 }
 
-func columnLetters(idx int) string {
-	result := ""
-	for idx > 0 {
-		idx--
-		result = string(rune('A'+idx%26)) + result
-		idx /= 26
+func escapeXML(s string) string {
+	replacer := strings.NewReplacer(
+		"&", "&amp;",
+		"<", "&lt;",
+		">", "&gt;",
+		"\"", "&quot;",
+		"'", "&apos;",
+	)
+	return replacer.Replace(s)
+}
+
+func cellRef(row, col int) string {
+	return columnName(col) + strconv.Itoa(row+1)
+}
+
+func columnName(index int) string {
+	name := ""
+	for index >= 0 {
+		rem := index % 26
+		name = string(rune('A'+rem)) + name
+		index = index/26 - 1
+	}
+	return name
+}
+
+// Decode parses a simplified XLSX workbook into memory.
+func Decode(data []byte) (Workbook, error) {
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return Workbook{}, err
+	}
+	files := make(map[string]*zip.File)
+	for _, f := range reader.File {
+		files[path.Clean(f.Name)] = f
+	}
+
+	workbookFile, ok := files["xl/workbook.xml"]
+	if !ok {
+		return Workbook{}, fmt.Errorf("workbook.xml missing")
+	}
+	workbookData, err := readZipFile(workbookFile)
+	if err != nil {
+		return Workbook{}, err
+	}
+	rels := map[string]string{}
+	if relFile, ok := files["xl/_rels/workbook.xml.rels"]; ok {
+		relData, err := readZipFile(relFile)
+		if err != nil {
+			return Workbook{}, err
+		}
+		rels = parseRelationships(relData)
+	}
+	sharedStrings := []string{}
+	if ssFile, ok := files["xl/sharedStrings.xml"]; ok {
+		ssData, err := readZipFile(ssFile)
+		if err != nil {
+			return Workbook{}, err
+		}
+		sharedStrings = parseSharedStrings(ssData)
+	}
+
+	type sheetInfo struct {
+		Name string `xml:"name,attr"`
+		ID   string `xml:"sheetId,attr"`
+		RID  string `xml:"id,attr"`
+	}
+	type workbookDef struct {
+		Sheets []sheetInfo `xml:"sheets>sheet"`
+	}
+	var wbDef workbookDef
+	if err := xml.Unmarshal(workbookData, &wbDef); err != nil {
+		return Workbook{}, err
+	}
+	workbook := Workbook{}
+	for _, info := range wbDef.Sheets {
+		target := rels[info.RID]
+		if target == "" {
+			target = fmt.Sprintf("worksheets/sheet%s.xml", info.ID)
+		}
+		sheetFile, ok := files[path.Clean("xl/"+target)]
+		if !ok {
+			continue
+		}
+		sheetData, err := readZipFile(sheetFile)
+		if err != nil {
+			return Workbook{}, err
+		}
+		sheet := parseSheet(sheetData, sharedStrings)
+		sheet.Name = info.Name
+		workbook.Sheets = append(workbook.Sheets, sheet)
+	}
+	return workbook, nil
+}
+
+func readZipFile(f *zip.File) ([]byte, error) {
+	rc, err := f.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	return io.ReadAll(rc)
+}
+
+func parseRelationships(data []byte) map[string]string {
+	type rel struct {
+		ID     string `xml:"Id,attr"`
+		Target string `xml:"Target,attr"`
+	}
+	type doc struct {
+		Relationships []rel `xml:"Relationship"`
+	}
+	var d doc
+	_ = xml.Unmarshal(data, &d)
+	result := make(map[string]string, len(d.Relationships))
+	for _, r := range d.Relationships {
+		result[r.ID] = r.Target
 	}
 	return result
 }
 
-func xmlEscape(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		switch r {
-		case '&':
-			b.WriteString("&amp;")
-		case '<':
-			b.WriteString("&lt;")
-		case '>':
-			b.WriteString("&gt;")
-		case '"':
-			b.WriteString("&quot;")
-		case '\'':
-			b.WriteString("&apos;")
-		default:
-			b.WriteRune(r)
+func parseSharedStrings(data []byte) []string {
+	type si struct {
+		Text string `xml:"t"`
+	}
+	type sst struct {
+		Items []si `xml:"si"`
+	}
+	var doc sst
+	_ = xml.Unmarshal(data, &doc)
+	out := make([]string, len(doc.Items))
+	for i, item := range doc.Items {
+		out[i] = item.Text
+	}
+	return out
+}
+
+func parseSheet(data []byte, sharedStrings []string) Sheet {
+	decoder := xml.NewDecoder(bytes.NewReader(data))
+	rows := [][]string{}
+	currentRow := -1
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			break
+		}
+		switch elem := token.(type) {
+		case xml.StartElement:
+			if elem.Name.Local == "row" {
+				currentRow++
+				rows = append(rows, []string{})
+			}
+			if elem.Name.Local == "c" {
+				var cell struct {
+					R string `xml:"r,attr"`
+					T string `xml:"t,attr"`
+				}
+				cell.R = attr(elem.Attr, "r")
+				cell.T = attr(elem.Attr, "t")
+				col := columnIndex(cell.R)
+				for len(rows[currentRow]) <= col {
+					rows[currentRow] = append(rows[currentRow], "")
+				}
+				value := readCellValue(decoder)
+				if cell.T == "s" {
+					idx, _ := strconv.Atoi(value)
+					if idx >= 0 && idx < len(sharedStrings) {
+						value = sharedStrings[idx]
+					}
+				}
+				rows[currentRow][col] = value
+			}
 		}
 	}
-	return b.String()
+	for i := range rows {
+		trim := len(rows[i])
+		for trim > 0 && rows[i][trim-1] == "" {
+			trim--
+		}
+		rows[i] = rows[i][:trim]
+	}
+	return Sheet{Rows: rows}
+}
+
+func attr(attrs []xml.Attr, name string) string {
+	for _, attr := range attrs {
+		if attr.Name.Local == name {
+			return attr.Value
+		}
+	}
+	return ""
+}
+
+func readCellValue(decoder *xml.Decoder) string {
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return ""
+		}
+		switch elem := token.(type) {
+		case xml.StartElement:
+			if elem.Name.Local == "v" || elem.Name.Local == "t" {
+				var value string
+				_ = decoder.DecodeElement(&value, &elem)
+				return value
+			}
+			if elem.Name.Local == "is" {
+				var inline struct {
+					Text string `xml:"t"`
+				}
+				_ = decoder.DecodeElement(&inline, &elem)
+				return inline.Text
+			}
+		case xml.EndElement:
+			if elem.Name.Local == "c" {
+				return ""
+			}
+		}
+	}
+}
+
+func columnIndex(ref string) int {
+	ref = strings.ToUpper(ref)
+	letters := ""
+	for _, r := range ref {
+		if r >= 'A' && r <= 'Z' {
+			letters += string(r)
+		} else {
+			break
+		}
+	}
+	if letters == "" {
+		return 0
+	}
+	index := 0
+	for _, r := range letters {
+		index = index*26 + int(r-'A'+1)
+	}
+	return index - 1
+}
+
+// SheetByName retrieves a sheet by name.
+func (wb Workbook) SheetByName(name string) (Sheet, bool) {
+	for _, sheet := range wb.Sheets {
+		if strings.EqualFold(sheet.Name, name) {
+			return sheet, true
+		}
+	}
+	return Sheet{}, false
+}
+
+// SortSheets sorts sheets by provided order, keeping unspecified ones after.
+func (wb *Workbook) SortSheets(order []string) {
+	lookup := make(map[string]int, len(order))
+	for i, name := range order {
+		lookup[strings.ToLower(name)] = i
+	}
+	sort.SliceStable(wb.Sheets, func(i, j int) bool {
+		a := strings.ToLower(wb.Sheets[i].Name)
+		b := strings.ToLower(wb.Sheets[j].Name)
+		ia, oka := lookup[a]
+		ib, okb := lookup[b]
+		switch {
+		case oka && okb:
+			return ia < ib
+		case oka:
+			return true
+		case okb:
+			return false
+		default:
+			return a < b
+		}
+	})
 }

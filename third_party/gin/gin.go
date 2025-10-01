@@ -22,6 +22,13 @@ type Engine struct {
 	pool        sync.Pool
 }
 
+// RouterGroup represents a route grouping with shared middleware and prefix.
+type RouterGroup struct {
+	engine   *Engine
+	basePath string
+	handlers []HandlerFunc
+}
+
 type route struct {
 	method   string
 	path     string
@@ -94,6 +101,62 @@ func (e *Engine) addRoute(method, path string, handlers []HandlerFunc) {
 	combined := append([]HandlerFunc{}, e.middlewares...)
 	combined = append(combined, handlers...)
 	e.routes = append(e.routes, &route{method: method, path: path, handlers: combined, parts: parts})
+}
+
+// Group creates a new router group beneath the engine.
+func (e *Engine) Group(relativePath string, handlers ...HandlerFunc) *RouterGroup {
+	return &RouterGroup{
+		engine:   e,
+		basePath: joinPaths("", relativePath),
+		handlers: handlers,
+	}
+}
+
+func joinPaths(base, relative string) string {
+	if base == "" {
+		base = "/"
+	}
+	if relative == "" {
+		return base
+	}
+	if strings.HasSuffix(base, "/") {
+		base = strings.TrimSuffix(base, "/")
+	}
+	if !strings.HasPrefix(relative, "/") {
+		relative = "/" + relative
+	}
+	return base + relative
+}
+
+func (g *RouterGroup) handle(method, relativePath string, handlers []HandlerFunc) {
+	if g == nil || g.engine == nil {
+		return
+	}
+	path := joinPaths(g.basePath, relativePath)
+	chain := append([]HandlerFunc{}, g.handlers...)
+	chain = append(chain, handlers...)
+	g.engine.addRoute(method, path, chain)
+}
+
+// Use appends middleware to the group.
+func (g *RouterGroup) Use(handlers ...HandlerFunc) {
+	g.handlers = append(g.handlers, handlers...)
+}
+
+func (g *RouterGroup) GET(relativePath string, handlers ...HandlerFunc) {
+	g.handle(http.MethodGet, relativePath, handlers)
+}
+
+func (g *RouterGroup) POST(relativePath string, handlers ...HandlerFunc) {
+	g.handle(http.MethodPost, relativePath, handlers)
+}
+
+func (g *RouterGroup) PUT(relativePath string, handlers ...HandlerFunc) {
+	g.handle(http.MethodPut, relativePath, handlers)
+}
+
+func (g *RouterGroup) DELETE(relativePath string, handlers ...HandlerFunc) {
+	g.handle(http.MethodDelete, relativePath, handlers)
 }
 
 // HTTP verb helpers ---------------------------------------------------------
@@ -198,6 +261,14 @@ func (c *Context) Query(key string) string {
 		return ""
 	}
 	return c.Request.URL.Query().Get(key)
+}
+
+// GetHeader retrieves a header value from the incoming request.
+func (c *Context) GetHeader(key string) string {
+	if c.Request == nil {
+		return ""
+	}
+	return c.Request.Header.Get(key)
 }
 
 // DefaultQuery returns the value for key or def if not present.
