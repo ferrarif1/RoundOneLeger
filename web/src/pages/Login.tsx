@@ -4,9 +4,18 @@ import api from '../api/client';
 import { useSession } from '../hooks/useSession';
 import { LockClosedIcon } from '@heroicons/react/24/outline';
 
+type RawWallet = {
+  requestAccount?: () => Promise<any>;
+  requestAccounts?: () => Promise<any>;
+  getAccount?: () => Promise<any>;
+  signMessage?: (message: string) => Promise<any>;
+  sign?: (message: string) => Promise<any>;
+  signData?: (message: string) => Promise<any>;
+};
+
 type SdidWallet = {
-  requestAccount: () => Promise<{ sdid: string; publicKey: string } | { account: { sdid: string; publicKey: string } } | { sdid: string; publicKey: string }[]>;
-  signMessage: (message: string) => Promise<{ signature: string; sdid?: string; publicKey?: string } | string>;
+  requestAccount: () => Promise<any>;
+  signMessage: (message: string) => Promise<any>;
 };
 
 const pickAccount = (value: any): { sdid: string; publicKey: string } | null => {
@@ -80,13 +89,46 @@ const normalizeSignature = (value: any): { signature: string; sdid?: string; pub
 
 const getWallet = (): SdidWallet => {
   const anyWindow = window as any;
-  const wallet: SdidWallet | undefined = anyWindow.sdid?.wallet || anyWindow.sdid || anyWindow.SDID?.wallet || anyWindow.SDID;
+  const raw: RawWallet | undefined =
+    anyWindow.sdid?.wallet ||
+    anyWindow.sdidWallet ||
+    anyWindow.sdWallet?.wallet ||
+    anyWindow.sdWallet ||
+    anyWindow.SDID?.wallet ||
+    anyWindow.SDID ||
+    anyWindow.SDWallet;
 
-  if (!wallet || typeof wallet.requestAccount !== 'function' || typeof wallet.signMessage !== 'function') {
+  if (!raw) {
     throw new Error('未检测到 SDID 浏览器插件，请安装或启用扩展。');
   }
 
-  return wallet;
+  const requestAccount =
+    typeof raw.requestAccount === 'function'
+      ? raw.requestAccount.bind(raw)
+      : typeof raw.requestAccounts === 'function'
+      ? raw.requestAccounts.bind(raw)
+      : typeof raw.getAccount === 'function'
+      ? raw.getAccount.bind(raw)
+      : null;
+
+  if (!requestAccount) {
+    throw new Error('SDID 插件缺少 requestAccount 能力。');
+  }
+
+  const signMessage =
+    typeof raw.signMessage === 'function'
+      ? raw.signMessage.bind(raw)
+      : typeof raw.sign === 'function'
+      ? raw.sign.bind(raw)
+      : typeof raw.signData === 'function'
+      ? raw.signData.bind(raw)
+      : null;
+
+  if (!signMessage) {
+    throw new Error('SDID 插件缺少签名能力。');
+  }
+
+  return { requestAccount, signMessage };
 };
 
 const Login = () => {
