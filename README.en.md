@@ -7,7 +7,7 @@ RoundOneLeger is a full-stack asset ledger system that centralizes inventory for
 - **Ledger management APIs** for IPs, devices, personnel, and systems with support for manual CRUD, ordering, and tag metadata.
 - **Excel import/export pipeline** that can normalize header variations, detect IP columns via regex, and generate multi-sheet or Cartesian reports.
 - **Undo/redo history** that captures mutating operations so operators can roll back up to ten steps in either direction.
-- **Authentication and allowlisting hooks** for enrollment, nonce-based login, device fingerprint verification, and IP restrictions.
+- **Authentication and allowlisting hooks** supporting SDID wallet challenge/response logins plus optional fixed-network allowlisting.
 - **Tamper-evident audit log** endpoints capable of exporting signed chains and verifying historical integrity.
 
 ## Architecture
@@ -32,7 +32,6 @@ RoundOneLeger is a full-stack asset ledger system that centralizes inventory for
    make run
    ```
    The health endpoint responds at `http://localhost:8080/health` with `{"status":"ok"}`.
-
 4. Run the test suite:
    ```bash
    make test
@@ -56,16 +55,21 @@ docker-compose up --build
 ```
 This brings up Postgres alongside the backend container. Adjust environment variables inside `docker-compose.yml` before running if you need custom credentials.
 
+### Authentication
+- Click the “SDID one-click login” button on the web console to request a challenge from `/auth/request-nonce`; the response includes both the nonce and the human-readable message your SDID wallet should sign.
+- The browser extension (from [ferrarif1/SDID](https://github.com/ferrarif1/SDID)) returns the wallet SDID, the associated public key, and a Base64 signature over the challenge message.
+- Submit those fields to `/auth/login`; the Go backend verifies the Ed25519 signature against the provided public key and issues a session token. No local enrollment or administrator approval is required—identity and key management live entirely inside the SDID wallet.
+- You can still manage IP allowlists from the console to restrict which networks may reach the authenticated APIs.
+
 ## Project Layout
 ```
 .
 ├── cmd/server            # API entry point and HTTP server bootstrap
 ├── internal/api          # HTTP handlers and router wiring
-├── internal/auth         # Enrollment, nonce, and signature helpers
+├── internal/auth         # Session token manager
 ├── internal/db           # Database configuration helpers
-├── internal/ledger       # In-memory ledger store with history and tagging
 ├── internal/middleware   # Shared Gin middleware (IP allowlist, etc.)
-├── internal/models       # Data model definitions
+├── internal/models       # Data models and in-memory store
 ├── internal/xlsx         # Excel reader/writer utilities
 ├── migrations            # Database migration files (create your own)
 ├── openapi.yaml          # OpenAPI v3 specification

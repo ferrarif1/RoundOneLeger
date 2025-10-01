@@ -45,7 +45,6 @@ web/                  # Frontend placeholder (not required to run backend)
 | `DB_NAME`            | `ledger`    | PostgreSQL database name                         |
 | `DB_USER`            | `postgres`  | PostgreSQL user                                  |
 | `DB_PASS`            | `postgres`  | PostgreSQL password                              |
-| `FINGERPRINT_SECRET` | random      | HMAC secret for fingerprint hashing (optional)   |
 
 ### Local Development
 
@@ -70,12 +69,11 @@ Once both containers are healthy, the API is reachable at <http://localhost:8080
 
 ## Authentication Flow
 
-1. **Enrollment Request** – POST `/auth/enroll-request` with `{username, device_name, public_key}` (Ed25519 public key base64). The server issues a `device_id` and `nonce`.
-2. **Enrollment Complete** – POST `/auth/enroll-complete` with `{username, device_id, nonce, signature, fingerprint}` where `signature` is over the nonce and `fingerprint` is a client-generated descriptor. The server stores the fingerprint hash.
-3. **Request Login Nonce** – POST `/auth/request-nonce` to fetch a short-lived nonce for the device.
-4. **Login** – POST `/auth/login` with `{username, device_id, nonce, signature, fingerprint}`. Successful validation issues a bearer token used in the `Authorization: Bearer <token>` header for subsequent requests.
+1. **Request nonce** – POST `/auth/request-nonce`. The response contains a unique `nonce` plus a readable `message` that the SDID钱包 should sign.
+2. **Wallet signature** – The SDID 浏览器插件根据返回的消息生成签名，同时提供当前账号的 `sdid` 与 `public_key`。
+3. **Login** – POST `/auth/login` with `{sdid, nonce, signature, public_key}`. The server verifies the Ed25519 signature against the supplied public key and issues a bearer token when successful.
 
-See `openapi.yaml` for complete request/response schemas and error codes.
+All身份管理逻辑由 SDID 完成，本系统仅校验签名。可选的 IP 白名单仍可在控制台中维护以限制访问来源。详见 `openapi.yaml` 获取完整的请求/响应示例和错误码。
 
 ## Ledgers & Excel Import/Export
 

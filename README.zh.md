@@ -7,7 +7,7 @@ RoundOneLeger 是一套资产台账系统，用于集中管理 IP 地址、设�
 - **台账管理接口**：覆盖 IP、设备、人员与系统等实体，支持手动新增、修改、删除、排序以及标签元数据。
 - **Excel 导入导出流程**：能够自动规范表头、基于正则识别 IP 字段，并生成多表或笛卡尔积式的报表文件。
 - **撤销/重做历史**：记录所有变更操作，允许管理员在双向最多十步内撤销或重做。
-- **认证与白名单能力**：支持设备注册、随机数登录、设备指纹校验以及 IP 白名单限制。
+- **认证与白名单能力**：提供基于 SDID 钱包的一次性随机数登录流程，并支持可选的固定网络白名单控制。
 - **可验证的审计日志**：提供导出签名链和校验历史完整性的接口，保障日志不可篡改。
 
 ## 架构组成
@@ -32,7 +32,6 @@ RoundOneLeger 是一套资产台账系统，用于集中管理 IP 地址、设�
    make run
    ```
    健康检查地址 `http://localhost:8080/health` 会返回 `{"status":"ok"}`。
-
 4. 运行测试：
    ```bash
    make test
@@ -56,16 +55,21 @@ docker-compose up --build
 ```
 该命令会启动 Postgres 与后端容器。运行前可根据需要修改 `docker-compose.yml` 中的环境变量。
 
+### 认证
+- 前端点击“使用 SDID 一键登录”后会向 `/auth/request-nonce` 请求随机数，响应包含 `nonce` 与需要签名的文本 `message`。
+- [ferrarif1/SDID](https://github.com/ferrarif1/SDID) 浏览器插件会根据该消息返回账号 `sdid`、对应的 `public_key` 以及 Base64 编码的签名。
+- 将上述字段提交到 `/auth/login`；后端使用提供的公钥校验 Ed25519 签名并签发会话令牌，无需本地注册或管理员审批，身份完全由 SDID 管理。
+- 若需限制访问来源，可继续在控制台维护 IP 白名单，只有来自允许网段的请求才可访问受保护接口。
+
 ## 目录结构
 ```
 .
 ├── cmd/server            # 接口入口与 HTTP 服务启动逻辑
 ├── internal/api          # HTTP 处理器与路由注册
-├── internal/auth         # 注册、随机数与签名验证辅助
+├── internal/auth         # 会话令牌管理器
 ├── internal/db           # 数据库配置与连接工具
-├── internal/ledger       # 带历史与标签能力的内存台账
 ├── internal/middleware   # Gin 中间件（如 IP 白名单）
-├── internal/models       # 数据模型定义
+├── internal/models       # 数据模型与内存存储实现
 ├── internal/xlsx         # Excel 读写工具
 ├── migrations            # 数据库迁移文件（请自行补充）
 ├── openapi.yaml          # OpenAPI v3 规范
