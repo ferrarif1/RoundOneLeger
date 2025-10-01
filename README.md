@@ -69,9 +69,9 @@ Once both containers are healthy, the API is reachable at <http://localhost:8080
 
 ## Authentication Flow
 
-1. **Request nonce** – POST `/auth/request-nonce`. The response contains a unique `nonce` plus a readable `message` that the SDID钱包 should sign.
-2. **Wallet signature** – The SDID 浏览器插件根据返回的消息生成签名，同时提供当前账号的 `sdid` 与 `public_key`。
-3. **Login** – POST `/auth/login` with `{sdid, nonce, signature, public_key}`. The server verifies the Ed25519 signature against the supplied public key and issues a bearer token when successful.
+1. **Request nonce** – POST `/auth/request-nonce`. The response contains a unique `nonce` plus a readable `message` that the SDID 钱包 should sign.
+2. **Wallet signature** – 浏览器插件调用 `requestLogin` 后会返回完整的认证结果，其中包含 DID、带 ECDSA P-256 公钥的 `publicKeyJwk`，以及 `signature`/`proof.signatureValue` 中的签名和 canonical 请求体。
+3. **Login** – POST `/auth/login` with `{nonce, response}`，其中 `response` 为插件返回的原始对象。服务端会重建 canonical 请求、基于提供的 JWK 校验 DER 编码的签名，并在成功后签发令牌。
 
 All身份管理逻辑由 SDID 完成，本系统仅校验签名。可选的 IP 白名单仍可在控制台中维护以限制访问来源。详见 `openapi.yaml` 获取完整的请求/响应示例和错误码。
 

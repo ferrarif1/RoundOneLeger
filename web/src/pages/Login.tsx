@@ -1,182 +1,153 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../api/client';
-import { useSession } from '../hooks/useSession';
 import { LockClosedIcon } from '@heroicons/react/24/outline';
 
-type RawWallet = {
-  requestAccount?: () => Promise<any>;
-  requestAccounts?: () => Promise<any>;
-  getAccount?: () => Promise<any>;
-  signMessage?: (message: string) => Promise<any>;
-  sign?: (message: string) => Promise<any>;
-  signData?: (message: string) => Promise<any>;
+import api from '../api/client';
+import { useSession } from '../hooks/useSession';
+
+type SdidLoginIdentity = {
+  did?: string;
+  label?: string;
+  roles?: string[];
+  publicKeyJwk?: Record<string, unknown>;
 };
 
-type SdidWallet = {
-  requestAccount: () => Promise<any>;
-  signMessage: (message: string) => Promise<any>;
+type SdidProof = {
+  signatureValue?: string;
 };
 
-const pickAccount = (value: any): { sdid: string; publicKey: string } | null => {
-  if (!value) {
+type SdidAuthentication = {
+  canonicalRequest?: string;
+  payload?: unknown;
+};
+
+type SdidLoginResponse = {
+  identity?: SdidLoginIdentity;
+  challenge?: string;
+  signature?: string;
+  proof?: SdidProof;
+  authentication?: SdidAuthentication;
+  [key: string]: unknown;
+};
+
+type SdidRequestOptions = {
+  message?: string;
+  challenge?: string;
+  forcePrompt?: boolean;
+};
+
+type SdidBridge = {
+  requestLogin: (options: SdidRequestOptions) => Promise<SdidLoginResponse>;
+};
+
+declare global {
+  interface Window {
+    SDID?: SdidBridge;
+  }
+}
+
+const getSdidBridge = (): SdidBridge | null => {
+  if (typeof window === 'undefined') {
     return null;
   }
-
-  if (Array.isArray(value)) {
-    return pickAccount(value[0]);
+  const candidate: unknown = (window as any).SDID;
+  if (candidate && typeof (candidate as SdidBridge).requestLogin === 'function') {
+    return candidate as SdidBridge;
   }
-
-  if (typeof value === 'object') {
-    const sdidValue = typeof value.sdid === 'string' ? value.sdid : typeof value.did === 'string' ? value.did : undefined;
-    const pubKeyValue =
-      typeof value.publicKey === 'string'
-        ? value.publicKey
-        : typeof value.pubKey === 'string'
-        ? value.pubKey
-        : typeof value.public_key === 'string'
-        ? value.public_key
-        : undefined;
-
-    if (sdidValue && pubKeyValue) {
-      return { sdid: sdidValue, publicKey: pubKeyValue };
-    }
-
-    if (value.account) {
-      return pickAccount(value.account);
-    }
-  }
-
   return null;
 };
 
-const normalizeSignature = (value: any): { signature: string; sdid?: string; publicKey?: string } | null => {
-  if (!value) {
-    return null;
+const waitForSdidBridge = (): Promise<SdidBridge> => {
+  if (typeof window === 'undefined') {
+    return Promise.reject(new Error('当前环境不支持 SDID 登录。'));
   }
-
-  if (typeof value === 'string') {
-    return { signature: value };
+  const immediate = getSdidBridge();
+  if (immediate) {
+    return Promise.resolve(immediate);
   }
-
-  const signatureValue =
-    typeof value.signature === 'string'
-      ? value.signature
-      : typeof value.sig === 'string'
-      ? value.sig
-      : typeof value.signedMessage === 'string'
-      ? value.signedMessage
-      : undefined;
-
-  if (signatureValue) {
-    return {
-      signature: signatureValue,
-      sdid: value.sdid,
-      publicKey: value.publicKey
+  return new Promise<SdidBridge>((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      window.removeEventListener('sdid#initialized' as any, handler as any);
+      reject(new Error('未检测到 SDID 浏览器插件，请安装或启用扩展。'));
+    }, 5000);
+    const handler = () => {
+      const bridge = getSdidBridge();
+      if (!bridge) {
+        return;
+      }
+      window.clearTimeout(timeout);
+      window.removeEventListener('sdid#initialized' as any, handler as any);
+      resolve(bridge);
     };
-  }
-
-  if (value.result) {
-    return normalizeSignature(value.result);
-  }
-
-  if (value.data) {
-    return normalizeSignature(value.data);
-  }
-
-  return null;
-};
-
-const getWallet = (): SdidWallet => {
-  const anyWindow = window as any;
-  const raw: RawWallet | undefined =
-    anyWindow.sdid?.wallet ||
-    anyWindow.sdidWallet ||
-    anyWindow.sdWallet?.wallet ||
-    anyWindow.sdWallet ||
-    anyWindow.SDID?.wallet ||
-    anyWindow.SDID ||
-    anyWindow.SDWallet;
-
-  if (!raw) {
-    throw new Error('未检测到 SDID 浏览器插件，请安装或启用扩展。');
-  }
-
-  const requestAccount =
-    typeof raw.requestAccount === 'function'
-      ? raw.requestAccount.bind(raw)
-      : typeof raw.requestAccounts === 'function'
-      ? raw.requestAccounts.bind(raw)
-      : typeof raw.getAccount === 'function'
-      ? raw.getAccount.bind(raw)
-      : null;
-
-  if (!requestAccount) {
-    throw new Error('SDID 插件缺少 requestAccount 能力。');
-  }
-
-  const signMessage =
-    typeof raw.signMessage === 'function'
-      ? raw.signMessage.bind(raw)
-      : typeof raw.sign === 'function'
-      ? raw.sign.bind(raw)
-      : typeof raw.signData === 'function'
-      ? raw.signData.bind(raw)
-      : null;
-
-  if (!signMessage) {
-    throw new Error('SDID 插件缺少签名能力。');
-  }
-
-  return { requestAccount, signMessage };
+    window.addEventListener('sdid#initialized' as any, handler as any);
+  });
 };
 
 const Login = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sdidReady, setSdidReady] = useState(() => getSdidBridge() !== null);
   const navigate = useNavigate();
   const { setToken } = useSession();
 
-  const handleSdidLogin = async () => {
+  useEffect(() => {
+    if (getSdidBridge()) {
+      setSdidReady(true);
+      return;
+    }
+    const handler = () => setSdidReady(true);
+    window.addEventListener('sdid#initialized' as any, handler as any);
+    return () => {
+      window.removeEventListener('sdid#initialized' as any, handler as any);
+    };
+  }, []);
+
+  const handleSdidLogin = async (forcePrompt: boolean) => {
     if (loading) {
       return;
     }
     setLoading(true);
-
+    setError(null);
     try {
-      const wallet = getWallet();
-      const [{ data: nonceResp }, accountResult] = await Promise.all([
-        api.post('/auth/request-nonce'),
-        wallet.requestAccount()
+      const [{ data: nonceResp }, bridge] = await Promise.all([
+        api.post<{ nonce: string; message?: string }>('/auth/request-nonce'),
+        waitForSdidBridge()
       ]);
-      const account = pickAccount(accountResult);
-      if (!account) {
-        throw new Error('无法获取 SDID 账号信息，请确认插件已登录。');
-      }
-
-      const message = nonceResp.message || nonceResp.nonce;
-      const signaturePayload = await wallet.signMessage(message);
-      const signatureResult = normalizeSignature(signaturePayload);
-      const sdid = signatureResult?.sdid || account.sdid;
-      const publicKey = signatureResult?.publicKey || account.publicKey;
-      const signature = signatureResult?.signature;
-      if (!sdid || !publicKey || !signature) {
-        throw new Error('SDID 插件未返回完整的账号或签名信息。');
-      }
-      const { data } = await api.post('/auth/login', {
-        sdid,
-        nonce: nonceResp.nonce,
-        signature,
-        public_key: publicKey
+      setSdidReady(true);
+      const response = await bridge.requestLogin({
+        message: nonceResp.message || 'RoundOne Ledger 请求访问',
+        challenge: nonceResp.nonce,
+        forcePrompt
       });
-
+      const { data } = await api.post('/auth/login', {
+        nonce: nonceResp.nonce,
+        response
+      });
       setToken(data.token);
       navigate('/dashboard');
     } catch (err) {
       console.error(err);
-      setError(
-        err instanceof Error ? err.message : 'SDID 登录失败，请确认插件已开启并在受信任网络中访问。'
-      );
+      const serverError = (err as any)?.response?.data?.error;
+      if (typeof serverError === 'string' && serverError.trim()) {
+        setError(serverError.trim());
+      } else {
+        const message =
+          err instanceof Error
+            ? err.message.trim()
+            : typeof err === 'string'
+            ? err
+            : '';
+        if (message) {
+          const lowered = message.toLowerCase();
+          if (lowered.includes('cancel') || message.includes('拒绝') || message.includes('取消')) {
+            setError('SDID 登录请求已被取消。');
+          } else {
+            setError(message);
+          }
+        } else {
+          setError('SDID 登录失败，请确认插件已启用并允许此站点。');
+        }
+      }
     } finally {
       setLoading(false);
     }
@@ -191,18 +162,38 @@ const Login = () => {
           </div>
           <div>
             <h1 className="text-2xl font-semibold text-night-50">登录控制台</h1>
-            <p className="text-sm text-night-200">使用 SDID 钱包进行一键验证，无需注册，身份管理由 SDID 负责。</p>
+            <p className="text-sm text-night-200">
+              使用 SDID 钱包进行一键验证，无需注册，身份审批和管理由 SDID 完成。
+            </p>
           </div>
         </div>
 
         <div className="space-y-5">
           <div className="rounded-2xl bg-night-900/30 px-4 py-3 text-xs text-night-200">
-            点击下方按钮后，浏览器会请求 SDID 插件获取账号并对一次性登录消息进行签名。
+            <p>点击下方任意按钮后，浏览器会调用 SDID 插件发起登录并返回签名。</p>
+            <p className="mt-2 text-[11px] uppercase tracking-wide text-night-400">
+              {sdidReady ? 'SDID 插件已就绪，点击即可登录。' : '正在等待 SDID 插件连接…'}
+            </p>
           </div>
           {error && <p className="rounded-2xl bg-red-100 px-4 py-3 text-sm text-red-500">{error}</p>}
-          <button type="button" className="button-primary w-full" onClick={handleSdidLogin} disabled={loading}>
-            {loading ? '签名验证中...' : '使用 SDID 一键登录'}
-          </button>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              className="button-primary w-full"
+              onClick={() => handleSdidLogin(false)}
+              disabled={loading}
+            >
+              {loading ? '签名验证中…' : '连接 SDID 登录'}
+            </button>
+            <button
+              type="button"
+              className="w-full rounded-2xl border border-night-200 bg-white/80 px-4 py-3 text-sm font-medium text-night-500 shadow transition hover:bg-white focus:outline-none focus:ring-2 focus:ring-neon-500/60 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => handleSdidLogin(true)}
+              disabled={loading}
+            >
+              {loading ? '处理中…' : '强制弹窗验证'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

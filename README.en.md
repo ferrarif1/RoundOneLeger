@@ -57,8 +57,8 @@ This brings up Postgres alongside the backend container. Adjust environment vari
 
 ### Authentication
 - Click the “SDID one-click login” button on the web console to request a challenge from `/auth/request-nonce`; the response includes both the nonce and the human-readable message your SDID wallet should sign.
-- The browser extension (from [ferrarif1/SDID](https://github.com/ferrarif1/SDID)) returns the wallet SDID, the associated public key, and a Base64 signature over the challenge message.
-- Submit those fields to `/auth/login`; the Go backend verifies the Ed25519 signature against the provided public key and issues a session token. No local enrollment or administrator approval is required—identity and key management live entirely inside the SDID wallet.
+- The browser extension (from [ferrarif1/SDID](https://github.com/ferrarif1/SDID)) calls `requestLogin` and returns the DID, an ECDSA P-256 public key JWK, and a canonical authentication payload with the signature embedded in either `signature` or `proof.signatureValue`.
+- Submit `{nonce, response}` to `/auth/login` where `response` is the untouched object from `requestLogin`; the Go backend rebuilds the canonical request, verifies the DER-encoded signature against the supplied JWK, and issues a session token. Identity and approval remain fully managed inside the SDID wallet.
 - You can still manage IP allowlists from the console to restrict which networks may reach the authenticated APIs.
 
 ## Project Layout

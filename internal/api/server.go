@@ -1,13 +1,18 @@
 package api
 
 import (
-	"crypto/ed25519"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"math/big"
 	"net"
 	"net/http"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -97,11 +102,40 @@ func (s *Server) handleRequestNonce(c *gin.Context) {
 	c.JSON(http.StatusOK, nonceResponse{Nonce: challenge.Nonce, Message: challenge.Message})
 }
 
+type jwk struct {
+	KTY   string `json:"kty"`
+	Curve string `json:"crv"`
+	X     string `json:"x"`
+	Y     string `json:"y"`
+}
+
+type sdidIdentity struct {
+	DID          string          `json:"did"`
+	Label        string          `json:"label"`
+	Roles        []string        `json:"roles"`
+	PublicKeyJWK json.RawMessage `json:"publicKeyJwk"`
+}
+
+type sdidProof struct {
+	SignatureValue string `json:"signatureValue"`
+}
+
+type sdidAuthentication struct {
+	CanonicalRequest string          `json:"canonicalRequest"`
+	Payload          json.RawMessage `json:"payload"`
+}
+
+type sdidLoginResponse struct {
+	Identity       sdidIdentity        `json:"identity"`
+	Challenge      string              `json:"challenge"`
+	Signature      string              `json:"signature"`
+	Proof          sdidProof           `json:"proof"`
+	Authentication *sdidAuthentication `json:"authentication"`
+}
+
 type loginRequest struct {
-	SDID      string `json:"sdid"`
-	Nonce     string `json:"nonce"`
-	Signature string `json:"signature"`
-	PublicKey string `json:"public_key"`
+	Nonce    string            `json:"nonce"`
+	Response sdidLoginResponse `json:"response"`
 }
 
 func (s *Server) handleLogin(c *gin.Context) {
@@ -110,19 +144,8 @@ func (s *Server) handleLogin(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
 		return
 	}
-	sdid := strings.TrimSpace(req.SDID)
-	if sdid == "" || strings.TrimSpace(req.Nonce) == "" || strings.TrimSpace(req.Signature) == "" || strings.TrimSpace(req.PublicKey) == "" {
+	if strings.TrimSpace(req.Nonce) == "" {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
-		return
-	}
-	sig, err := decodeWebBase64(req.Signature)
-	if err != nil || len(sig) != ed25519.SignatureSize {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_signature"})
-		return
-	}
-	publicKey, err := decodeWebBase64(req.PublicKey)
-	if err != nil || len(publicKey) != ed25519.PublicKeySize {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_public_key"})
 		return
 	}
 	challenge, err := s.Store.ConsumeLoginChallenge(req.Nonce)
@@ -130,14 +153,11 @@ func (s *Server) handleLogin(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": models.ErrLoginChallengeNotFound.Error()})
 		return
 	}
-	message := challenge.Message
-	if message == "" {
-		message = challenge.Nonce
-	}
-	if !ed25519.Verify(ed25519.PublicKey(publicKey), []byte(message), sig) {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": models.ErrSignatureInvalid.Error()})
+	if err := s.verifySdidLoginResponse(challenge, &req.Response); err != nil {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
+	sdid := strings.TrimSpace(req.Response.Identity.DID)
 	s.Store.RecordLogin(sdid)
 	session, err := s.Sessions.Issue(sdid, sdid)
 	if err != nil {
@@ -145,6 +165,152 @@ func (s *Server) handleLogin(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, session)
+}
+
+func canonicalizeJSONValue(value any) string {
+	switch v := value.(type) {
+	case nil:
+		return "null"
+	case string:
+		b, _ := json.Marshal(v)
+		return string(b)
+	case bool:
+		if v {
+			return "true"
+		}
+		return "false"
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	case json.Number:
+		return v.String()
+	case []any:
+		parts := make([]string, len(v))
+		for i, item := range v {
+			parts[i] = canonicalizeJSONValue(item)
+		}
+		return "[" + strings.Join(parts, ",") + "]"
+	case map[string]any:
+		keys := make([]string, 0, len(v))
+		for key := range v {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		parts := make([]string, 0, len(keys))
+		for _, key := range keys {
+			parts = append(parts, strconv.Quote(key)+":"+canonicalizeJSONValue(v[key]))
+		}
+		return "{" + strings.Join(parts, ",") + "}"
+	default:
+		b, _ := json.Marshal(v)
+		return string(b)
+	}
+}
+
+func canonicalizeJSON(raw json.RawMessage) (string, error) {
+	if len(raw) == 0 {
+		return "", nil
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return "", err
+	}
+	return canonicalizeJSONValue(value), nil
+}
+
+func decodeJWK(data json.RawMessage) (*ecdsa.PublicKey, error) {
+	if len(data) == 0 {
+		return nil, errors.New("missing_public_key")
+	}
+	var key jwk
+	if err := json.Unmarshal(data, &key); err != nil {
+		return nil, errors.New("invalid_public_key")
+	}
+	if !strings.EqualFold(key.KTY, "EC") {
+		return nil, errors.New("unsupported_public_key")
+	}
+	if key.Curve != "P-256" && key.Curve != "secp256r1" {
+		return nil, errors.New("unsupported_curve")
+	}
+	decodeCoordinate := func(value string) (*big.Int, error) {
+		bytes, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(value))
+		if err != nil {
+			return nil, err
+		}
+		return new(big.Int).SetBytes(bytes), nil
+	}
+	x, err := decodeCoordinate(key.X)
+	if err != nil {
+		return nil, errors.New("invalid_public_key")
+	}
+	y, err := decodeCoordinate(key.Y)
+	if err != nil {
+		return nil, errors.New("invalid_public_key")
+	}
+	curve := elliptic.P256()
+	if !curve.IsOnCurve(x, y) {
+		return nil, errors.New("invalid_public_key")
+	}
+	return &ecdsa.PublicKey{Curve: curve, X: x, Y: y}, nil
+}
+
+func (s *Server) verifySdidLoginResponse(challenge *models.LoginChallenge, resp *sdidLoginResponse) error {
+	if resp == nil {
+		return errors.New("invalid_payload")
+	}
+	sdid := strings.TrimSpace(resp.Identity.DID)
+	if sdid == "" {
+		return errors.New("missing_sdid")
+	}
+	if strings.TrimSpace(resp.Challenge) != strings.TrimSpace(challenge.Nonce) {
+		return errors.New("challenge_mismatch")
+	}
+	signatureValue := strings.TrimSpace(resp.Proof.SignatureValue)
+	if signatureValue == "" {
+		signatureValue = strings.TrimSpace(resp.Signature)
+	}
+	if signatureValue == "" {
+		return errors.New("missing_signature")
+	}
+	sigBytes, err := decodeWebBase64(signatureValue)
+	if err != nil {
+		return errors.New("invalid_signature")
+	}
+	publicKey, err := decodeJWK(resp.Identity.PublicKeyJWK)
+	if err != nil {
+		return err
+	}
+	signedData := ""
+	if resp.Authentication != nil {
+		signedData = strings.TrimSpace(resp.Authentication.CanonicalRequest)
+		if len(resp.Authentication.Payload) > 0 {
+			canonical, err := canonicalizeJSON(resp.Authentication.Payload)
+			if err != nil {
+				return errors.New("invalid_authentication_payload")
+			}
+			if signedData != "" && canonical != signedData {
+				return errors.New("authentication_mismatch")
+			}
+			if signedData == "" {
+				signedData = canonical
+			}
+		}
+	}
+	if signedData == "" {
+		signedData = strings.TrimSpace(resp.Challenge)
+	}
+	if signedData == "" {
+		signedData = strings.TrimSpace(challenge.Message)
+	}
+	if signedData == "" {
+		return errors.New("missing_challenge")
+	}
+	hash := sha256.Sum256([]byte(signedData))
+	if !ecdsa.VerifyASN1(publicKey, hash[:], sigBytes) {
+		return models.ErrSignatureInvalid
+	}
+	return nil
 }
 
 func clientIP(r *http.Request) string {

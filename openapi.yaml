@@ -154,21 +154,65 @@ components:
     LoginRequest:
       type: object
       required:
-        - sdid
         - nonce
-        - signature
-        - public_key
+        - response
       properties:
-        sdid:
-          type: string
-          description: Identifier reported by the SDID wallet
         nonce:
+          type: string
+        response:
+          $ref: '#/components/schemas/SdidLoginResponse'
+    SdidLoginResponse:
+      type: object
+      required:
+        - identity
+      properties:
+        challenge:
           type: string
         signature:
           type: string
-        public_key:
+          description: Base64-encoded DER ECDSA signature returned by the SDID extension
+        proof:
+          $ref: '#/components/schemas/SdidProof'
+        identity:
+          $ref: '#/components/schemas/SdidIdentity'
+        authentication:
+          $ref: '#/components/schemas/SdidAuthentication'
+        authorized:
+          type: boolean
+        remembered:
+          type: boolean
+    SdidProof:
+      type: object
+      properties:
+        signatureValue:
           type: string
-          description: Base64-encoded Ed25519 public key supplied by the SDID wallet
+          description: Alternate location for the login signature
+    SdidIdentity:
+      type: object
+      required:
+        - did
+        - publicKeyJwk
+      properties:
+        did:
+          type: string
+        label:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+        publicKeyJwk:
+          type: object
+          additionalProperties: {}
+          description: JSON Web Key describing an ECDSA P-256 public key
+    SdidAuthentication:
+      type: object
+      properties:
+        canonicalRequest:
+          type: string
+        payload:
+          type: object
+          additionalProperties: {}
     HistoryStatus:
       type: object
       properties:

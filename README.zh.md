@@ -57,8 +57,8 @@ docker-compose up --build
 
 ### 认证
 - 前端点击“使用 SDID 一键登录”后会向 `/auth/request-nonce` 请求随机数，响应包含 `nonce` 与需要签名的文本 `message`。
-- [ferrarif1/SDID](https://github.com/ferrarif1/SDID) 浏览器插件会根据该消息返回账号 `sdid`、对应的 `public_key` 以及 Base64 编码的签名。
-- 将上述字段提交到 `/auth/login`；后端使用提供的公钥校验 Ed25519 签名并签发会话令牌，无需本地注册或管理员审批，身份完全由 SDID 管理。
+- [ferrarif1/SDID](https://github.com/ferrarif1/SDID) 浏览器插件会调用 `requestLogin`，返回 DID、包含 ECDSA P-256 公钥的 `publicKeyJwk`、canonical 请求体以及位于 `signature` 或 `proof.signatureValue` 中的签名。
+- 将 `{nonce, response}` 提交到 `/auth/login`，其中 `response` 为插件的原始返回值；后端会重建 canonical 请求并基于提供的 JWK 验证 DER 编码的签名，无需本地注册或管理员审批，身份完全由 SDID 管理。
 - 若需限制访问来源，可继续在控制台维护 IP 白名单，只有来自允许网段的请求才可访问受保护接口。
 
 ## 目录结构
