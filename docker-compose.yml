@@ -11,8 +11,16 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ledger"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     environment:
       DB_HOST: db
       DB_PORT: "5432"
@@ -20,17 +28,10 @@ services:
       DB_USER: postgres
       DB_PASS: postgres
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     ports:
       - "8080:8080"
-  frontend:
-    build:
-      context: ./web
-    environment:
-      - VITE_API_URL=http://app:8080
-    depends_on:
-      - app
-    ports:
-      - "5173:80"
+
 volumes:
-  pgdata: {}
+  pgdata:

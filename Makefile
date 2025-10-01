@@ -1,6 +1,7 @@
 .PHONY: build run migrate test
 
 build:
+	mkdir -p bin
 	go build -o bin/server ./cmd/server
 
 run:

@@ -1,29 +1,27 @@
 package api
 
 import (
-	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
 	"ledger/internal/db"
-	"ledger/internal/ledger"
 )
 
-// NewRouter configures the HTTP routes for the application.
+// NewRouter configures HTTP routes for the application.
 func NewRouter(database *db.Database) *gin.Engine {
-	router := gin.Default()
-	ledgerStore := ledger.NewStore()
-	ledgerHandler := &LedgerHandler{Store: ledgerStore}
+	r := gin.New()
+	r.Use(gin.Recovery(), gin.Logger())
 
-	router.GET("/health", func(c *gin.Context) {
-		if err := database.PingContext(c.Request.Context()); err != nil {
-			log.Printf("database health check failed: %v", err)
+	r.GET("/health", func(c *gin.Context) {
+		if database != nil {
+			if err := database.PingContext(c.Request.Context()); err != nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"status": "unavailable", "error": err.Error()})
+				return
+			}
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	ledgerHandler.RegisterRoutes(router)
-
-	return router
+	return r
 }

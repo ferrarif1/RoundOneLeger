@@ -20,11 +20,14 @@ func main() {
 	if err != nil {
 		log.Printf("database connection warning: %v", err)
 	}
-	defer func() {
-		if err := database.Close(); err != nil {
-			log.Printf("database close error: %v", err)
-		}
-	}()
+
+	if database != nil {
+		defer func() {
+			if err := database.Close(); err != nil {
+				log.Printf("database close error: %v", err)
+			}
+		}()
+	}
 
 	router := api.NewRouter(database)
 
