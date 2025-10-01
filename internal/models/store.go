@@ -1,9 +1,6 @@
 package models
 
 import (
-	"crypto/ed25519"
-	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
@@ -23,12 +20,8 @@ var (
 	ErrUndoUnavailable = errors.New("no undo steps available")
 	// ErrRedoUnavailable indicates there is no further forward history.
 	ErrRedoUnavailable = errors.New("no redo steps available")
-	// ErrEnrollmentNotFound indicates there is no pending enrollment for the provided identifiers.
-	ErrEnrollmentNotFound = errors.New("enrollment challenge not found")
 	// ErrLoginChallengeNotFound indicates there is no nonce to fulfil.
 	ErrLoginChallengeNotFound = errors.New("login challenge not found")
-	// ErrFingerprintMismatch occurs when the submitted fingerprint differs from the enrolled copy.
-	ErrFingerprintMismatch = errors.New("fingerprint mismatch")
 	// ErrSignatureInvalid indicates that signature verification failed.
 	ErrSignatureInvalid = errors.New("signature invalid")
 	// ErrIPNotAllowed indicates the source IP is not within the allowlist.
@@ -48,40 +41,22 @@ type LedgerStore struct {
 	entries map[LedgerType][]LedgerEntry
 	allow   map[string]*IPAllowlistEntry
 	audits  []*AuditLogEntry
-	users   map[string]*User
 
-	pendingEnrollments map[string]*Enrollment
-	loginChallenges    map[string]*LoginChallenge
+	loginChallenges map[string]*LoginChallenge
 
 	history historyStack
-
-	fingerprintSecret []byte
 }
 
-// NewLedgerStore constructs a ledger store with an optional fingerprint secret.
-func NewLedgerStore(secret []byte) *LedgerStore {
-	if len(secret) == 0 {
-		secret = make([]byte, 32)
-		if _, err := rand.Read(secret); err != nil {
-			secret = []byte("default-secret")
-		}
-	}
+// NewLedgerStore constructs a ledger store.
+func NewLedgerStore() *LedgerStore {
 	store := &LedgerStore{
-		entries:            make(map[LedgerType][]LedgerEntry),
-		allow:              make(map[string]*IPAllowlistEntry),
-		users:              make(map[string]*User),
-		pendingEnrollments: make(map[string]*Enrollment),
-		loginChallenges:    make(map[string]*LoginChallenge),
-		fingerprintSecret:  secret,
+		entries:         make(map[LedgerType][]LedgerEntry),
+		allow:           make(map[string]*IPAllowlistEntry),
+		loginChallenges: make(map[string]*LoginChallenge),
 	}
 	store.history.limit = 11
 	store.history.Reset(store.snapshotLocked())
 	return store
-}
-
-// helper to produce map key for pending enrollment login challenge.
-func enrollmentKey(username, deviceID string) string {
-	return fmt.Sprintf("%s:%s", strings.ToLower(username), deviceID)
 }
 
 // GenerateID creates a pseudo-random identifier string.
@@ -325,6 +300,18 @@ func (s *LedgerStore) CanRedo() bool {
 	return s.history.CanRedo()
 }
 
+// HistoryDepth returns the counts of undo and redo steps currently available.
+func (s *LedgerStore) HistoryDepth() (int, int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	undo := 0
+	if len(s.history.states) > 0 {
+		undo = len(s.history.states) - 1
+	}
+	redo := len(s.history.future)
+	return undo, redo
+}
+
 func cloneSnapshot(snapshot storeSnapshot) map[LedgerType][]LedgerEntry {
 	cloned := make(map[LedgerType][]LedgerEntry, len(snapshot.entries))
 	for typ, items := range snapshot.entries {
@@ -407,6 +394,13 @@ func (s *LedgerStore) IsIPAllowed(ipStr string) bool {
 	return false
 }
 
+// RecordLogin appends an audit entry for a successful SDID login.
+func (s *LedgerStore) RecordLogin(actor string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.appendAuditLocked(strings.TrimSpace(actor), "login", "")
+}
+
 // AppendAudit adds an audit log entry.
 func (s *LedgerStore) appendAuditLocked(actor, action, details string) {
 	entry := &AuditLogEntry{
@@ -461,168 +455,37 @@ func (s *LedgerStore) VerifyAuditChain() bool {
 	return true
 }
 
-// UpsertUser ensures a user exists.
-func (s *LedgerStore) UpsertUser(username string) *User {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.getOrCreateUserLocked(username)
+func loginMessage(nonce string) string {
+	return fmt.Sprintf("Sign in to RoundOne Ledger with nonce %s", nonce)
 }
 
-func (s *LedgerStore) getOrCreateUserLocked(username string) *User {
-	username = strings.ToLower(username)
-	if user, ok := s.users[username]; ok {
-		return user
-	}
-	user := &User{
-		Username:  username,
-		Devices:   make(map[string]*UserDevice),
-		Roles:     []string{"admin"},
-		CreatedAt: time.Now().UTC(),
-		UpdatedAt: time.Now().UTC(),
-	}
-	s.users[username] = user
-	return user
-}
-
-// StartEnrollment registers a new enrollment challenge.
-func (s *LedgerStore) StartEnrollment(username, deviceName string, publicKey []byte) (*Enrollment, error) {
-	if len(publicKey) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("public key must be %d bytes", ed25519.PublicKeySize)
-	}
-	user := s.UpsertUser(username)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	deviceID := GenerateID("device")
-	nonce := GenerateID("nonce")
-	enrollment := &Enrollment{
-		Username:   user.Username,
-		DeviceID:   deviceID,
-		DeviceName: deviceName,
-		Nonce:      nonce,
-		PublicKey:  append([]byte(nil), publicKey...),
-		CreatedAt:  time.Now().UTC(),
-	}
-	s.pendingEnrollments[enrollmentKey(user.Username, deviceID)] = enrollment
-	return enrollment, nil
-}
-
-// CompleteEnrollment verifies the signature and stores the device.
-func (s *LedgerStore) CompleteEnrollment(username, deviceID, nonce string, signature []byte, fingerprint string) (*UserDevice, error) {
-	key := enrollmentKey(username, deviceID)
-	s.mu.Lock()
-	enrollment, ok := s.pendingEnrollments[key]
-	if !ok || enrollment.Nonce != nonce {
-		s.mu.Unlock()
-		return nil, ErrEnrollmentNotFound
-	}
-	delete(s.pendingEnrollments, key)
-	s.mu.Unlock()
-
-	if len(signature) != ed25519.SignatureSize {
-		return nil, ErrSignatureInvalid
-	}
-	if !ed25519.Verify(ed25519.PublicKey(enrollment.PublicKey), []byte(enrollment.Nonce), signature) {
-		return nil, ErrSignatureInvalid
-	}
-	fingerprintSum := s.hashFingerprint(fingerprint)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	user := s.getOrCreateUserLocked(username)
-	device := &UserDevice{
-		ID:             deviceID,
-		Name:           enrollment.DeviceName,
-		PublicKey:      append([]byte(nil), enrollment.PublicKey...),
-		FingerprintSum: fingerprintSum,
-		CreatedAt:      time.Now().UTC(),
-		UpdatedAt:      time.Now().UTC(),
-	}
-	user.Devices[deviceID] = device
-	user.UpdatedAt = time.Now().UTC()
-	s.appendAuditLocked(username, "device_enrolled", deviceID)
-	return device, nil
-}
-
-// RequestLoginNonce generates a login nonce for the given device.
-func (s *LedgerStore) RequestLoginNonce(username, deviceID string) (*LoginChallenge, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	username = strings.ToLower(username)
-	user, ok := s.users[username]
-	if !ok {
-		return nil, fmt.Errorf("user %s not found", username)
-	}
-	if _, ok := user.Devices[deviceID]; !ok {
-		return nil, fmt.Errorf("device %s not enrolled", deviceID)
-	}
+// CreateLoginChallenge issues a one-time nonce for SDID authentication.
+func (s *LedgerStore) CreateLoginChallenge() *LoginChallenge {
 	challenge := &LoginChallenge{
-		Username:  username,
-		DeviceID:  deviceID,
 		Nonce:     GenerateID("nonce"),
 		CreatedAt: time.Now().UTC(),
 	}
-	s.loginChallenges[enrollmentKey(username, deviceID)] = challenge
-	return challenge, nil
+	challenge.Message = loginMessage(challenge.Nonce)
+	s.mu.Lock()
+	s.loginChallenges[challenge.Nonce] = challenge
+	s.mu.Unlock()
+	return challenge
 }
 
-// ValidateLogin verifies the submitted signature, fingerprint, and IP allowlist.
-func (s *LedgerStore) ValidateLogin(username, deviceID, nonce string, signature []byte, fingerprint, ip string) (*User, error) {
-	key := enrollmentKey(username, deviceID)
-	s.mu.Lock()
-	challenge, ok := s.loginChallenges[key]
-	if !ok || challenge.Nonce != nonce {
-		s.mu.Unlock()
+// ConsumeLoginChallenge removes the stored challenge for the supplied nonce.
+func (s *LedgerStore) ConsumeLoginChallenge(nonce string) (*LoginChallenge, error) {
+	trimmed := strings.TrimSpace(nonce)
+	if trimmed == "" {
 		return nil, ErrLoginChallengeNotFound
 	}
-	delete(s.loginChallenges, key)
-	user, ok := s.users[strings.ToLower(username)]
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	challenge, ok := s.loginChallenges[trimmed]
 	if !ok {
-		s.mu.Unlock()
-		return nil, fmt.Errorf("user %s not found", username)
+		return nil, ErrLoginChallengeNotFound
 	}
-	device, ok := user.Devices[deviceID]
-	if !ok {
-		s.mu.Unlock()
-		return nil, fmt.Errorf("device %s not enrolled", deviceID)
-	}
-	s.mu.Unlock()
-
-	if !ed25519.Verify(ed25519.PublicKey(device.PublicKey), []byte(challenge.Nonce), signature) {
-		return nil, ErrSignatureInvalid
-	}
-	if s.hashFingerprint(fingerprint) != device.FingerprintSum {
-		return nil, ErrFingerprintMismatch
-	}
-	if !s.IsIPAllowed(ip) {
-		return nil, ErrIPNotAllowed
-	}
-	s.appendAuditLocked(username, "login", deviceID)
-	return user, nil
-}
-
-func (s *LedgerStore) hashFingerprint(value string) string {
-	mac := hmac.New(sha256.New, s.fingerprintSecret)
-	mac.Write([]byte(value))
-	return base64.RawStdEncoding.EncodeToString(mac.Sum(nil))
-}
-
-// GetUser returns a user by username.
-func (s *LedgerStore) GetUser(username string) (*User, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	user, ok := s.users[strings.ToLower(username)]
-	if !ok {
-		return nil, false
-	}
-	copy := *user
-	copy.Devices = make(map[string]*UserDevice, len(user.Devices))
-	for id, device := range user.Devices {
-		dup := *device
-		dup.PublicKey = append([]byte(nil), device.PublicKey...)
-		copy.Devices[id] = &dup
-	}
-	copy.Roles = append([]string{}, user.Roles...)
-	return &copy, true
+	delete(s.loginChallenges, trimmed)
+	return challenge, nil
 }
 
 func normaliseStrings(values []string) []string {
