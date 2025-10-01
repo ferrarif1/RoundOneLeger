@@ -102,7 +102,7 @@ const Login = () => {
     };
   }, []);
 
-  const handleSdidLogin = async (forcePrompt: boolean) => {
+  const handleSdidLogin = async () => {
     if (loading) {
       return;
     }
@@ -116,8 +116,7 @@ const Login = () => {
       setSdidReady(true);
       const response = await bridge.requestLogin({
         message: nonceResp.message || 'RoundOne Ledger 请求访问',
-        challenge: nonceResp.nonce,
-        forcePrompt
+        challenge: nonceResp.nonce
       });
       const { data } = await api.post('/auth/login', {
         nonce: nonceResp.nonce,
@@ -170,28 +169,20 @@ const Login = () => {
 
         <div className="space-y-5">
           <div className="rounded-2xl bg-night-900/30 px-4 py-3 text-xs text-night-200">
-            <p>点击下方任意按钮后，浏览器会调用 SDID 插件发起登录并返回签名。</p>
+            <p>点击下方按钮后，浏览器会调用 SDID 插件发起登录并返回签名。</p>
             <p className="mt-2 text-[11px] uppercase tracking-wide text-night-400">
               {sdidReady ? 'SDID 插件已就绪，点击即可登录。' : '正在等待 SDID 插件连接…'}
             </p>
           </div>
           {error && <p className="rounded-2xl bg-red-100 px-4 py-3 text-sm text-red-500">{error}</p>}
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div>
             <button
               type="button"
               className="button-primary w-full"
-              onClick={() => handleSdidLogin(false)}
+              onClick={handleSdidLogin}
               disabled={loading}
             >
               {loading ? '签名验证中…' : '连接 SDID 登录'}
-            </button>
-            <button
-              type="button"
-              className="w-full rounded-2xl border border-night-200 bg-white/80 px-4 py-3 text-sm font-medium text-night-500 shadow transition hover:bg-white focus:outline-none focus:ring-2 focus:ring-neon-500/60 disabled:cursor-not-allowed disabled:opacity-60"
-              onClick={() => handleSdidLogin(true)}
-              disabled={loading}
-            >
-              {loading ? '处理中…' : '强制弹窗验证'}
             </button>
           </div>
         </div>
