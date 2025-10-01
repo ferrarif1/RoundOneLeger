@@ -10,63 +10,203 @@ const Login = () => {
   const navigate = useNavigate();
   const { setToken } = useSession();
 
+  const pickString = (source: any, keys: string[]): string | undefined => {
+    if (!source || typeof source !== 'object') {
+      return undefined;
+    }
+    for (const key of keys) {
+      const value = source[key];
+      if (typeof value === 'string' && value.trim().length > 0) {
+        return value;
+      }
+    }
+    return undefined;
+  };
+
+  const normalizeAccount = (raw: any): { sdid: string; publicKey: string } | null => {
+    if (!raw) {
+      return null;
+    }
+    if (Array.isArray(raw)) {
+      for (const item of raw) {
+        const normalized = normalizeAccount(item);
+        if (normalized) {
+          return normalized;
+        }
+      }
+      return null;
+    }
+    const sdid =
+      pickString(raw, ['sdid', 'did', 'identity', 'address', 'id']) ||
+      (typeof raw === 'string' ? raw : undefined);
+    const publicKey = pickString(raw, ['publicKey', 'public_key', 'pubKey', 'pub_key', 'publickey', 'key']);
+
+    if (sdid && publicKey) {
+      return { sdid, publicKey };
+    }
+
+    if (raw.account) {
+      return normalizeAccount(raw.account);
+    }
+
+    if (raw.data) {
+      return normalizeAccount(raw.data);
+    }
+
+    if (raw.result) {
+      return normalizeAccount(raw.result);
+    }
+
+    return null;
+  };
+
+  const normalizeSignature = (raw: any): { signature: string; sdid?: string; publicKey?: string } | null => {
+    if (!raw) {
+      return null;
+    }
+    if (typeof raw === 'string') {
+      return { signature: raw };
+    }
+
+    const signature = pickString(raw, ['signature', 'sig', 'signedMessage']);
+
+    if (signature) {
+      const account = normalizeAccount(raw);
+      return {
+        signature,
+        sdid: account?.sdid,
+        publicKey: account?.publicKey
+      };
+    }
+
+    if (raw.result) {
+      const normalized = normalizeSignature(raw.result);
+      if (normalized) {
+        return normalized;
+      }
+    }
+
+    if (raw.data) {
+      const normalized = normalizeSignature(raw.data);
+      if (normalized) {
+        return normalized;
+      }
+    }
+
+    return null;
+  };
+
   const getWallet = () => {
     const anyWindow = window as any;
-    if (!anyWindow.SDID) {
-      throw new Error('未检测到 SDID 浏览器插件，请安装或启用扩展。');
+    const candidates = [
+      anyWindow.SDID,
+      anyWindow.sdid,
+      anyWindow.SDID?.wallet,
+      anyWindow.sdid?.wallet,
+      anyWindow.SDIDWallet,
+      anyWindow.sdidWallet,
+      anyWindow.wallets?.SDID,
+      anyWindow.wallets?.sdid,
+      anyWindow.SDID?.provider,
+      anyWindow.sdid?.provider,
+      anyWindow.sdidProvider,
+      anyWindow.__SDID__
+    ];
+
+    for (const candidate of candidates) {
+      if (!candidate) {
+        continue;
+      }
+      if (typeof candidate === 'function') {
+        return candidate;
+      }
+      if (candidate.wallet && typeof candidate.wallet === 'object') {
+        return candidate.wallet;
+      }
+      if (candidate.provider && typeof candidate.provider === 'object') {
+        return candidate.provider;
+      }
+      return candidate;
     }
-    return anyWindow.SDID;
+
+    throw new Error('未检测到 SDID 浏览器插件，请安装或启用扩展。');
   };
 
   const resolveAccount = async () => {
     const wallet = getWallet();
+
     if (typeof wallet.getAccount === 'function') {
       const result = await wallet.getAccount();
-      if (result && typeof result === 'object' && result.sdid && result.publicKey) {
-        return result;
+      const normalized = normalizeAccount(result);
+      if (normalized) {
+        return normalized;
       }
     }
-    if (wallet.account && typeof wallet.account === 'object' && wallet.account.sdid && wallet.account.publicKey) {
-      return wallet.account;
+
+    if (wallet.account) {
+      const normalized = normalizeAccount(wallet.account);
+      if (normalized) {
+        return normalized;
+      }
     }
+
     if (typeof wallet.request === 'function') {
-      const result = await wallet.request({ method: 'sdid_getAccount' });
-      if (result && typeof result === 'object' && result.sdid && result.publicKey) {
-        return result;
+      const methods = ['sdid_getAccount', 'sdid_requestAccount', 'sdid_accounts'];
+      for (const method of methods) {
+        try {
+          const result = await wallet.request({ method });
+          const normalized = normalizeAccount(result);
+          if (normalized) {
+            return normalized;
+          }
+        } catch (err) {
+          console.warn(`SDID wallet request for ${method} failed`, err);
+        }
       }
     }
+
     throw new Error('无法获取 SDID 账号信息，请确认插件已登录。');
   };
 
   const signMessage = async (message: string) => {
     const wallet = getWallet();
+
     if (typeof wallet.signMessage === 'function') {
       const result = await wallet.signMessage(message);
-      if (typeof result === 'string') {
-        return { signature: result };
-      }
-      if (result && typeof result.signature === 'string') {
-        return result;
+      const normalized = normalizeSignature(result);
+      if (normalized) {
+        return normalized;
       }
     }
+
     if (typeof wallet.sign === 'function') {
       const result = await wallet.sign(message);
-      if (typeof result === 'string') {
-        return { signature: result };
-      }
-      if (result && typeof result.signature === 'string') {
-        return result;
+      const normalized = normalizeSignature(result);
+      if (normalized) {
+        return normalized;
       }
     }
+
     if (typeof wallet.request === 'function') {
-      const result = await wallet.request({ method: 'sdid_signMessage', params: { message } });
-      if (result && typeof result.signature === 'string') {
-        return result;
-      }
-      if (typeof result === 'string') {
-        return { signature: result };
+      const requestPayloads = [
+        { method: 'sdid_signMessage', params: { message } },
+        { method: 'sdid_sign', params: { message } },
+        { method: 'sdid_signMessage', params: [message] }
+      ];
+
+      for (const payload of requestPayloads) {
+        try {
+          const result = await wallet.request(payload);
+          const normalized = normalizeSignature(result);
+          if (normalized) {
+            return normalized;
+          }
+        } catch (err) {
+          console.warn('SDID wallet request sign failure', err);
+        }
       }
     }
+
     throw new Error('未能完成 SDID 签名，请重试。');
   };
 
