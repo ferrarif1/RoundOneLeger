@@ -1,0 +1,638 @@
+openapi: 3.0.3
+info:
+  title: Ledger Backend API
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    LedgerEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        attributes:
+          type: object
+          additionalProperties:
+            type: string
+        tags:
+          type: array
+          items:
+            type: string
+        links:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        order:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    LedgerListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LedgerEntry'
+    LedgerReorderRequest:
+      type: object
+      required:
+        - ids
+      properties:
+        ids:
+          type: array
+          items:
+            type: string
+    LedgerImportRequest:
+      type: object
+      required:
+        - data
+      properties:
+        data:
+          type: string
+          format: byte
+          description: Base64-encoded XLSX payload
+    AllowlistEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        cidr:
+          type: string
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AllowlistRequest:
+      type: object
+      required:
+        - label
+        - cidr
+      properties:
+        label:
+          type: string
+        cidr:
+          type: string
+        description:
+          type: string
+    AllowlistListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AllowlistEntry'
+    AuditEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        actor:
+          type: string
+        action:
+          type: string
+        details:
+          type: string
+        hash:
+          type: string
+        prev_hash:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    AuditListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEntry'
+    Session:
+      type: object
+      properties:
+        token:
+          type: string
+        username:
+          type: string
+        device_id:
+          type: string
+        issued_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+    EnrollmentRequest:
+      type: object
+      required:
+        - username
+        - device_name
+        - public_key
+      properties:
+        username:
+          type: string
+        device_name:
+          type: string
+        public_key:
+          type: string
+          description: Base64-encoded Ed25519 public key
+    EnrollmentResponse:
+      type: object
+      properties:
+        device_id:
+          type: string
+        nonce:
+          type: string
+    EnrollmentCompleteRequest:
+      type: object
+      required:
+        - username
+        - device_id
+        - nonce
+        - signature
+        - fingerprint
+      properties:
+        username:
+          type: string
+        device_id:
+          type: string
+        nonce:
+          type: string
+        signature:
+          type: string
+          description: Base64 signature of the nonce
+        fingerprint:
+          type: string
+          description: Client fingerprint payload
+    NonceRequest:
+      type: object
+      required:
+        - username
+        - device_id
+      properties:
+        username:
+          type: string
+        device_id:
+          type: string
+    NonceResponse:
+      type: object
+      properties:
+        nonce:
+          type: string
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - device_id
+        - nonce
+        - signature
+        - fingerprint
+      properties:
+        username:
+          type: string
+        device_id:
+          type: string
+        nonce:
+          type: string
+        signature:
+          type: string
+        fingerprint:
+          type: string
+    HistoryStatus:
+      type: object
+      properties:
+        undo:
+          type: boolean
+        redo:
+          type: boolean
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: Service status
+          content:
+            application/json:
+              schema:
+                type: object
+  /auth/enroll-request:
+    post:
+      summary: Initiate device enrollment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrollmentRequest'
+      responses:
+        '200':
+          description: Enrollment nonce issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentResponse'
+  /auth/enroll-complete:
+    post:
+      summary: Complete device enrollment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrollmentCompleteRequest'
+      responses:
+        '200':
+          description: Device enrolled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  device_id:
+                    type: string
+                  fingerprint_sum:
+                    type: string
+  /auth/request-nonce:
+    post:
+      summary: Request login nonce
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NonceRequest'
+      responses:
+        '200':
+          description: Nonce issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NonceResponse'
+  /auth/login:
+    post:
+      summary: Authenticate a device
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Session issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+  /api/v1/ledgers/{type}:
+    get:
+      summary: List ledger entries
+      parameters:
+        - in: path
+          name: type
+          required: true
+          schema:
+            type: string
+            enum: [ips, devices, personnel, systems]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Ledger list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerListResponse'
+    post:
+      summary: Create ledger entry
+      parameters:
+        - in: path
+          name: type
+          required: true
+          schema:
+            type: string
+            enum: [ips, devices, personnel, systems]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LedgerEntry'
+      responses:
+        '200':
+          description: Entry created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerEntry'
+  /api/v1/ledgers/{type}/{id}:
+    put:
+      summary: Update a ledger entry
+      parameters:
+        - in: path
+          name: type
+          required: true
+          schema:
+            type: string
+            enum: [ips, devices, personnel, systems]
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LedgerEntry'
+      responses:
+        '200':
+          description: Entry updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerEntry'
+    delete:
+      summary: Delete a ledger entry
+      parameters:
+        - in: path
+          name: type
+          required: true
+          schema:
+            type: string
+            enum: [ips, devices, personnel, systems]
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Entry deleted
+  /api/v1/ledgers/{type}/reorder:
+    post:
+      summary: Reorder ledger entries
+      parameters:
+        - in: path
+          name: type
+          required: true
+          schema:
+            type: string
+            enum: [ips, devices, personnel, systems]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LedgerReorderRequest'
+      responses:
+        '200':
+          description: New ordering returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerListResponse'
+  /api/v1/ledgers/{type}/import:
+    post:
+      summary: Import a single ledger from XLSX
+      parameters:
+        - in: path
+          name: type
+          required: true
+          schema:
+            type: string
+            enum: [ips, devices, personnel, systems]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LedgerImportRequest'
+      responses:
+        '200':
+          description: Ledger replaced
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerListResponse'
+  /api/v1/ledgers/export:
+    get:
+      summary: Export all ledgers to XLSX
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: XLSX workbook
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+  /api/v1/ledgers/import:
+    post:
+      summary: Import all ledgers from XLSX
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LedgerImportRequest'
+      responses:
+        '200':
+          description: Import accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+  /api/v1/ledger-cartesian:
+    get:
+      summary: Derived ledger matrix
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Cartesian rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rows:
+                    type: array
+                    items:
+                      type: array
+                      items:
+                        type: string
+  /api/v1/ip-allowlist:
+    get:
+      summary: List allowlist entries
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Allowlist entries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllowlistListResponse'
+    post:
+      summary: Add allowlist entry
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AllowlistRequest'
+      responses:
+        '200':
+          description: Entry stored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllowlistEntry'
+  /api/v1/ip-allowlist/{id}:
+    put:
+      summary: Update allowlist entry
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AllowlistRequest'
+      responses:
+        '200':
+          description: Entry updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllowlistEntry'
+    delete:
+      summary: Delete allowlist entry
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Entry removed
+  /api/v1/history/undo:
+    post:
+      summary: Undo previous mutation
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Undo successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+  /api/v1/history/redo:
+    post:
+      summary: Redo next mutation
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Redo successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+  /api/v1/history:
+    get:
+      summary: History availability
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Undo/redo availability
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HistoryStatus'
+  /api/v1/audit:
+    get:
+      summary: List audit logs
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Audit log entries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditListResponse'
+  /api/v1/audit/verify:
+    get:
+      summary: Verify audit chain
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Chain verification result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verified:
+                    type: boolean
