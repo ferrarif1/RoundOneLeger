@@ -151,6 +151,13 @@ components:
         message:
           type: string
           description: Human-readable message that must be signed by the SDID wallet
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
     LoginRequest:
       type: object
       required:
@@ -205,6 +212,8 @@ components:
           type: object
           additionalProperties: {}
           description: JSON Web Key describing an ECDSA P-256 public key
+        authorized:
+          type: boolean
     SdidAuthentication:
       type: object
       properties:
@@ -257,6 +266,26 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Session'
+        '401':
+          description: Signature validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                signature_invalid:
+                  value:
+                    error: signature invalid
+        '403':
+          description: Identity lacks administrator approval
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_approved:
+                  value:
+                    error: identity_not_approved
   /api/v1/ledgers/{type}:
     get:
       summary: List ledger entries

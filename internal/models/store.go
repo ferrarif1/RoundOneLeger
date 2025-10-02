@@ -24,6 +24,8 @@ var (
 	ErrLoginChallengeNotFound = errors.New("login challenge not found")
 	// ErrSignatureInvalid indicates that signature verification failed.
 	ErrSignatureInvalid = errors.New("signature invalid")
+	// ErrIdentityNotApproved indicates that the SDID identity lacks the required administrator certification.
+	ErrIdentityNotApproved = errors.New("identity_not_approved")
 	// ErrIPNotAllowed indicates the source IP is not within the allowlist.
 	ErrIPNotAllowed = errors.New("ip not allowed")
 )

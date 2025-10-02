@@ -114,6 +114,7 @@ type sdidIdentity struct {
 	Label        string          `json:"label"`
 	Roles        []string        `json:"roles"`
 	PublicKeyJWK json.RawMessage `json:"publicKeyJwk"`
+	Authorized   bool            `json:"authorized"`
 }
 
 type sdidProof struct {
@@ -131,6 +132,26 @@ type sdidLoginResponse struct {
 	Signature      string              `json:"signature"`
 	Proof          sdidProof           `json:"proof"`
 	Authentication *sdidAuthentication `json:"authentication"`
+	Authorized     bool                `json:"authorized"`
+}
+
+type approvalClaims struct {
+	Approved   bool   `json:"approved"`
+	Approver   string `json:"approver"`
+	ApproverID string `json:"approverDid"`
+	ApprovedAt string `json:"approvedAt"`
+}
+
+type resourcesClaims struct {
+	Roles         []string       `json:"roles"`
+	Approved      bool           `json:"approved"`
+	Certification approvalClaims `json:"certification"`
+}
+
+type authenticationClaims struct {
+	Resources     resourcesClaims `json:"resources"`
+	Approved      bool            `json:"approved"`
+	Certification approvalClaims  `json:"certification"`
 }
 
 type loginRequest struct {
@@ -168,7 +189,11 @@ func (s *Server) handleLogin(c *gin.Context) {
 		}
 	}
 	if err := s.verifySdidLoginResponse(challenge, &req.Response); err != nil {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		status := http.StatusUnauthorized
+		if errors.Is(err, models.ErrIdentityNotApproved) {
+			status = http.StatusForbidden
+		}
+		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
 		return
 	}
 	sdid := strings.TrimSpace(req.Response.Identity.DID)
@@ -269,6 +294,65 @@ func decodeJWK(data json.RawMessage) (*ecdsa.PublicKey, error) {
 	return &ecdsa.PublicKey{Curve: curve, X: x, Y: y}, nil
 }
 
+func normaliseRoles(roles []string) []string {
+	out := make([]string, 0, len(roles))
+	for _, role := range roles {
+		trimmed := strings.TrimSpace(role)
+		if trimmed == "" {
+			continue
+		}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func mergeRoles(sets ...[]string) []string {
+	total := 0
+	for _, set := range sets {
+		total += len(set)
+	}
+	merged := make([]string, 0, total)
+	for _, set := range sets {
+		if len(set) == 0 {
+			continue
+		}
+		merged = append(merged, set...)
+	}
+	return merged
+}
+
+func containsAdminRole(roles []string) bool {
+	for _, role := range roles {
+		lowered := strings.ToLower(role)
+		if lowered == "" {
+			continue
+		}
+		if strings.Contains(lowered, "admin") || lowered == "approver" || strings.Contains(lowered, "approver") {
+			return true
+		}
+	}
+	return false
+}
+
+func claimsApproved(claims authenticationClaims) bool {
+	if claims.Approved || claims.Certification.Approved {
+		return true
+	}
+	if claims.Resources.Approved || claims.Resources.Certification.Approved {
+		return true
+	}
+	if claims.Certification.Approver != "" || claims.Certification.ApproverID != "" {
+		return true
+	}
+	if claims.Resources.Certification.Approver != "" || claims.Resources.Certification.ApproverID != "" {
+		return true
+	}
+	if claims.Certification.ApprovedAt != "" || claims.Resources.Certification.ApprovedAt != "" {
+		return true
+	}
+	return false
+}
+
 func (s *Server) verifySdidLoginResponse(challenge *models.LoginChallenge, resp *sdidLoginResponse) error {
 	if resp == nil {
 		return errors.New("invalid_payload")
@@ -296,9 +380,11 @@ func (s *Server) verifySdidLoginResponse(challenge *models.LoginChallenge, resp 
 		return err
 	}
 	signedData := ""
+	var claims authenticationClaims
 	if resp.Authentication != nil {
 		signedData = strings.TrimSpace(resp.Authentication.CanonicalRequest)
 		if len(resp.Authentication.Payload) > 0 {
+			_ = json.Unmarshal(resp.Authentication.Payload, &claims)
 			canonical, err := canonicalizeJSON(resp.Authentication.Payload)
 			if err != nil {
 				return errors.New("invalid_authentication_payload")
@@ -322,7 +408,7 @@ func (s *Server) verifySdidLoginResponse(challenge *models.LoginChallenge, resp 
 	}
 	hash := sha256.Sum256([]byte(signedData))
 	if ecdsa.VerifyASN1(publicKey, hash[:], sigBytes) {
-		return nil
+		return s.evaluateIdentityApproval(resp, claims)
 	}
 	raw := sigBytes
 	if len(raw) == 65 && raw[0] == 0x00 {
@@ -330,12 +416,25 @@ func (s *Server) verifySdidLoginResponse(challenge *models.LoginChallenge, resp 
 	}
 	if len(raw) == 64 {
 		r := new(big.Int).SetBytes(raw[:32])
-		s := new(big.Int).SetBytes(raw[32:])
-		if ecdsa.Verify(publicKey, hash[:], r, s) {
-			return nil
+		sVal := new(big.Int).SetBytes(raw[32:])
+		if ecdsa.Verify(publicKey, hash[:], r, sVal) {
+			return s.evaluateIdentityApproval(resp, claims)
 		}
 	}
 	return models.ErrSignatureInvalid
+}
+
+func (s *Server) evaluateIdentityApproval(resp *sdidLoginResponse, claims authenticationClaims) error {
+	roles := normaliseRoles(resp.Identity.Roles)
+	resourceRoles := normaliseRoles(claims.Resources.Roles)
+	mergedRoles := mergeRoles(roles, resourceRoles)
+	if containsAdminRole(mergedRoles) {
+		return nil
+	}
+	if resp.Identity.Authorized || resp.Authorized || claimsApproved(claims) {
+		return nil
+	}
+	return models.ErrIdentityNotApproved
 }
 
 func clientIP(r *http.Request) string {

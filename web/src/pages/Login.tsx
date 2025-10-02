@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import type { AxiosError } from 'axios';
 import { LockClosedIcon } from '@heroicons/react/24/outline';
 
 import api from '../api/client';
@@ -505,14 +506,25 @@ const Login = () => {
       setToken(data.token);
     } catch (error) {
       console.error('SDID login failed', error);
-      const message =
-        (error as any)?.response?.data?.error ||
-        (error instanceof Error ? error.message : 'SDID 登录失败，请确认插件已启用并允许此站点。');
+      const axiosError = error as AxiosError<{ error?: string }>;
+      const serverCode = axiosError?.response?.data?.error;
+      let message: string;
+      if (serverCode === 'identity_not_approved') {
+        message = '当前身份尚未通过管理员认证，请联系管理员完成审批后再试。';
+      } else {
+        message =
+          serverCode ||
+          (error instanceof Error
+            ? error.message
+            : 'SDID 登录失败，请确认插件已启用并允许此站点。');
+      }
+
       setStatus({ message, tone: 'error' });
       setVerification((previous) => ({
-        message: previous?.success
-          ? `${previous.message.replace(/。$/, '')}，但服务器会话创建失败：${message}`
-          : message || 'SDID 登录失败。',
+        message:
+          previous?.success && message
+            ? `${previous.message.replace(/。$/, '')}，但服务器会话创建失败：${message}`
+            : message || 'SDID 登录失败。',
         success: false,
         mode: 'skipped'
       }));
