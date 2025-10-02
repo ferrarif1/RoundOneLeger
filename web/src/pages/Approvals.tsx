@@ -152,7 +152,14 @@ const Approvals = () => {
     } catch (err) {
       console.error('Approval signing failed', err);
       const axiosError = err as AxiosError<{ error?: string }>;
-      setError(axiosError.response?.data?.error || axiosError.message || '审批未能完成，请重试。');
+      const serverError = axiosError.response?.data?.error;
+      if (serverError === 'challenge_mismatch') {
+        setError('签名挑战已过期，请刷新审批列表后重试。');
+      } else if (serverError === 'admin_required' || serverError === 'admin_mismatch') {
+        setError('仅限管理员账户完成审批签名，请确认当前登录身份。');
+      } else {
+        setError(serverError || axiosError.message || '审批未能完成，请重试。');
+      }
     } finally {
       setSubmittingId(null);
     }
