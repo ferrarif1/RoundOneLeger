@@ -321,10 +321,21 @@ func (s *Server) verifySdidLoginResponse(challenge *models.LoginChallenge, resp 
 		return errors.New("missing_challenge")
 	}
 	hash := sha256.Sum256([]byte(signedData))
-	if !ecdsa.VerifyASN1(publicKey, hash[:], sigBytes) {
-		return models.ErrSignatureInvalid
+	if ecdsa.VerifyASN1(publicKey, hash[:], sigBytes) {
+		return nil
 	}
-	return nil
+	raw := sigBytes
+	if len(raw) == 65 && raw[0] == 0x00 {
+		raw = raw[1:]
+	}
+	if len(raw) == 64 {
+		r := new(big.Int).SetBytes(raw[:32])
+		s := new(big.Int).SetBytes(raw[32:])
+		if ecdsa.Verify(publicKey, hash[:], r, s) {
+			return nil
+		}
+	}
+	return models.ErrSignatureInvalid
 }
 
 func clientIP(r *http.Request) string {

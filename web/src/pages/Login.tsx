@@ -212,6 +212,32 @@ const decodeBase64 = (value: string): Uint8Array => {
 
 const decodeSignature = (value: string): Uint8Array => decodeBase64(value);
 
+const parseSignature = (bytes: Uint8Array): p256.Signature | null => {
+  if (!bytes.length) {
+    return null;
+  }
+  try {
+    return p256.Signature.fromDER(bytes);
+  } catch (derError) {
+    if (bytes.length === 64) {
+      try {
+        return p256.Signature.fromCompact(bytes);
+      } catch (compactError) {
+        console.warn('Unable to parse SDID signature as compact form', compactError);
+      }
+    }
+    if (bytes.length === 65 && bytes[0] === 0x00) {
+      try {
+        return p256.Signature.fromCompact(bytes.slice(1));
+      } catch (compactError) {
+        console.warn('Unable to parse SDID signature with leading tag removed', compactError);
+      }
+    }
+    console.warn('Unable to parse SDID signature as DER', derError);
+    return null;
+  }
+};
+
 const decodeCoordinate = (value: unknown): Uint8Array => {
   if (typeof value !== 'string' || !value.trim()) {
     return new Uint8Array();
@@ -260,9 +286,12 @@ const verifyWithFallback = (
     if (!signatureBytes.length) {
       return { ok: false, reason: 'invalid_signature' };
     }
-    const signature = p256.Signature.fromDER(signatureBytes);
+    const parsed = parseSignature(signatureBytes);
+    if (!parsed) {
+      return { ok: false, reason: 'invalid_signature_format' };
+    }
     const hashed = sha256(encodeText(signedData));
-    const verified = signature.verify(hashed, publicKey);
+    const verified = parsed.verify(hashed, publicKey);
     return { ok: verified };
   } catch (error) {
     console.warn('Fallback verification failed', error);
