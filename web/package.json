@@ -12,6 +12,8 @@
   "dependencies": {
     "@headlessui/react": "^1.7.17",
     "@heroicons/react": "^2.1.4",
+    "@noble/curves": "^1.4.0",
+    "@noble/hashes": "^1.4.0",
     "axios": "^1.6.8",
     "clsx": "^2.0.0",
     "framer-motion": "^11.0.15",
