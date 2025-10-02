@@ -11,6 +11,12 @@ const resolveBaseURL = (): string => {
   if (typeof window !== 'undefined') {
     const { protocol, hostname, port } = window.location;
 
+    const isHttp = protocol === 'http:' || protocol === 'https:';
+
+    if (!isHttp || !hostname) {
+      return 'http://localhost:8080';
+    }
+
     if (port && DEV_PORTS.has(port)) {
       return `${protocol}//${hostname}:8080`;
     }
