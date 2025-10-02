@@ -1,7 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import {
   ChartPieIcon,
-  CpuChipIcon,
   DocumentTextIcon,
   ShieldCheckIcon,
   SparklesIcon,
@@ -12,7 +11,6 @@ import {
 const links = [
   { to: '/dashboard', label: '概览', icon: ChartPieIcon },
   { to: '/assets', label: '台账', icon: Squares2X2Icon },
-  { to: '/devices', label: '设备', icon: CpuChipIcon },
   { to: '/ip-allowlist', label: 'IP 白名单', icon: ShieldCheckIcon },
   { to: '/audit-logs', label: '审计日志', icon: DocumentTextIcon },
   { to: '/approvals', label: '身份审批', icon: ClipboardDocumentCheckIcon }

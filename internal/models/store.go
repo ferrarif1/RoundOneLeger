@@ -34,6 +34,8 @@ var (
 	ErrApprovalAlreadyCompleted = errors.New("approval_already_completed")
 	// ErrIPNotAllowed indicates the source IP is not within the allowlist.
 	ErrIPNotAllowed = errors.New("ip not allowed")
+	// ErrWorkspaceNotFound indicates the requested collaborative workspace does not exist.
+	ErrWorkspaceNotFound = errors.New("workspace_not_found")
 )
 
 var (
@@ -47,6 +49,8 @@ type LedgerStore struct {
 	mu sync.RWMutex
 
 	entries             map[LedgerType][]LedgerEntry
+	workspaces          map[string]*Workspace
+	workspaceOrder      []string
 	allow               map[string]*IPAllowlistEntry
 	audits              []*AuditLogEntry
 	profiles            map[string]IdentityProfile
@@ -120,6 +124,7 @@ const (
 func NewLedgerStore() *LedgerStore {
 	store := &LedgerStore{
 		entries:             make(map[LedgerType][]LedgerEntry),
+		workspaces:          make(map[string]*Workspace),
 		allow:               make(map[string]*IPAllowlistEntry),
 		profiles:            make(map[string]IdentityProfile),
 		approvals:           make(map[string]*IdentityApproval),
@@ -390,6 +395,278 @@ func cloneSnapshot(snapshot storeSnapshot) map[LedgerType][]LedgerEntry {
 		cloned[typ] = cloneEntrySlice(items)
 	}
 	return cloned
+}
+
+// WorkspaceUpdate contains optional updates applied to a workspace.
+type WorkspaceUpdate struct {
+	Name        string
+	Document    string
+	Columns     []WorkspaceColumn
+	Rows        []WorkspaceRow
+	SetName     bool
+	SetDocument bool
+	SetColumns  bool
+	SetRows     bool
+}
+
+// ListWorkspaces returns the collaborative workspaces in creation order.
+func (s *LedgerStore) ListWorkspaces() []*Workspace {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]*Workspace, 0, len(s.workspaceOrder))
+	for _, id := range s.workspaceOrder {
+		if workspace, ok := s.workspaces[id]; ok {
+			out = append(out, workspace.Clone())
+		}
+	}
+	return out
+}
+
+// GetWorkspace retrieves a workspace by ID.
+func (s *LedgerStore) GetWorkspace(id string) (*Workspace, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	workspace, ok := s.workspaces[strings.TrimSpace(id)]
+	if !ok {
+		return nil, ErrWorkspaceNotFound
+	}
+	return workspace.Clone(), nil
+}
+
+// CreateWorkspace adds a new collaborative workspace to the store.
+func (s *LedgerStore) CreateWorkspace(name string, columns []WorkspaceColumn, rows []WorkspaceRow, document string, actor string) (*Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().UTC()
+	workspace := &Workspace{
+		ID:        GenerateID("ws"),
+		Name:      sanitizeWorkspaceName(name),
+		Document:  strings.TrimSpace(document),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	normalizedColumns := normalizeWorkspaceColumns(columns)
+	if len(normalizedColumns) == 0 {
+		normalizedColumns = []WorkspaceColumn{}
+	}
+	normalizedRows := normalizeWorkspaceRows(rows, normalizedColumns, now)
+
+	workspace.Columns = normalizedColumns
+	workspace.Rows = normalizedRows
+
+	s.workspaces[workspace.ID] = workspace
+	s.workspaceOrder = append(s.workspaceOrder, workspace.ID)
+	s.appendAuditLocked(actor, "workspace_create", workspace.ID)
+	return workspace.Clone(), nil
+}
+
+// UpdateWorkspace applies the provided updates to an existing workspace.
+func (s *LedgerStore) UpdateWorkspace(id string, update WorkspaceUpdate, actor string) (*Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	workspace, ok := s.workspaces[strings.TrimSpace(id)]
+	if !ok {
+		return nil, ErrWorkspaceNotFound
+	}
+
+	now := time.Now().UTC()
+
+	if update.SetName {
+		workspace.Name = sanitizeWorkspaceName(update.Name)
+	}
+	if update.SetDocument {
+		workspace.Document = strings.TrimSpace(update.Document)
+	}
+	if update.SetColumns {
+		normalized := normalizeWorkspaceColumns(update.Columns)
+		workspace.Columns = normalized
+		workspace.Rows = normalizeWorkspaceRows(workspace.Rows, normalized, now)
+	}
+	if update.SetRows {
+		workspace.Rows = normalizeWorkspaceRows(update.Rows, workspace.Columns, now)
+	}
+
+	workspace.UpdatedAt = now
+	s.workspaces[workspace.ID] = workspace
+	s.appendAuditLocked(actor, "workspace_update", workspace.ID)
+	return workspace.Clone(), nil
+}
+
+// DeleteWorkspace removes a workspace and its data.
+func (s *LedgerStore) DeleteWorkspace(id string, actor string) error {
+	trimmed := strings.TrimSpace(id)
+	if trimmed == "" {
+		return ErrWorkspaceNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.workspaces[trimmed]; !ok {
+		return ErrWorkspaceNotFound
+	}
+	delete(s.workspaces, trimmed)
+	filtered := s.workspaceOrder[:0]
+	for _, existing := range s.workspaceOrder {
+		if existing == trimmed {
+			continue
+		}
+		filtered = append(filtered, existing)
+	}
+	s.workspaceOrder = filtered
+	s.appendAuditLocked(actor, "workspace_delete", trimmed)
+	return nil
+}
+
+// ReplaceWorkspaceData overwrites the table content with provided headers and rows.
+func (s *LedgerStore) ReplaceWorkspaceData(id string, headers []string, records [][]string, actor string) (*Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	workspace, ok := s.workspaces[strings.TrimSpace(id)]
+	if !ok {
+		return nil, ErrWorkspaceNotFound
+	}
+
+	now := time.Now().UTC()
+	normalizedHeaders := sanitizeHeaders(headers, records)
+	columns := make([]WorkspaceColumn, len(normalizedHeaders))
+	for i, title := range normalizedHeaders {
+		columns[i] = WorkspaceColumn{ID: GenerateID("col"), Title: title}
+	}
+
+	rows := make([]WorkspaceRow, 0, len(records))
+	for _, record := range records {
+		cells := make(map[string]string, len(columns))
+		for idx, column := range columns {
+			if idx < len(record) {
+				cells[column.ID] = strings.TrimSpace(record[idx])
+			} else {
+				cells[column.ID] = ""
+			}
+		}
+		rows = append(rows, WorkspaceRow{
+			ID:        GenerateID("row"),
+			Cells:     cells,
+			CreatedAt: now,
+			UpdatedAt: now,
+		})
+	}
+
+	workspace.Columns = columns
+	workspace.Rows = rows
+	workspace.UpdatedAt = now
+
+	s.workspaces[workspace.ID] = workspace
+	s.appendAuditLocked(actor, "workspace_import", workspace.ID)
+	return workspace.Clone(), nil
+}
+
+func sanitizeWorkspaceName(name string) string {
+	trimmed := strings.TrimSpace(name)
+	if trimmed != "" {
+		return trimmed
+	}
+	return "未命名台账"
+}
+
+func normalizeWorkspaceColumns(input []WorkspaceColumn) []WorkspaceColumn {
+	if len(input) == 0 {
+		return []WorkspaceColumn{}
+	}
+	out := make([]WorkspaceColumn, 0, len(input))
+	seenIDs := make(map[string]struct{}, len(input))
+	for idx, col := range input {
+		title := strings.TrimSpace(col.Title)
+		if title == "" {
+			title = fmt.Sprintf("列%d", idx+1)
+		}
+		id := strings.TrimSpace(col.ID)
+		for id == "" || hasID(seenIDs, id) {
+			id = GenerateID("col")
+		}
+		seenIDs[id] = struct{}{}
+		width := col.Width
+		if width < 0 {
+			width = 0
+		}
+		out = append(out, WorkspaceColumn{ID: id, Title: title, Width: width})
+	}
+	return out
+}
+
+func normalizeWorkspaceRows(input []WorkspaceRow, columns []WorkspaceColumn, now time.Time) []WorkspaceRow {
+	if len(columns) == 0 || len(input) == 0 {
+		return []WorkspaceRow{}
+	}
+	columnIDs := make([]string, len(columns))
+	for i, col := range columns {
+		columnIDs[i] = col.ID
+	}
+	out := make([]WorkspaceRow, 0, len(input))
+	seenIDs := make(map[string]struct{}, len(input))
+	for _, row := range input {
+		id := strings.TrimSpace(row.ID)
+		for id == "" || hasID(seenIDs, id) {
+			id = GenerateID("row")
+		}
+		seenIDs[id] = struct{}{}
+		cells := make(map[string]string, len(columnIDs))
+		for _, colID := range columnIDs {
+			var value string
+			if row.Cells != nil {
+				value = strings.TrimSpace(row.Cells[colID])
+			}
+			cells[colID] = value
+		}
+		created := row.CreatedAt
+		if created.IsZero() {
+			created = now
+		}
+		out = append(out, WorkspaceRow{
+			ID:        id,
+			Cells:     cells,
+			CreatedAt: created,
+			UpdatedAt: now,
+		})
+	}
+	return out
+}
+
+func sanitizeHeaders(headers []string, records [][]string) []string {
+	maxColumns := len(headers)
+	for _, record := range records {
+		if len(record) > maxColumns {
+			maxColumns = len(record)
+		}
+	}
+	if maxColumns == 0 {
+		return []string{}
+	}
+	out := make([]string, maxColumns)
+	used := make(map[string]int, maxColumns)
+	for i := 0; i < maxColumns; i++ {
+		title := ""
+		if i < len(headers) {
+			title = strings.TrimSpace(headers[i])
+		}
+		if title == "" {
+			title = fmt.Sprintf("列%d", i+1)
+		}
+		if count := used[title]; count > 0 {
+			title = fmt.Sprintf("%s (%d)", title, count+1)
+		}
+		used[title]++
+		out[i] = title
+	}
+	return out
+}
+
+func hasID(seen map[string]struct{}, id string) bool {
+	_, ok := seen[id]
+	return ok
 }
 
 // AppendAllowlist inserts or updates an allowlist entry.

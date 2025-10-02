@@ -7,13 +7,12 @@ type LedgerType string
 
 const (
 	LedgerTypeIP        LedgerType = "ips"
-	LedgerTypeDevice    LedgerType = "devices"
 	LedgerTypePersonnel LedgerType = "personnel"
 	LedgerTypeSystem    LedgerType = "systems"
 )
 
 // AllLedgerTypes lists the supported ledgers in a stable order.
-var AllLedgerTypes = []LedgerType{LedgerTypeIP, LedgerTypeDevice, LedgerTypePersonnel, LedgerTypeSystem}
+var AllLedgerTypes = []LedgerType{LedgerTypeIP, LedgerTypePersonnel, LedgerTypeSystem}
 
 // LedgerEntry describes a single item within a ledger.
 type LedgerEntry struct {
@@ -47,6 +46,57 @@ func (e LedgerEntry) Clone() LedgerEntry {
 		}
 	}
 	return clone
+}
+
+// WorkspaceColumn describes a dynamic column within a collaborative sheet.
+type WorkspaceColumn struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Width int    `json:"width,omitempty"`
+}
+
+// WorkspaceRow stores user-entered cell values keyed by column ID.
+type WorkspaceRow struct {
+	ID        string            `json:"id"`
+	Cells     map[string]string `json:"cells"`
+	CreatedAt time.Time         `json:"created_at"`
+	UpdatedAt time.Time         `json:"updated_at"`
+}
+
+// Workspace represents a flexible spreadsheet-style ledger combined with rich text content.
+type Workspace struct {
+	ID        string            `json:"id"`
+	Name      string            `json:"name"`
+	Columns   []WorkspaceColumn `json:"columns"`
+	Rows      []WorkspaceRow    `json:"rows"`
+	Document  string            `json:"document,omitempty"`
+	CreatedAt time.Time         `json:"created_at"`
+	UpdatedAt time.Time         `json:"updated_at"`
+}
+
+// Clone returns a deep copy of the workspace structure for safe sharing across callers.
+func (w *Workspace) Clone() *Workspace {
+	if w == nil {
+		return nil
+	}
+	clone := *w
+	if len(w.Columns) > 0 {
+		clone.Columns = append([]WorkspaceColumn{}, w.Columns...)
+	}
+	if len(w.Rows) > 0 {
+		clone.Rows = make([]WorkspaceRow, len(w.Rows))
+		for i, row := range w.Rows {
+			clonedRow := row
+			if row.Cells != nil {
+				clonedRow.Cells = make(map[string]string, len(row.Cells))
+				for key, value := range row.Cells {
+					clonedRow.Cells[key] = value
+				}
+			}
+			clone.Rows[i] = clonedRow
+		}
+	}
+	return &clone
 }
 
 // IPAllowlistEntry represents a single CIDR or address allowed to access the system.

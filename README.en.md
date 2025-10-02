@@ -1,14 +1,15 @@
 # RoundOneLeger
 
 ## Overview
-RoundOneLeger is a full-stack asset ledger system that centralizes inventory for IP addresses, devices, personnel, and supporting audit data. The backend is written in Go with a Gin-compatible router while the frontend uses React and Tailwind-style utilities.
+RoundOneLeger is a full-stack asset ledger system that centralizes inventory for IP addresses, personnel, systems, and supporting audit data while layering on collaborative workspace tooling. The backend is written in Go with a Gin-compatible router while the frontend uses React and Tailwind-style utilities.
 
 ## Key Features
-- **Ledger management APIs** for IPs, devices, personnel, and systems with support for manual CRUD, ordering, and tag metadata.
+- **Ledger management APIs** for IPs, personnel, and systems with support for manual CRUD, ordering, and tag metadata.
 - **Excel import/export pipeline** that can normalize header variations, detect IP columns via regex, and generate multi-sheet or Cartesian reports.
 - **Undo/redo history** that captures mutating operations so operators can roll back up to ten steps in either direction.
 - **Authentication and allowlisting hooks** supporting SDID wallet challenge/response logins plus optional fixed-network allowlisting.
 - **Tamper-evident audit log** endpoints capable of exporting signed chains and verifying historical integrity.
+- **Collaborative workspace UI** offering dynamic spreadsheet-style ledgers with clipboard import, Excel syncing, and an inline rich text editor for commentary or images.
 
 ## Architecture
 - **Backend (`cmd/server`, `internal/`)** – Go 1.22 service exposing REST endpoints through a vendored Gin shim, with typed ledger store, authentication helpers, and middleware.
@@ -61,6 +62,16 @@ This brings up Postgres alongside the backend container. Adjust environment vari
 - Submit `{nonce, response}` to `/auth/login` where `response` is the untouched object from `requestLogin`; the Go backend rebuilds the canonical request, verifies the DER-encoded signature against the supplied JWK, and issues a session token. Identities with an administrator role are admitted immediately, while non-admin accounts must carry an administrator certification (e.g. `authorized: true` in the SDID payload) or the server will return `identity_not_approved`.
 - The login screen verifies signatures with WebCrypto when available and transparently falls back to a pure TypeScript P-256 implementation when the browser blocks `crypto.subtle` on HTTP-only intranet deployments. After a successful login the SDID button is replaced with “`${username} 已登陆`” and the returned payload is summarized alongside the raw JSON for auditing.
 - You can still manage IP allowlists from the console to restrict which networks may reach the authenticated APIs.
+
+## Collaborative Workspaces
+
+- `GET /api/v1/workspaces` surfaces every collaborative sheet with its dynamic columns, row data, and document metadata.
+- `POST /api/v1/workspaces` / `PUT` / `DELETE` create, rename, restructure, or archive a workspace directly through the API.
+- `POST /api/v1/workspaces/{id}/import/excel` ingests an uploaded XLSX file and replaces the table content while preserving the workspace shell.
+- `POST /api/v1/workspaces/{id}/import/text` accepts pasted tab/CSV data for quick bulk entry without leaving the browser.
+- `GET /api/v1/workspaces/{id}/export` downloads the current sheet as an Excel workbook for offline sharing or further processing.
+
+The React console mirrors these endpoints with an interactive grid: operators can add/remove columns on demand, paste clipboard data, upload spreadsheets, and maintain a WYSIWYG-style narrative panel (including inline images) alongside the structured ledger.
 
 ## Project Layout
 ```

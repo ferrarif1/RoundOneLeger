@@ -7,6 +7,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
@@ -55,6 +57,15 @@ func (s *Server) RegisterRoutes(router *gin.Engine) {
 		secured.GET("/ledgers/export", s.handleExportLedger)
 		secured.POST("/ledgers/import", s.handleImportWorkbook)
 		secured.GET("/ledger-cartesian", s.handleLedgerMatrix)
+
+		secured.GET("/workspaces", s.handleListWorkspaces)
+		secured.POST("/workspaces", s.handleCreateWorkspace)
+		secured.GET("/workspaces/:id", s.handleGetWorkspace)
+		secured.PUT("/workspaces/:id", s.handleUpdateWorkspace)
+		secured.DELETE("/workspaces/:id", s.handleDeleteWorkspace)
+		secured.POST("/workspaces/:id/import/excel", s.handleImportWorkspaceExcel)
+		secured.POST("/workspaces/:id/import/text", s.handleImportWorkspaceText)
+		secured.GET("/workspaces/:id/export", s.handleExportWorkspace)
 
 		secured.GET("/ip-allowlist", s.handleListAllowlist)
 		secured.POST("/ip-allowlist", s.handleCreateAllowlist)
@@ -749,6 +760,49 @@ type ledgerRequest struct {
 	Links       map[string][]string `json:"links"`
 }
 
+type workspaceColumnPayload struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Width int    `json:"width,omitempty"`
+}
+
+type workspaceRowPayload struct {
+	ID        string            `json:"id"`
+	Cells     map[string]string `json:"cells"`
+	CreatedAt time.Time         `json:"createdAt,omitempty"`
+	UpdatedAt time.Time         `json:"updatedAt,omitempty"`
+}
+
+type workspaceResponse struct {
+	ID        string                   `json:"id"`
+	Name      string                   `json:"name"`
+	Columns   []workspaceColumnPayload `json:"columns"`
+	Rows      []workspaceRowPayload    `json:"rows"`
+	Document  string                   `json:"document,omitempty"`
+	CreatedAt time.Time                `json:"createdAt"`
+	UpdatedAt time.Time                `json:"updatedAt"`
+}
+
+type workspaceRequest struct {
+	Name     string                   `json:"name"`
+	Document string                   `json:"document"`
+	Columns  []workspaceColumnPayload `json:"columns"`
+	Rows     []workspaceRowPayload    `json:"rows"`
+}
+
+type workspaceUpdateRequest struct {
+	Name     *string                   `json:"name,omitempty"`
+	Document *string                   `json:"document,omitempty"`
+	Columns  *[]workspaceColumnPayload `json:"columns,omitempty"`
+	Rows     *[]workspaceRowPayload    `json:"rows,omitempty"`
+}
+
+type workspaceTextImportRequest struct {
+	Text      string `json:"text"`
+	Delimiter string `json:"delimiter"`
+	HasHeader *bool  `json:"hasHeader"`
+}
+
 func (s *Server) handleCreateLedger(c *gin.Context) {
 	typ, ok := parseLedgerType(c.Param("type"))
 	if !ok {
@@ -1014,6 +1068,315 @@ func (s *Server) handleLedgerMatrix(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"rows": matrix})
 }
 
+func (s *Server) handleListWorkspaces(c *gin.Context) {
+	items := s.Store.ListWorkspaces()
+	responses := make([]workspaceResponse, 0, len(items))
+	for _, item := range items {
+		responses = append(responses, workspaceToResponse(item))
+	}
+	c.JSON(http.StatusOK, gin.H{"items": responses})
+}
+
+func (s *Server) handleCreateWorkspace(c *gin.Context) {
+	var req workspaceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+		return
+	}
+	actor := currentSession(c, s.Sessions)
+	workspace, err := s.Store.CreateWorkspace(req.Name, payloadColumnsToModel(req.Columns), payloadRowsToModel(req.Rows), req.Document, actor)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"workspace": workspaceToResponse(workspace)})
+}
+
+func (s *Server) handleGetWorkspace(c *gin.Context) {
+	workspace, err := s.Store.GetWorkspace(c.Param("id"))
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, models.ErrWorkspaceNotFound) {
+			status = http.StatusNotFound
+		}
+		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"workspace": workspaceToResponse(workspace)})
+}
+
+func (s *Server) handleUpdateWorkspace(c *gin.Context) {
+	var req workspaceUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+		return
+	}
+	update := models.WorkspaceUpdate{}
+	if req.Name != nil {
+		update.SetName = true
+		update.Name = *req.Name
+	}
+	if req.Document != nil {
+		update.SetDocument = true
+		update.Document = *req.Document
+	}
+	if req.Columns != nil {
+		update.SetColumns = true
+		update.Columns = payloadColumnsToModel(*req.Columns)
+	}
+	if req.Rows != nil {
+		update.SetRows = true
+		update.Rows = payloadRowsToModel(*req.Rows)
+	}
+	actor := currentSession(c, s.Sessions)
+	workspace, err := s.Store.UpdateWorkspace(c.Param("id"), update, actor)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, models.ErrWorkspaceNotFound) {
+			status = http.StatusNotFound
+		}
+		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"workspace": workspaceToResponse(workspace)})
+}
+
+func (s *Server) handleDeleteWorkspace(c *gin.Context) {
+	if err := s.Store.DeleteWorkspace(c.Param("id"), currentSession(c, s.Sessions)); err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, models.ErrWorkspaceNotFound) {
+			status = http.StatusNotFound
+		}
+		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (s *Server) handleImportWorkspaceExcel(c *gin.Context) {
+	uploaded, _, err := c.Request.FormFile("file")
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "missing_file"})
+		return
+	}
+	defer uploaded.Close()
+
+	data, err := io.ReadAll(uploaded)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "file_read_failed"})
+		return
+	}
+
+	workbook, err := xlsx.Decode(data)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_workbook"})
+		return
+	}
+	if len(workbook.Sheets) == 0 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "workbook_empty"})
+		return
+	}
+	sheet := workbook.Sheets[0]
+	headers := []string{}
+	rows := [][]string{}
+	if len(sheet.Rows) > 0 {
+		headers = append(headers, sheet.Rows[0]...)
+		for _, row := range sheet.Rows[1:] {
+			copied := append([]string{}, row...)
+			rows = append(rows, copied)
+		}
+	}
+	actor := currentSession(c, s.Sessions)
+	workspace, err := s.Store.ReplaceWorkspaceData(c.Param("id"), headers, rows, actor)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, models.ErrWorkspaceNotFound) {
+			status = http.StatusNotFound
+		}
+		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"workspace": workspaceToResponse(workspace)})
+}
+
+func (s *Server) handleImportWorkspaceText(c *gin.Context) {
+	var req workspaceTextImportRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+		return
+	}
+	text := strings.TrimSpace(req.Text)
+	if text == "" {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "empty_text"})
+		return
+	}
+	delimiter := normaliseDelimiter(req.Delimiter)
+	hasHeader := true
+	if req.HasHeader != nil {
+		hasHeader = *req.HasHeader
+	}
+	headers, records := parseDelimitedText(text, delimiter, hasHeader)
+	actor := currentSession(c, s.Sessions)
+	workspace, err := s.Store.ReplaceWorkspaceData(c.Param("id"), headers, records, actor)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, models.ErrWorkspaceNotFound) {
+			status = http.StatusNotFound
+		}
+		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"workspace": workspaceToResponse(workspace)})
+}
+
+func (s *Server) handleExportWorkspace(c *gin.Context) {
+	workspace, err := s.Store.GetWorkspace(c.Param("id"))
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, models.ErrWorkspaceNotFound) {
+			status = http.StatusNotFound
+		}
+		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
+		return
+	}
+
+	rows := make([][]string, 0, len(workspace.Rows)+1)
+	if len(workspace.Columns) > 0 {
+		header := make([]string, len(workspace.Columns))
+		for i, column := range workspace.Columns {
+			header[i] = column.Title
+		}
+		rows = append(rows, header)
+	}
+	for _, row := range workspace.Rows {
+		record := make([]string, len(workspace.Columns))
+		for i, column := range workspace.Columns {
+			record[i] = row.Cells[column.ID]
+		}
+		rows = append(rows, record)
+	}
+	sheetName := workspace.Name
+	if strings.TrimSpace(sheetName) == "" {
+		sheetName = "workspace"
+	}
+	workbook := xlsx.Workbook{Sheets: []xlsx.Sheet{{Name: sheetName, Rows: rows}}}
+	encoded, err := xlsx.Encode(workbook)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "encode_failed"})
+		return
+	}
+	c.Writer.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s.xlsx\"", "workspace"))
+	c.Writer.Write(encoded)
+}
+
+func workspaceToResponse(workspace *models.Workspace) workspaceResponse {
+	if workspace == nil {
+		return workspaceResponse{}
+	}
+	columns := make([]workspaceColumnPayload, len(workspace.Columns))
+	for i, column := range workspace.Columns {
+		columns[i] = workspaceColumnPayload{ID: column.ID, Title: column.Title, Width: column.Width}
+	}
+	rows := make([]workspaceRowPayload, len(workspace.Rows))
+	for i, row := range workspace.Rows {
+		cells := make(map[string]string, len(row.Cells))
+		for key, value := range row.Cells {
+			cells[key] = value
+		}
+		rows[i] = workspaceRowPayload{ID: row.ID, Cells: cells, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
+	}
+	return workspaceResponse{
+		ID:        workspace.ID,
+		Name:      workspace.Name,
+		Columns:   columns,
+		Rows:      rows,
+		Document:  workspace.Document,
+		CreatedAt: workspace.CreatedAt,
+		UpdatedAt: workspace.UpdatedAt,
+	}
+}
+
+func payloadColumnsToModel(columns []workspaceColumnPayload) []models.WorkspaceColumn {
+	if len(columns) == 0 {
+		return nil
+	}
+	out := make([]models.WorkspaceColumn, 0, len(columns))
+	for _, column := range columns {
+		out = append(out, models.WorkspaceColumn{ID: strings.TrimSpace(column.ID), Title: column.Title, Width: column.Width})
+	}
+	return out
+}
+
+func payloadRowsToModel(rows []workspaceRowPayload) []models.WorkspaceRow {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]models.WorkspaceRow, 0, len(rows))
+	for _, row := range rows {
+		cells := make(map[string]string, len(row.Cells))
+		for key, value := range row.Cells {
+			cells[key] = value
+		}
+		out = append(out, models.WorkspaceRow{ID: strings.TrimSpace(row.ID), Cells: cells, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt})
+	}
+	return out
+}
+
+func normaliseDelimiter(value string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(value))
+	switch trimmed {
+	case "", "tab", "\\t":
+		return "\t"
+	case "comma", ",":
+		return ","
+	case "semicolon", ";":
+		return ";"
+	case "space":
+		return " "
+	default:
+		return trimmed
+	}
+}
+
+func parseDelimitedText(text string, delimiter string, hasHeader bool) ([]string, [][]string) {
+	normalized := strings.ReplaceAll(text, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	lines := strings.Split(normalized, "\n")
+	cleaned := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		cleaned = append(cleaned, line)
+	}
+	if len(cleaned) == 0 {
+		return []string{}, [][]string{}
+	}
+	header := []string{}
+	data := [][]string{}
+	for idx, line := range cleaned {
+		fields := splitWithDelimiter(line, delimiter)
+		if idx == 0 && hasHeader {
+			header = append(header, fields...)
+			continue
+		}
+		data = append(data, fields)
+	}
+	return header, data
+}
+
+func splitWithDelimiter(line, delimiter string) []string {
+	if delimiter == "" {
+		return strings.Fields(line)
+	}
+	parts := strings.Split(line, delimiter)
+	for i, part := range parts {
+		parts[i] = strings.TrimSpace(part)
+	}
+	return parts
+}
+
 func (s *Server) handleListAllowlist(c *gin.Context) {
 	entries := s.Store.ListAllowlist()
 	c.JSON(http.StatusOK, gin.H{"items": entries})
@@ -1097,8 +1460,6 @@ func parseLedgerType(value string) (models.LedgerType, bool) {
 	switch value {
 	case "ips", "ip":
 		return models.LedgerTypeIP, true
-	case "devices", "device":
-		return models.LedgerTypeDevice, true
 	case "personnel", "people", "person":
 		return models.LedgerTypePersonnel, true
 	case "systems", "system":
@@ -1152,12 +1513,12 @@ func (s *Server) buildWorkbook() xlsx.Workbook {
 	}
 	combined := s.buildCartesianRows()
 	matrixSheet := xlsx.Sheet{Name: "Matrix"}
-	matrixHeader := []string{"IP", "Device", "Personnel", "System"}
+	matrixHeader := []string{"IP", "Personnel", "System"}
 	matrixSheet.Rows = append(matrixSheet.Rows, matrixHeader)
 	matrixSheet.Rows = append(matrixSheet.Rows, combined...)
 	sheets = append(sheets, matrixSheet)
 	workbook := xlsx.Workbook{Sheets: sheets}
-	workbook.SortSheets([]string{"IP", "Device", "Personnel", "System", "Matrix"})
+	workbook.SortSheets([]string{"IP", "Personnel", "System", "Matrix"})
 	return workbook
 }
 
@@ -1178,28 +1539,23 @@ func attributeKeys(entries []models.LedgerEntry) []string {
 
 func (s *Server) buildCartesianRows() [][]string {
 	ips := s.Store.ListEntries(models.LedgerTypeIP)
-	devices := s.Store.ListEntries(models.LedgerTypeDevice)
 	personnel := s.Store.ListEntries(models.LedgerTypePersonnel)
 	systems := s.Store.ListEntries(models.LedgerTypeSystem)
 
 	rows := [][]string{}
-	for _, device := range devices {
-		linkedIPs := uniqueOrAll(device.Links[models.LedgerTypeIP], ips)
-		linkedPersonnel := uniqueOrAll(device.Links[models.LedgerTypePersonnel], personnel)
-		linkedSystems := uniqueOrAll(device.Links[models.LedgerTypeSystem], systems)
+	for _, system := range systems {
+		linkedIPs := uniqueOrAll(system.Links[models.LedgerTypeIP], ips)
+		linkedPersonnel := uniqueOrAll(system.Links[models.LedgerTypePersonnel], personnel)
 		for _, ipID := range linkedIPs {
 			ipName := lookupName(ipID, ips)
 			for _, personID := range linkedPersonnel {
 				personName := lookupName(personID, personnel)
-				for _, systemID := range linkedSystems {
-					systemName := lookupName(systemID, systems)
-					rows = append(rows, []string{ipName, device.Name, personName, systemName})
-				}
+				rows = append(rows, []string{ipName, personName, system.Name})
 			}
 		}
 	}
 	if len(rows) == 0 {
-		rows = append(rows, []string{"", "", "", ""})
+		rows = append(rows, []string{"", "", ""})
 	}
 	return rows
 }
@@ -1246,8 +1602,6 @@ func sheetNameForType(typ models.LedgerType) string {
 	switch typ {
 	case models.LedgerTypeIP:
 		return "IP"
-	case models.LedgerTypeDevice:
-		return "Device"
 	case models.LedgerTypePersonnel:
 		return "Personnel"
 	case models.LedgerTypeSystem:

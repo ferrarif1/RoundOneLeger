@@ -1,12 +1,13 @@
 # Ledger Platform
 
-This repository contains a self-contained asset ledger backend written in Go. It exposes a REST API for device/IP/personnel/system management, supports public-key based authentication, enforces IP allowlists, provides undo/redo history, and can import/export Excel workbooks that describe the ledgers individually or as a Cartesian matrix.
+This repository contains a self-contained asset ledger backend written in Go. It exposes REST APIs for IP/personnel/system management, supports public-key based authentication, enforces IP allowlists, provides undo/redo history, and can import/export Excel workbooks that describe the ledgers individually or as a Cartesian matrix.
 
 ## Features
 
-- **Authentication** – Ed25519 enrollment/login flows that bind users to browser/device fingerprints and issue bearer tokens.
-- **Ledger management** – CRUD endpoints for IPs, devices, personnel, and systems with tagging, ordering, and cross-linking.
+- **Authentication** – Ed25519 enrollment/login flows that bind users to browser fingerprints and issue bearer tokens.
+- **Ledger management** – CRUD endpoints for IPs, personnel, and systems with tagging, ordering, and cross-linking.
 - **Excel workflows** – Import/export XLSX workbooks with automatic IP column detection and a derived matrix sheet representing all combinations.
+- **Collaborative workspaces** – Create free-form tables with dynamic columns, clipboard import, Excel syncing, and an inline rich text editor for narrative context or embedded imagery.
 - **Undo/redo** – Ten-level history stack for manual corrections across all ledgers.
 - **Audit log chain** – Tamper-evident audit trail with verification endpoint.
 - **IP allowlist** – CIDR-aware middleware that blocks requests from unapproved addresses.
@@ -79,12 +80,23 @@ All 身份管理逻辑由 SDID 完成，本系统仅校验签名并确认非管�
 
 ## Ledgers & Excel Import/Export
 
-- `GET /api/v1/ledgers/{type}` – Retrieve ledger entries (`type` = `ips`, `devices`, `personnel`, or `systems`).
+- `GET /api/v1/ledgers/{type}` – Retrieve ledger entries (`type` = `ips`, `personnel`, or `systems`).
 - `POST /api/v1/ledgers/{type}` / `PUT` / `DELETE` – Manage entries with tags, attributes, and cross-ledger links.
 - `POST /api/v1/ledgers/{type}/reorder` – Persist manual ordering (drag/drop style).
 - `POST /api/v1/ledgers/{type}/import` – Provide a base64-encoded XLSX snippet to replace a single ledger. IP columns are auto-detected via regex even if headers are missing.
-- `GET /api/v1/ledgers/export` – Download a multi-sheet workbook containing individual ledgers and a `Matrix` sheet that renders every linked combination (Cartesian product) of IP → Device → Personnel → System.
+- `GET /api/v1/ledgers/export` – Download a multi-sheet workbook containing individual ledgers and a `Matrix` sheet that renders every linked combination (Cartesian product) of IP → Personnel → System.
 - `POST /api/v1/ledgers/import` – Replace all ledgers using a multi-sheet workbook.
+
+## Workspace Collaboration
+
+- `GET /api/v1/workspaces` – List flexible, spreadsheet-style ledgers with their dynamic columns, rows, and attached documentation.
+- `POST /api/v1/workspaces` – Create a new workspace; the frontend offers immediate editing with column/row controls and rich text notes.
+- `PUT /api/v1/workspaces/{id}` / `DELETE` – Persist structural changes or archive an obsolete workspace.
+- `POST /api/v1/workspaces/{id}/import/excel` – Upload an XLSX file to replace the table data, preserving the workspace shell and document.
+- `POST /api/v1/workspaces/{id}/import/text` – Paste tab/CSV content directly for quick bulk entry.
+- `GET /api/v1/workspaces/{id}/export` – Download the current workspace as an Excel sheet for offline sharing.
+
+The React console mirrors these endpoints with an interactive grid. Users can add or remove columns on demand, paste clipboard data, upload Excel files, and maintain a narrative document with formatting and inline images alongside the structured records.
 
 ## History & Audit
 
@@ -105,7 +117,7 @@ The tests exercise the ledger store, authentication flow, XLSX codec, and matrix
 
 ## Migrations
 
-The `migrations/0001_init.sql` script creates PostgreSQL tables for users, devices, allowlists, and audit logs, and seeds an `admin` account. Apply it with your preferred migration tool before switching the store implementation to a database-backed version.
+The `migrations/0001_init.sql` script creates PostgreSQL tables for users, allowlists, and audit logs, and seeds an `admin` account. Apply it with your preferred migration tool before switching the store implementation to a database-backed version.
 
 ## API Reference
 
