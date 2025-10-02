@@ -17,15 +17,20 @@ const resolveBaseURL = (): string => {
       return 'http://localhost:8080';
     }
 
-    if (port && DEV_PORTS.has(port)) {
-      return `${protocol}//${hostname}:8080`;
+    const effectivePort = port ?? '';
+    const origin = effectivePort
+      ? `${protocol}//${hostname}:${effectivePort}`
+      : `${protocol}//${hostname}`;
+
+    if (effectivePort && DEV_PORTS.has(effectivePort)) {
+      const isLoopback = hostname === 'localhost' || hostname === '127.0.0.1';
+      if (isLoopback) {
+        return `${protocol}//${hostname}:8080`;
+      }
+      return origin;
     }
 
-    if (port) {
-      return `${protocol}//${hostname}:${port}`;
-    }
-
-    return `${protocol}//${hostname}`;
+    return origin;
   }
 
   return 'http://localhost:8080';

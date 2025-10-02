@@ -472,12 +472,25 @@ const Login = () => {
         waitForSdidBridge()
       ]);
 
-      const challenge = createChallenge();
+      let challenge = createChallenge();
+      let requestMessage = 'RoundOne Ledger 请求访问';
+
+      try {
+        const { data } = await api.post('/auth/request-nonce');
+        if (data?.nonce && typeof data.nonce === 'string') {
+          challenge = data.nonce.trim() || challenge;
+        }
+        if (data?.message && typeof data.message === 'string') {
+          requestMessage = data.message.trim() || requestMessage;
+        }
+      } catch (nonceError) {
+        console.warn('Unable to fetch server nonce, falling back to local challenge.', nonceError);
+      }
 
       setStatus({ message: '请在 SDID 插件中确认登录请求…', tone: 'info' });
 
       const response = await bridge.requestLogin({
-        message: 'RoundOne Ledger 请求访问',
+        message: requestMessage,
         challenge
       });
 
