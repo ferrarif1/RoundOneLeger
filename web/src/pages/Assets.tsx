@@ -36,6 +36,64 @@ const DEFAULT_TITLE = '未命名台账';
 const MIN_COLUMN_WIDTH = 140;
 const DEFAULT_COLUMN_WIDTH = 220;
 
+const normalizeColumnWidth = (width?: number) =>
+  Math.max(MIN_COLUMN_WIDTH, width ?? DEFAULT_COLUMN_WIDTH);
+
+const collectColumnIds = (a: WorkspaceColumn[], b: WorkspaceColumn[]) => {
+  const ids = new Set<string>();
+  a.forEach((column) => ids.add(column.id));
+  b.forEach((column) => ids.add(column.id));
+  return Array.from(ids);
+};
+
+const areColumnsEqual = (a: WorkspaceColumn[], b: WorkspaceColumn[]) => {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let index = 0; index < a.length; index += 1) {
+    const original = a[index];
+    const current = b[index];
+    if (!current) {
+      return false;
+    }
+    if (original.id !== current.id) {
+      return false;
+    }
+    if ((original.title || '') !== (current.title || '')) {
+      return false;
+    }
+    if (normalizeColumnWidth(original.width) !== normalizeColumnWidth(current.width)) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const areRowsEqual = (
+  a: WorkspaceRow[],
+  b: WorkspaceRow[],
+  columnIds: string[]
+) => {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let index = 0; index < a.length; index += 1) {
+    const original = a[index];
+    const current = b[index];
+    if (!current || original.id !== current.id) {
+      return false;
+    }
+    for (const columnId of columnIds) {
+      const originalValue = original.cells?.[columnId] ?? '';
+      const currentValue = current.cells?.[columnId] ?? '';
+      if (originalValue !== currentValue) {
+        return false;
+      }
+    }
+  }
+  return true;
+};
+
 const CREATION_OPTIONS = [
   {
     kind: 'sheet' as WorkspaceKind,
@@ -408,7 +466,7 @@ const Assets = () => {
       ...column,
       id: column.id || generateId(),
       title: column.title || `字段 ${index + 1}`,
-      width: Math.max(MIN_COLUMN_WIDTH, column.width ?? DEFAULT_COLUMN_WIDTH)
+      width: normalizeColumnWidth(column.width)
     }));
   }, [currentWorkspace]);
 
@@ -420,6 +478,11 @@ const Assets = () => {
     return source.length ? source.map((row) => fillRowCells(row, normalizedOriginalColumns)) : [];
   }, [currentWorkspace, normalizedOriginalColumns]);
 
+  const comparisonColumnIds = useMemo(
+    () => (selectedKind === 'sheet' ? collectColumnIds(normalizedOriginalColumns, columns) : []),
+    [columns, normalizedOriginalColumns, selectedKind]
+  );
+
   const hasUnsavedChanges = useMemo(() => {
     if (!currentWorkspace) {
       return false;
@@ -429,22 +492,10 @@ const Assets = () => {
       return true;
     }
     if (currentWorkspace.kind === 'sheet') {
-      const originalColumnsSnapshot = normalizedOriginalColumns.map((column) => ({
-        id: column.id,
-        title: column.title,
-        width: column.width ?? DEFAULT_COLUMN_WIDTH
-      }));
-      const currentColumnsSnapshot = columns.map((column) => ({
-        id: column.id,
-        title: column.title,
-        width: column.width ?? DEFAULT_COLUMN_WIDTH
-      }));
-      if (JSON.stringify(originalColumnsSnapshot) !== JSON.stringify(currentColumnsSnapshot)) {
+      if (!areColumnsEqual(normalizedOriginalColumns, columns)) {
         return true;
       }
-      const originalRowsSnapshot = normalizedOriginalRows.map((row) => ({ id: row.id, cells: row.cells }));
-      const currentRowsSnapshot = rows.map((row) => ({ id: row.id, cells: row.cells }));
-      if (JSON.stringify(originalRowsSnapshot) !== JSON.stringify(currentRowsSnapshot)) {
+      if (!areRowsEqual(normalizedOriginalRows, rows, comparisonColumnIds)) {
         return true;
       }
       if ((documentContent || '') !== (currentWorkspace.document || '')) {
@@ -459,6 +510,7 @@ const Assets = () => {
     return false;
   }, [
     columns,
+    comparisonColumnIds,
     currentWorkspace,
     documentContent,
     name,
@@ -560,7 +612,7 @@ const Assets = () => {
                 ...column,
                 id: column.id || generateId(),
                 title: column.title || `字段 ${index + 1}`,
-                width: Math.max(MIN_COLUMN_WIDTH, column.width ?? DEFAULT_COLUMN_WIDTH)
+                width: normalizeColumnWidth(column.width)
               }))
             : [];
         const normalizedRows =

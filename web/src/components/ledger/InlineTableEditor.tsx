@@ -1,5 +1,13 @@
-import { useEffect, useRef } from 'react';
-import { PencilSquareIcon, PlusIcon, TrashIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import {
+  ArrowsPointingInIcon,
+  ArrowsPointingOutIcon,
+  PencilSquareIcon,
+  PlusIcon,
+  TrashIcon,
+  XMarkIcon
+} from '@heroicons/react/24/outline';
 
 import type { WorkspaceColumn, WorkspaceRow } from './types';
 
@@ -86,6 +94,10 @@ export const InlineTableEditor = ({
   defaultColumnWidth
 }: InlineTableEditorProps) => {
   const selectAllRef = useRef<HTMLInputElement>(null);
+  const [displayMode, setDisplayMode] = useState<'default' | 'wide' | 'fullscreen'>('default');
+
+  const isWide = displayMode === 'wide';
+  const isFullscreen = displayMode === 'fullscreen';
 
   useEffect(() => {
     if (!selectAllRef.current) {
@@ -99,6 +111,23 @@ export const InlineTableEditor = ({
       selectAllRef.current.checked = selectAllState === 'all';
     }
   }, [selectAllState]);
+
+  useEffect(() => {
+    if (!isSheet) {
+      setDisplayMode('default');
+    }
+  }, [isSheet]);
+
+  useEffect(() => {
+    if (!isFullscreen) {
+      return;
+    }
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isFullscreen]);
 
   const handleResizeStart = (event: React.MouseEvent<HTMLSpanElement>, columnId: string) => {
     event.preventDefault();
@@ -121,7 +150,7 @@ export const InlineTableEditor = ({
     document.addEventListener('mouseup', handleUp);
   };
 
-  const columnSizing = (
+  const renderColumnSizing = () => (
     <colgroup>
       <col style={{ width: '48px' }} />
       {columns.map((column) => (
@@ -131,7 +160,7 @@ export const InlineTableEditor = ({
     </colgroup>
   );
 
-  const tableHeader = (
+  const renderTableHeader = () => (
     <thead className="bg-transparent">
       <tr className="text-left text-xs font-medium text-[var(--muted)]">
         <th className="w-12 px-2 py-2">
@@ -176,82 +205,105 @@ export const InlineTableEditor = ({
     </thead>
   );
 
-  const tableBody = filteredRows.length ? (
-    <tbody>
-      {filteredRows.map((row) => {
-        const isSelected = selectedRowIds.includes(row.id);
-        return (
-          <tr
-            key={row.id}
-            className={`align-top border-t border-black/5 transition ${
-              isSelected ? 'bg-[var(--accent)]/10' : 'bg-white/70 hover:bg-white'
-            }`}
-          >
-            <td className="px-2 py-3 align-top">
-              <input
-                type="checkbox"
-                checked={isSelected}
-                onChange={() => onToggleRowSelection(row.id)}
-                className="h-4 w-4 rounded border-[var(--muted)]/40 text-[var(--accent)] focus:ring-[var(--accent)]"
-              />
-            </td>
-            {columns.map((column) => (
-              <td key={column.id} className="px-3 py-2 align-top">
-                <SheetCell
-                  value={row.cells[column.id] ?? ''}
-                  onChange={(next) => onUpdateCell(row.id, column.id, next)}
-                  placeholder={column.title}
-                />
-              </td>
-            ))}
-            <td className="px-3 py-2 text-right align-top">
-              <button
-                type="button"
-                onClick={() => onRemoveRow(row.id)}
-                className="rounded-full border border-[var(--muted)]/30 p-2 text-[var(--muted)] transition hover:text-red-500"
-                aria-label="删除行"
+  const renderTableBody = () => {
+    if (filteredRows.length) {
+      return (
+        <tbody>
+          {filteredRows.map((row) => {
+            const rowSelected = selectedRowIds.includes(row.id);
+            return (
+              <tr
+                key={row.id}
+                className={`align-top border-t border-black/5 transition ${
+                  rowSelected ? 'bg-[var(--accent)]/10' : 'bg-white/70 hover:bg-white'
+                }`}
               >
-                <TrashIcon className="h-4 w-4" />
-              </button>
-            </td>
-          </tr>
-        );
-      })}
-    </tbody>
-  ) : (
-    <tbody>
-      <tr>
-        <td colSpan={columns.length + 2} className="px-6 py-10 text-center text-sm text-[var(--muted)]">
-          {rows.length
-            ? '未找到匹配的记录，尝试调整搜索条件或清空筛选。'
-            : '暂无记录，使用“新增行”或导入功能开始填写内容。'}
-        </td>
-      </tr>
-    </tbody>
-  );
+                <td className="px-2 py-3 align-top">
+                  <input
+                    type="checkbox"
+                    checked={rowSelected}
+                    onChange={() => onToggleRowSelection(row.id)}
+                    className="h-4 w-4 rounded border-[var(--muted)]/40 text-[var(--accent)] focus:ring-[var(--accent)]"
+                  />
+                </td>
+                {columns.map((column) => (
+                  <td key={column.id} className="px-3 py-2 align-top">
+                    <SheetCell
+                      value={row.cells[column.id] ?? ''}
+                      onChange={(next) => onUpdateCell(row.id, column.id, next)}
+                      placeholder={column.title}
+                    />
+                  </td>
+                ))}
+                <td className="px-3 py-2 text-right align-top">
+                  <button
+                    type="button"
+                    onClick={() => onRemoveRow(row.id)}
+                    className="rounded-full border border-[var(--muted)]/30 p-2 text-[var(--muted)] transition hover:text-red-500"
+                    aria-label="删除行"
+                  >
+                    <TrashIcon className="h-4 w-4" />
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      );
+    }
 
-  if (!isSheet) {
-    return null;
-  }
+    return (
+      <tbody>
+        <tr>
+          <td colSpan={columns.length + 2} className="px-6 py-10 text-center text-sm text-[var(--muted)]">
+            {rows.length
+              ? '未找到匹配的记录，尝试调整搜索条件或清空筛选。'
+              : '暂无记录，使用“新增行”或导入功能开始填写内容。'}
+          </td>
+        </tr>
+      </tbody>
+    );
+  };
 
-  return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+  const handleToggleWide = () => {
+    setDisplayMode((current) => (current === 'wide' ? 'default' : 'wide'));
+  };
+
+  const handleToggleFullscreen = () => {
+    setDisplayMode((current) => (current === 'fullscreen' ? 'default' : 'fullscreen'));
+  };
+
+  const baseButtonClass =
+    'flex items-center gap-1 rounded-full border border-[var(--muted)]/30 bg-white/70 px-3 py-2 text-xs text-[var(--muted)] transition hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-60';
+  const dangerButtonClass =
+    'flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-500 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60';
+
+  const renderToolbar = (fullscreen: boolean) => {
+    const containerClass = fullscreen
+      ? 'sticky top-0 z-30 flex flex-wrap items-center justify-between gap-3 border-b border-black/5 bg-white/95 px-2 py-4 backdrop-blur'
+      : 'flex flex-wrap items-center justify-between gap-3';
+    const fullscreenLabel = isFullscreen ? '退出全屏' : '全屏编辑';
+    const fullscreenIcon = isFullscreen ? (
+      <ArrowsPointingInIcon className="h-4 w-4" />
+    ) : (
+      <ArrowsPointingOutIcon className="h-4 w-4" />
+    );
+    const wideLabel = isWide ? '退出宽屏' : '宽屏视图';
+    const wideIcon = isWide ? (
+      <ArrowsPointingInIcon className="h-4 w-4" />
+    ) : (
+      <ArrowsPointingOutIcon className="h-4 w-4" />
+    );
+
+    return (
+      <div className={containerClass}>
         <div className="flex flex-wrap items-center gap-3 text-[var(--text)]">
           <h3 className="text-base font-semibold">表格数据</h3>
-          <button
-            type="button"
-            className="flex items-center gap-1 rounded-full border border-[var(--muted)]/30 bg-white/70 px-3 py-2 text-xs text-[var(--muted)] transition hover:text-[var(--text)]"
-            onClick={onAddColumn}
-          >
+          <button type="button" className={baseButtonClass} onClick={onAddColumn}>
             <PlusIcon className="h-4 w-4" />
             新增列
           </button>
-          <button
-            type="button"
-            className="flex items-center gap-1 rounded-full border border-[var(--muted)]/30 bg-white/70 px-3 py-2 text-xs text-[var(--muted)] transition hover:text-[var(--text)]"
-            onClick={onAddRow}
-          >
+          <button type="button" className={baseButtonClass} onClick={onAddRow}>
             <PlusIcon className="h-4 w-4" />
             新增行
           </button>
@@ -268,7 +320,7 @@ export const InlineTableEditor = ({
               <button
                 type="button"
                 onClick={() => onSearchTermChange('')}
-                className="absolute inset-y-0 right-2 flex items-center text-[var(--muted)] hover:text-[var(--text)]"
+                className="absolute inset-y-0 right-2 flex items-center text-[var(--muted)] transition hover:text-[var(--text)]"
                 aria-label="清空搜索"
               >
                 <XMarkIcon className="h-4 w-4" />
@@ -278,7 +330,7 @@ export const InlineTableEditor = ({
           <button
             type="button"
             onClick={onOpenBatchEdit}
-            className="flex items-center gap-1 rounded-full border border-[var(--muted)]/30 bg-white/70 px-3 py-2 text-xs text-[var(--muted)] transition hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-60"
+            className={baseButtonClass}
             disabled={!hasSelection || !columns.length}
           >
             <PencilSquareIcon className="h-4 w-4" />
@@ -287,26 +339,104 @@ export const InlineTableEditor = ({
           <button
             type="button"
             onClick={onRemoveSelected}
-            className="flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-500 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+            className={dangerButtonClass}
             disabled={!hasSelection}
           >
             <TrashIcon className="h-4 w-4" />
             删除选中
           </button>
+          <button
+            type="button"
+            onClick={handleToggleWide}
+            className={baseButtonClass}
+            disabled={isFullscreen}
+          >
+            {wideIcon}
+            {wideLabel}
+          </button>
+          <button
+            type="button"
+            onClick={handleToggleFullscreen}
+            className={`${baseButtonClass} ${
+              isFullscreen ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)] hover:bg-[var(--accent)]/20' : ''
+            }`}
+          >
+            {fullscreenIcon}
+            {fullscreenLabel}
+          </button>
         </div>
       </div>
-      {hasSelection && (
-        <div className="rounded-2xl bg-[var(--accent)]/10 px-3 py-2 text-xs text-[var(--accent)]">
-          已选中 {selectedRowIds.length} 行，支持批量编辑或删除。
-        </div>
-      )}
-      <div className="relative overflow-auto rounded-3xl bg-white/80 shadow-inner ring-1 ring-black/5">
-        <table className="min-w-[800px] text-sm leading-snug text-[var(--text)]">
-          {columnSizing}
-          {tableHeader}
-          {tableBody}
+    );
+  };
+
+  const renderSelectionBanner = (fullscreen: boolean) => {
+    if (!hasSelection) {
+      return null;
+    }
+    return (
+      <div
+        className={`rounded-2xl bg-[var(--accent)]/10 px-3 py-2 text-xs text-[var(--accent)] ${
+          fullscreen ? 'mx-1' : ''
+        }`}
+      >
+        已选中 {selectedRowIds.length} 行，支持批量编辑或删除。
+      </div>
+    );
+  };
+
+  const renderTableShell = (fullscreen: boolean) => {
+    const wrapperClass = [
+      'relative rounded-3xl shadow-inner ring-1 ring-black/5',
+      fullscreen ? 'flex-1 overflow-auto bg-white' : 'overflow-auto bg-white/80',
+      !fullscreen && isWide ? 'max-w-none' : ''
+    ]
+      .filter(Boolean)
+      .join(' ');
+    const minWidthClass = fullscreen || isFullscreen || isWide ? 'min-w-[1200px]' : 'min-w-[800px]';
+
+    return (
+      <div className={wrapperClass}>
+        <table className={`${minWidthClass} w-full text-sm leading-snug text-[var(--text)]`}>
+          {renderColumnSizing()}
+          {renderTableHeader()}
+          {renderTableBody()}
         </table>
       </div>
-    </section>
+    );
+  };
+
+  if (!isSheet) {
+    return null;
+  }
+
+  return (
+    <>
+      <section className="space-y-4">
+        {renderToolbar(false)}
+        {renderSelectionBanner(false)}
+        {isFullscreen ? (
+          <div className="rounded-3xl border border-dashed border-[var(--muted)]/40 bg-white/70 p-6 text-center text-sm text-[var(--muted)]">
+            正在全屏编辑表格，点击“退出全屏”返回当前视图。
+          </div>
+        ) : (
+          renderTableShell(false)
+        )}
+      </section>
+      {isFullscreen &&
+        createPortal(
+          <div className="fixed inset-0 z-[120] flex flex-col bg-white">
+            <div className="flex h-full flex-col">
+              {renderToolbar(true)}
+              <div className="flex-1 overflow-hidden px-6 pb-6">
+                <div className="flex h-full flex-col gap-3">
+                  {renderSelectionBanner(true)}
+                  {renderTableShell(true)}
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+    </>
   );
 };

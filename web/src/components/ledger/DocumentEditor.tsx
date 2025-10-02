@@ -2,10 +2,11 @@ import {
   ChangeEvent,
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState
 } from 'react';
+import { createPortal } from 'react-dom';
+import { ArrowsPointingInIcon, ArrowsPointingOutIcon } from '@heroicons/react/24/outline';
 
 const DOCUMENT_BLOCK_OPTIONS = [
   { value: 'paragraph', label: '正文', command: 'P' },
@@ -54,6 +55,10 @@ export const DocumentEditor = ({ value, editable, onChange, onStatus }: Document
   const audioInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedBlock, setSelectedBlock] = useState<DocumentBlockValue>('paragraph');
+  const [displayMode, setDisplayMode] = useState<'default' | 'wide' | 'fullscreen'>('default');
+
+  const isWide = displayMode === 'wide';
+  const isFullscreen = displayMode === 'fullscreen';
 
   useEffect(() => {
     const container = documentRef.current;
@@ -64,6 +69,17 @@ export const DocumentEditor = ({ value, editable, onChange, onStatus }: Document
       container.innerHTML = value || '';
     }
   }, [value]);
+
+  useEffect(() => {
+    if (!isFullscreen) {
+      return;
+    }
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isFullscreen]);
 
   const execCommand = useCallback(
     (command: string, commandValue?: string) => {
@@ -208,75 +224,120 @@ export const DocumentEditor = ({ value, editable, onChange, onStatus }: Document
     onChange(documentRef.current.innerHTML);
   }, [onChange]);
 
-  const toolbar = useMemo(
-    () => (
-      <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
-        <select
-          value={selectedBlock}
-          onChange={handleBlockSelect}
-          disabled={!editable}
-          className="rounded-full border border-[var(--muted)]/30 bg-white/80 px-3 py-2 text-xs text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 disabled:cursor-not-allowed"
-        >
-          {DOCUMENT_BLOCK_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-        <ToolbarButton label="B" tooltip="加粗" onClick={() => execCommand('bold')} disabled={!editable} />
-        <ToolbarButton label="I" tooltip="斜体" onClick={() => execCommand('italic')} disabled={!editable} />
-        <ToolbarButton label="U" tooltip="下划线" onClick={() => execCommand('underline')} disabled={!editable} />
-        <ToolbarButton label="S" tooltip="删除线" onClick={() => execCommand('strikeThrough')} disabled={!editable} />
-        <ToolbarButton label="HL" tooltip="高亮选区" onClick={applyHighlight} disabled={!editable} />
-        <ToolbarButton label="Link" tooltip="插入链接" onClick={() => execCommand('createLink', window.prompt('请输入链接地址') ?? '')} disabled={!editable} />
-        <ToolbarButton label="•" tooltip="项目符号列表" onClick={() => execCommand('insertUnorderedList')} disabled={!editable} />
-        <ToolbarButton label="1." tooltip="编号列表" onClick={() => execCommand('insertOrderedList')} disabled={!editable} />
-        <ToolbarButton label="☑" tooltip="任务清单" onClick={insertChecklist} disabled={!editable} />
-        <ToolbarButton label="L" tooltip="左对齐" onClick={() => execCommand('justifyLeft')} disabled={!editable} />
-        <ToolbarButton label="C" tooltip="居中" onClick={() => execCommand('justifyCenter')} disabled={!editable} />
-        <ToolbarButton label="R" tooltip="右对齐" onClick={() => execCommand('justifyRight')} disabled={!editable} />
-        <ToolbarButton label="表" tooltip="插入表格" onClick={insertTable} disabled={!editable} />
-        <ToolbarButton label="<>" tooltip="插入代码块" onClick={insertCodeBlock} disabled={!editable} />
-        <ToolbarButton label="Call" tooltip="提示块" onClick={insertCallout} disabled={!editable} />
-        <ToolbarButton label="HR" tooltip="分割线" onClick={insertDivider} disabled={!editable} />
-        <ToolbarButton label="IMG" tooltip="插入图片" onClick={() => imageInputRef.current?.click()} disabled={!editable} />
-        <ToolbarButton label="AUD" tooltip="插入音频" onClick={() => audioInputRef.current?.click()} disabled={!editable} />
-        <ToolbarButton label="VID" tooltip="插入视频" onClick={() => videoInputRef.current?.click()} disabled={!editable} />
-        <ToolbarButton label="Find" tooltip="搜索并高亮" onClick={handleSearchHighlight} disabled={!editable} />
-        <ToolbarButton label="CLR" tooltip="清除格式" onClick={clearFormatting} disabled={!editable} />
-      </div>
-    ), [
-      applyHighlight,
-      clearFormatting,
-      editable,
-      execCommand,
-      handleBlockSelect,
-      handleSearchHighlight,
-      insertCallout,
-      insertChecklist,
-      insertCodeBlock,
-      insertDivider,
-      insertTable,
-      selectedBlock
-    ]
+  const renderFormattingToolbar = () => (
+    <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
+      <select
+        value={selectedBlock}
+        onChange={handleBlockSelect}
+        disabled={!editable}
+        className="rounded-full border border-[var(--muted)]/30 bg-white/80 px-3 py-2 text-xs text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 disabled:cursor-not-allowed"
+      >
+        {DOCUMENT_BLOCK_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      <ToolbarButton label="B" tooltip="加粗" onClick={() => execCommand('bold')} disabled={!editable} />
+      <ToolbarButton label="I" tooltip="斜体" onClick={() => execCommand('italic')} disabled={!editable} />
+      <ToolbarButton label="U" tooltip="下划线" onClick={() => execCommand('underline')} disabled={!editable} />
+      <ToolbarButton label="S" tooltip="删除线" onClick={() => execCommand('strikeThrough')} disabled={!editable} />
+      <ToolbarButton label="HL" tooltip="高亮选区" onClick={applyHighlight} disabled={!editable} />
+      <ToolbarButton label="Link" tooltip="插入链接" onClick={() => execCommand('createLink', window.prompt('请输入链接地址') ?? '')} disabled={!editable} />
+      <ToolbarButton label="•" tooltip="项目符号列表" onClick={() => execCommand('insertUnorderedList')} disabled={!editable} />
+      <ToolbarButton label="1." tooltip="编号列表" onClick={() => execCommand('insertOrderedList')} disabled={!editable} />
+      <ToolbarButton label="☑" tooltip="任务清单" onClick={insertChecklist} disabled={!editable} />
+      <ToolbarButton label="L" tooltip="左对齐" onClick={() => execCommand('justifyLeft')} disabled={!editable} />
+      <ToolbarButton label="C" tooltip="居中" onClick={() => execCommand('justifyCenter')} disabled={!editable} />
+      <ToolbarButton label="R" tooltip="右对齐" onClick={() => execCommand('justifyRight')} disabled={!editable} />
+      <ToolbarButton label="表" tooltip="插入表格" onClick={insertTable} disabled={!editable} />
+      <ToolbarButton label="<>" tooltip="插入代码块" onClick={insertCodeBlock} disabled={!editable} />
+      <ToolbarButton label="Call" tooltip="提示块" onClick={insertCallout} disabled={!editable} />
+      <ToolbarButton label="HR" tooltip="分割线" onClick={insertDivider} disabled={!editable} />
+      <ToolbarButton label="IMG" tooltip="插入图片" onClick={() => imageInputRef.current?.click()} disabled={!editable} />
+      <ToolbarButton label="AUD" tooltip="插入音频" onClick={() => audioInputRef.current?.click()} disabled={!editable} />
+      <ToolbarButton label="VID" tooltip="插入视频" onClick={() => videoInputRef.current?.click()} disabled={!editable} />
+      <ToolbarButton label="Find" tooltip="搜索并高亮" onClick={handleSearchHighlight} disabled={!editable} />
+      <ToolbarButton label="CLR" tooltip="清除格式" onClick={clearFormatting} disabled={!editable} />
+    </div>
   );
 
-  return (
-    <section className="mt-10 space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <h3 className="text-base font-semibold text-[var(--text)]">在线文档</h3>
-        {toolbar}
-      </div>
-      <div className="rounded-[var(--radius-lg)] border border-white/60 bg-white/90 p-4 shadow-[var(--shadow-sm)]">
+  const renderEditorContainer = (fullscreen: boolean) => {
+    const containerClass = [
+      'rounded-[var(--radius-lg)] border border-white/60 bg-white/90 p-4 shadow-[var(--shadow-sm)]',
+      fullscreen ? 'h-full overflow-auto bg-white px-6 py-5 shadow-[var(--shadow-soft)]' : '',
+      !fullscreen && isWide ? 'max-w-none' : ''
+    ]
+      .filter(Boolean)
+      .join(' ');
+    const editorClass = [
+      'doc-editor outline-none',
+      fullscreen ? 'min-h-[calc(100vh-260px)]' : 'min-h-[320px]'
+    ].join(' ');
+
+    return (
+      <div className={containerClass}>
         <div
           ref={documentRef}
-          className="doc-editor min-h-[320px] outline-none"
+          className={editorClass}
           contentEditable={editable}
           data-placeholder={editable ? '在此撰写文档内容…' : undefined}
           suppressContentEditableWarning
           onInput={handleInput}
         />
       </div>
+    );
+  };
+
+  const handleToggleWide = () => {
+    setDisplayMode((current) => (current === 'wide' ? 'default' : 'wide'));
+  };
+
+  const handleToggleFullscreen = () => {
+    setDisplayMode((current) => (current === 'fullscreen' ? 'default' : 'fullscreen'));
+  };
+
+  const modeButtonClass =
+    'flex items-center gap-1 rounded-full border border-[var(--muted)]/30 bg-white/70 px-3 py-2 text-xs text-[var(--muted)] transition hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-60';
+
+  return (
+    <>
+      <section className="mt-10 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3 text-[var(--text)]">
+            <h3 className="text-base font-semibold">在线文档</h3>
+            {renderFormattingToolbar()}
+          </div>
+          <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
+            <button
+              type="button"
+              onClick={handleToggleWide}
+              className={modeButtonClass}
+              disabled={isFullscreen}
+            >
+              {isWide ? <ArrowsPointingInIcon className="h-4 w-4" /> : <ArrowsPointingOutIcon className="h-4 w-4" />}
+              {isWide ? '退出宽屏' : '宽屏视图'}
+            </button>
+            <button
+              type="button"
+              onClick={handleToggleFullscreen}
+              className={`${modeButtonClass} ${
+                isFullscreen ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)] hover:bg-[var(--accent)]/20' : ''
+              }`}
+            >
+              {isFullscreen ? <ArrowsPointingInIcon className="h-4 w-4" /> : <ArrowsPointingOutIcon className="h-4 w-4" />}
+              {isFullscreen ? '退出全屏' : '全屏编辑'}
+            </button>
+          </div>
+        </div>
+        {isFullscreen ? (
+          <div className="rounded-3xl border border-dashed border-[var(--muted)]/40 bg-white/70 p-6 text-center text-sm text-[var(--muted)]">
+            正在全屏编辑文档，点击“退出全屏”返回当前视图。
+          </div>
+        ) : (
+          renderEditorContainer(false)
+        )}
+      </section>
       <input
         ref={imageInputRef}
         type="file"
@@ -298,6 +359,35 @@ export const DocumentEditor = ({ value, editable, onChange, onStatus }: Document
         className="hidden"
         onChange={(event) => handleMediaInsert(event, 'video')}
       />
-    </section>
+      {isFullscreen &&
+        createPortal(
+          <div className="fixed inset-0 z-[120] flex flex-col bg-white">
+            <div className="flex h-full flex-col">
+              <div className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-3 border-b border-black/5 bg-white/95 px-4 py-4 backdrop-blur">
+                <div className="flex flex-wrap items-center gap-3 text-[var(--text)]">
+                  <h3 className="text-base font-semibold">在线文档</h3>
+                  {renderFormattingToolbar()}
+                </div>
+                <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
+                  <button
+                    type="button"
+                    onClick={handleToggleFullscreen}
+                    className="flex items-center gap-1 rounded-full border border-[var(--accent)] bg-[var(--accent)]/10 px-3 py-2 text-[var(--accent)] transition hover:bg-[var(--accent)]/20"
+                  >
+                    <ArrowsPointingInIcon className="h-4 w-4" />
+                    退出全屏
+                  </button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-hidden px-6 pb-6">
+                <div className="h-full">
+                  {renderEditorContainer(true)}
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+    </>
   );
 };
