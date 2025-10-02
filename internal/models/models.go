@@ -1,19 +1,21 @@
 package models
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // LedgerType represents the category of a ledger entry.
 type LedgerType string
 
 const (
 	LedgerTypeIP        LedgerType = "ips"
-	LedgerTypeDevice    LedgerType = "devices"
 	LedgerTypePersonnel LedgerType = "personnel"
 	LedgerTypeSystem    LedgerType = "systems"
 )
 
 // AllLedgerTypes lists the supported ledgers in a stable order.
-var AllLedgerTypes = []LedgerType{LedgerTypeIP, LedgerTypeDevice, LedgerTypePersonnel, LedgerTypeSystem}
+var AllLedgerTypes = []LedgerType{LedgerTypeIP, LedgerTypePersonnel, LedgerTypeSystem}
 
 // LedgerEntry describes a single item within a ledger.
 type LedgerEntry struct {
@@ -49,6 +51,110 @@ func (e LedgerEntry) Clone() LedgerEntry {
 	return clone
 }
 
+// WorkspaceColumn describes a dynamic column within a collaborative sheet.
+type WorkspaceColumn struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Width int    `json:"width,omitempty"`
+}
+
+// WorkspaceKind describes the layout style of a workspace entry.
+type WorkspaceKind string
+
+const (
+	// WorkspaceKindSheet represents a spreadsheet-style workspace with rows and columns.
+	WorkspaceKindSheet WorkspaceKind = "sheet"
+	// WorkspaceKindDocument represents a freeform rich-text document.
+	WorkspaceKindDocument WorkspaceKind = "document"
+	// WorkspaceKindFolder groups other workspaces without storing content directly.
+	WorkspaceKindFolder WorkspaceKind = "folder"
+)
+
+// WorkspaceRow stores user-entered cell values keyed by column ID.
+type WorkspaceRow struct {
+	ID        string            `json:"id"`
+	Cells     map[string]string `json:"cells"`
+	CreatedAt time.Time         `json:"created_at"`
+	UpdatedAt time.Time         `json:"updated_at"`
+}
+
+// Workspace represents a flexible workspace that can behave as a sheet, document, or folder.
+type Workspace struct {
+	ID        string            `json:"id"`
+	Name      string            `json:"name"`
+	Kind      WorkspaceKind     `json:"kind"`
+	ParentID  string            `json:"parent_id,omitempty"`
+	Columns   []WorkspaceColumn `json:"columns"`
+	Rows      []WorkspaceRow    `json:"rows"`
+	Document  string            `json:"document,omitempty"`
+	CreatedAt time.Time         `json:"created_at"`
+	UpdatedAt time.Time         `json:"updated_at"`
+}
+
+// Clone returns a deep copy of the workspace structure for safe sharing across callers.
+func (w *Workspace) Clone() *Workspace {
+	if w == nil {
+		return nil
+	}
+	clone := *w
+	clone.Kind = NormalizeWorkspaceKind(w.Kind)
+	clone.ParentID = strings.TrimSpace(w.ParentID)
+	if len(w.Columns) > 0 {
+		clone.Columns = append([]WorkspaceColumn{}, w.Columns...)
+	}
+	if len(w.Rows) > 0 {
+		clone.Rows = make([]WorkspaceRow, len(w.Rows))
+		for i, row := range w.Rows {
+			clonedRow := row
+			if row.Cells != nil {
+				clonedRow.Cells = make(map[string]string, len(row.Cells))
+				for key, value := range row.Cells {
+					clonedRow.Cells[key] = value
+				}
+			}
+			clone.Rows[i] = clonedRow
+		}
+	}
+	return &clone
+}
+
+// NormalizeWorkspaceKind coerces unknown values to the default sheet type.
+func NormalizeWorkspaceKind(kind WorkspaceKind) WorkspaceKind {
+	switch kind {
+	case WorkspaceKindDocument, WorkspaceKindFolder:
+		return kind
+	case WorkspaceKindSheet:
+		return kind
+	default:
+		return WorkspaceKindSheet
+	}
+}
+
+// ParseWorkspaceKind converts free-form input into a WorkspaceKind.
+func ParseWorkspaceKind(value string) WorkspaceKind {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case string(WorkspaceKindDocument):
+		return WorkspaceKindDocument
+	case string(WorkspaceKindFolder):
+		return WorkspaceKindFolder
+	case string(WorkspaceKindSheet):
+		return WorkspaceKindSheet
+	default:
+		return WorkspaceKindSheet
+	}
+}
+
+// WorkspaceKindSupportsTable reports whether the workspace type accepts tabular data.
+func WorkspaceKindSupportsTable(kind WorkspaceKind) bool {
+	return NormalizeWorkspaceKind(kind) == WorkspaceKindSheet
+}
+
+// WorkspaceKindSupportsDocument reports whether the workspace type stores document content.
+func WorkspaceKindSupportsDocument(kind WorkspaceKind) bool {
+	normalized := NormalizeWorkspaceKind(kind)
+	return normalized == WorkspaceKindSheet || normalized == WorkspaceKindDocument
+}
+
 // IPAllowlistEntry represents a single CIDR or address allowed to access the system.
 type IPAllowlistEntry struct {
 	ID          string    `json:"id"`
@@ -70,39 +176,9 @@ type AuditLogEntry struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// User represents an authenticated operator of the system.
-type User struct {
-	Username  string                 `json:"username"`
-	Devices   map[string]*UserDevice `json:"devices"`
-	Roles     []string               `json:"roles"`
-	CreatedAt time.Time              `json:"created_at"`
-	UpdatedAt time.Time              `json:"updated_at"`
-}
-
-// UserDevice represents a registered device bound to a user.
-type UserDevice struct {
-	ID             string    `json:"id"`
-	Name           string    `json:"name"`
-	PublicKey      []byte    `json:"-"`
-	FingerprintSum string    `json:"fingerprint_sum"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
-}
-
-// Enrollment describes an in-flight enrollment challenge.
-type Enrollment struct {
-	Username   string
-	DeviceID   string
-	DeviceName string
-	Nonce      string
-	PublicKey  []byte
-	CreatedAt  time.Time
-}
-
-// LoginChallenge stores a nonce waiting to be signed by a device.
+// LoginChallenge stores a nonce waiting to be signed by an SDID wallet.
 type LoginChallenge struct {
-	Username  string
-	DeviceID  string
-	Nonce     string
-	CreatedAt time.Time
+	Nonce     string    `json:"nonce"`
+	Message   string    `json:"message"`
+	CreatedAt time.Time `json:"created_at"`
 }
