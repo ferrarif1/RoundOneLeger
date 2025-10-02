@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LockClosedIcon } from '@heroicons/react/24/outline';
+import { p256 } from '@noble/curves/p256';
+import { sha256 } from '@noble/hashes/sha256';
 
 import api from '../api/client';
 import { useSession } from '../hooks/useSession';
@@ -57,6 +59,7 @@ type StatusState = {
 type VerificationState = {
   message: string;
   success: boolean;
+  mode?: 'webcrypto' | 'fallback' | 'skipped';
 } | null;
 
 declare global {
@@ -183,14 +186,88 @@ const normalizeBase64 = (value: string): string => {
   return compact + '='.repeat(4 - padding);
 };
 
-const decodeSignature = (value: string): Uint8Array => {
+const decodeBase64 = (value: string): Uint8Array => {
   const normalized = normalizeBase64(value);
-  const binary = atob(normalized);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i);
+  if (!normalized) {
+    return new Uint8Array();
   }
-  return bytes;
+  if (typeof atob === 'function') {
+    const binary = atob(normalized);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  }
+  const bufferCtor = (globalThis as Record<string, unknown>).Buffer as
+    | undefined
+    | {
+        from?: (input: string, encoding: string) => Uint8Array | number[];
+      };
+  if (bufferCtor?.from) {
+    return new Uint8Array(bufferCtor.from(normalized, 'base64'));
+  }
+  throw new Error('Base64 decoding is not supported in this environment.');
+};
+
+const decodeSignature = (value: string): Uint8Array => decodeBase64(value);
+
+const decodeCoordinate = (value: unknown): Uint8Array => {
+  if (typeof value !== 'string' || !value.trim()) {
+    return new Uint8Array();
+  }
+  return decodeBase64(value.trim());
+};
+
+const encodeText = (value: string): Uint8Array => {
+  if (typeof TextEncoder !== 'undefined') {
+    return new TextEncoder().encode(value);
+  }
+  const bufferCtor = (globalThis as Record<string, any>).Buffer as
+    | undefined
+    | { from?: (input: string, encoding: string) => Uint8Array | number[] };
+  if (bufferCtor?.from) {
+    return new Uint8Array(bufferCtor.from(value, 'utf8'));
+  }
+  throw new Error('TextEncoder not supported');
+};
+
+const buildUncompressedKey = (x: Uint8Array, y: Uint8Array): Uint8Array => {
+  const key = new Uint8Array(1 + x.length + y.length);
+  key[0] = 0x04;
+  key.set(x, 1);
+  key.set(y, 1 + x.length);
+  return key;
+};
+
+const verifyWithFallback = (
+  identity: SdidLoginIdentity,
+  signatureValue: string,
+  signedData: string
+): { ok: boolean; reason?: string } => {
+  if (!identity?.publicKeyJwk) {
+    return { ok: false, reason: 'missing_public_key' };
+  }
+  try {
+    const jwk = identity.publicKeyJwk as JsonWebKey;
+    const x = decodeCoordinate(jwk.x);
+    const y = decodeCoordinate(jwk.y);
+    if (!x.length || !y.length) {
+      return { ok: false, reason: 'invalid_coordinate' };
+    }
+    const publicKey = buildUncompressedKey(x, y);
+    const signatureBytes = decodeSignature(signatureValue);
+    if (!signatureBytes.length) {
+      return { ok: false, reason: 'invalid_signature' };
+    }
+    const signature = p256.Signature.fromDER(signatureBytes);
+    const hashed = sha256(encodeText(signedData));
+    const verified = signature.verify(hashed, publicKey);
+    return { ok: verified };
+  } catch (error) {
+    console.warn('Fallback verification failed', error);
+    return { ok: false, reason: 'exception' };
+  }
 };
 
 const importPublicKey = async (identity: SdidLoginIdentity): Promise<CryptoKey> => {
@@ -244,46 +321,67 @@ const resolveSignedPayload = (response: SdidLoginResponse): string => {
 const verifySdidResponse = async (
   response: SdidLoginResponse
 ): Promise<VerificationState> => {
-  if (typeof window === 'undefined' || !window.crypto?.subtle) {
-    return { message: '当前浏览器不支持 WebCrypto，无法验证签名。', success: false };
-  }
   const identity = response.identity;
   if (!identity) {
-    return { message: 'SDID 未返回身份信息。', success: false };
+    return { message: 'SDID 未返回身份信息。', success: false, mode: 'skipped' };
   }
   const signatureValue = response.proof?.signatureValue || response.signature;
   if (!signatureValue || !signatureValue.trim()) {
-    return { message: 'SDID 返回数据缺少签名。', success: false };
+    return { message: 'SDID 返回数据缺少签名。', success: false, mode: 'skipped' };
   }
   let signedData: string;
   try {
     signedData = resolveSignedPayload(response);
   } catch (error) {
-    return { message: error instanceof Error ? error.message : '无法解析签名内容。', success: false };
+    return {
+      message: error instanceof Error ? error.message : '无法解析签名内容。',
+      success: false,
+      mode: 'skipped'
+    };
   }
 
-  try {
-    const publicKey = await importPublicKey(identity);
-    const signatureBytes = decodeSignature(signatureValue);
-    const encoder = new TextEncoder();
-    const verified = await crypto.subtle.verify(
-      { name: 'ECDSA', hash: { name: 'SHA-256' } },
-      publicKey,
-      signatureBytes,
-      encoder.encode(signedData)
-    );
-    if (!verified) {
-      return { message: '签名验证失败，请重新尝试。', success: false };
+  let webCryptoAttempted = false;
+  let webCryptoSuccess = false;
+  let webCryptoError: string | null = null;
+
+  if (typeof window !== 'undefined' && window.crypto?.subtle) {
+    webCryptoAttempted = true;
+    try {
+      const publicKey = await importPublicKey(identity);
+      const signatureBytes = decodeSignature(signatureValue);
+      const verified = await window.crypto.subtle.verify(
+        { name: 'ECDSA', hash: { name: 'SHA-256' } },
+        publicKey,
+        signatureBytes,
+        encodeText(signedData)
+      );
+      webCryptoSuccess = verified;
+    } catch (error) {
+      webCryptoError =
+        error instanceof Error && error.message
+          ? error.message
+          : 'WebCrypto 验证失败';
     }
-  } catch (error) {
-    const message =
-      error instanceof Error && error.message
-        ? error.message
-        : '验证 SDID 签名时出现错误。';
-    return { message, success: false };
   }
 
-  return { message: '签名验证通过。', success: true };
+  if (webCryptoSuccess) {
+    return { message: '签名验证通过。', success: true, mode: 'webcrypto' };
+  }
+
+  const fallback = verifyWithFallback(identity, signatureValue, signedData);
+  if (fallback.ok) {
+    const viaFallbackMessage = webCryptoAttempted
+      ? 'WebCrypto 验证失败，已使用兼容算法验证签名。'
+      : '浏览器缺少 WebCrypto，已使用兼容算法验证签名。';
+    return { message: viaFallbackMessage, success: true, mode: 'fallback' };
+  }
+
+  const failureDetail = webCryptoError || fallback.reason;
+  const failureMessage = webCryptoAttempted
+    ? `本地验证未通过，仍将提交服务器进行校验。${failureDetail ? `（${failureDetail}）` : ''}`
+    : '浏览器暂无法完成本地验证，仍将提交服务器进行校验。';
+
+  return { message: failureMessage, success: false, mode: 'skipped' };
 };
 
 const formatIdentityLabel = (identity: SdidLoginIdentity | undefined): string => {
@@ -295,6 +393,24 @@ const formatIdentityLabel = (identity: SdidLoginIdentity | undefined): string =>
     return label;
   }
   return identity.did?.trim() || '未知身份';
+};
+
+const formatRoles = (roles: string[] | undefined): string => {
+  if (!roles || !roles.length) {
+    return '—';
+  }
+  return roles.filter((role) => role && role.trim()).join(', ') || '—';
+};
+
+const shortenValue = (value: string, head = 12, tail = 8): string => {
+  if (!value) {
+    return '—';
+  }
+  const trimmed = value.trim();
+  if (trimmed.length <= head + tail + 1) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, head)}…${trimmed.slice(-tail)}`;
 };
 
 const createChallenge = (): string => {
@@ -322,7 +438,44 @@ const Login = () => {
   });
   const [verification, setVerification] = useState<VerificationState>(null);
   const [identityResponse, setIdentityResponse] = useState<SdidLoginResponse | null>(null);
+  const [loggedInLabel, setLoggedInLabel] = useState<string | null>(null);
+  const [loginComplete, setLoginComplete] = useState(false);
   const [sdidReady, setSdidReady] = useState(() => getSdidBridge() !== null);
+
+  const identitySummary = useMemo(() => {
+    if (!identityResponse?.identity) {
+      return [] as Array<{ label: string; value: string }>;
+    }
+    const signature =
+      identityResponse.proof?.signatureValue ||
+      identityResponse.signature ||
+      '';
+    const canonical = identityResponse.authentication?.canonicalRequest || '';
+    return [
+      { label: 'DID', value: identityResponse.identity.did || '—' },
+      { label: '显示名称', value: identityResponse.identity.label || '—' },
+      { label: '角色', value: formatRoles(identityResponse.identity.roles) },
+      { label: 'Challenge', value: identityResponse.challenge || '—' },
+      { label: 'Canonical', value: canonical || '—' },
+      { label: '签名', value: signature || '—' }
+    ];
+  }, [identityResponse]);
+
+  const connectButtonLabel = loggedInLabel
+    ? `${loggedInLabel} 已登陆`
+    : loading
+    ? '签名验证中…'
+    : sdidReady
+    ? '连接 SDID 登录'
+    : '等待 SDID 插件…';
+
+  const verificationBadge = verification?.mode === 'fallback'
+    ? '兼容验证'
+    : verification?.mode === 'webcrypto'
+    ? 'WebCrypto'
+    : verification?.mode === 'skipped'
+    ? '等待服务器'
+    : null;
 
   useEffect(() => {
     if (sdidReady) {
@@ -355,6 +508,8 @@ const Login = () => {
     setLoading(true);
     setVerification(null);
     setIdentityResponse(null);
+    setLoginComplete(false);
+    setLoggedInLabel(null);
     setStatus({ message: '正在请求授权…', tone: 'info' });
 
     try {
@@ -376,18 +531,13 @@ const Login = () => {
         challenge: response.challenge || challenge
       };
 
+      setIdentityResponse(loginResponse);
+
       setStatus({ message: '正在验证签名…', tone: 'info' });
       const verificationResult = await verifySdidResponse(loginResponse);
       setVerification(verificationResult);
-      if (!verificationResult?.success) {
-        setStatus({
-          message: verificationResult?.message || '签名验证失败，请重试。',
-          tone: 'error'
-        });
-        return;
-      }
 
-      setIdentityResponse(loginResponse);
+      setStatus({ message: '正在向服务器提交登录数据…', tone: 'info' });
 
       const { data } = await api.post('/auth/login', {
         nonce: challenge,
@@ -396,15 +546,22 @@ const Login = () => {
 
       const label = formatIdentityLabel(loginResponse.identity);
       setStatus({ message: `已连接身份：${label}`, tone: 'success' });
+      setLoggedInLabel(label);
+      setLoginComplete(true);
       setToken(data.token);
-      navigate('/dashboard');
     } catch (error) {
       console.error('SDID login failed', error);
       const message =
         (error as any)?.response?.data?.error ||
         (error instanceof Error ? error.message : 'SDID 登录失败，请确认插件已启用并允许此站点。');
       setStatus({ message, tone: 'error' });
-      setVerification({ message: message || 'SDID 登录失败。', success: false });
+      setVerification((previous) => ({
+        message: previous?.success
+          ? `${previous.message.replace(/。$/, '')}，但服务器会话创建失败：${message}`
+          : message || 'SDID 登录失败。',
+        success: false,
+        mode: 'skipped'
+      }));
     } finally {
       setLoading(false);
     }
@@ -425,14 +582,25 @@ const Login = () => {
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            className="button-primary w-full md:w-auto"
-            onClick={handleSdidLogin}
-            disabled={loading}
-          >
-            {loading ? '签名验证中…' : '连接 SDID 登录'}
-          </button>
+          <div className="flex w-full flex-col gap-3 md:w-auto md:flex-row md:items-center">
+            <button
+              type="button"
+              className="button-primary w-full md:w-auto"
+              onClick={handleSdidLogin}
+              disabled={loading || Boolean(loggedInLabel)}
+            >
+              {connectButtonLabel}
+            </button>
+            {loginComplete && (
+              <button
+                type="button"
+                className="w-full rounded-2xl border border-night-700 px-6 py-3 text-sm font-medium text-night-100 transition hover:bg-night-900/40 md:w-auto"
+                onClick={() => navigate('/dashboard')}
+              >
+                进入控制台
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="grid gap-6 md:grid-cols-2">
@@ -460,24 +628,62 @@ const Login = () => {
               {status.message}
             </p>
             {verification && (
-              <p
+              <div
                 className={`rounded-xl px-4 py-3 text-sm ${
                   verification.success
                     ? 'bg-emerald-100 text-emerald-700'
                     : 'bg-red-100 text-red-600'
                 }`}
               >
-                {verification.message}
-              </p>
+                <div className="flex items-center justify-between gap-3">
+                  <span>{verification.message}</span>
+                  {verificationBadge && (
+                    <span
+                      className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ${
+                        verification.success
+                          ? 'bg-emerald-200/70 text-emerald-900'
+                          : 'bg-red-200/70 text-red-700'
+                      }`}
+                    >
+                      {verificationBadge}
+                    </span>
+                  )}
+                </div>
+              </div>
             )}
           </section>
         </div>
 
         <section className="rounded-2xl bg-night-900/20 p-5">
           <h2 className="text-sm font-medium text-night-100">SDID 返回数据</h2>
-          <pre className="mt-3 max-h-72 overflow-auto rounded-xl bg-night-950/60 p-4 text-xs text-night-200">
-            {identityResponse ? JSON.stringify(identityResponse, null, 2) : '等待登录…'}
-          </pre>
+          {identityResponse ? (
+            <>
+              <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+                {identitySummary.map((item) => (
+                  <div key={item.label} className="rounded-xl bg-night-950/40 p-3">
+                    <dt className="text-xs font-semibold uppercase tracking-wide text-night-400">
+                      {item.label}
+                    </dt>
+                    <dd
+                      className="mt-1 break-all text-sm text-night-100"
+                      title={item.value}
+                    >
+                      {item.label === '签名' || item.label === 'Canonical'
+                        ? shortenValue(item.value)
+                        : item.value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+              <pre className="mt-4 max-h-72 overflow-auto rounded-xl bg-night-950/60 p-4 text-xs text-night-200">
+                {JSON.stringify(identityResponse, null, 2)}
+              </pre>
+            </>
+          ) : (
+            <pre className="mt-3 max-h-72 overflow-auto rounded-xl bg-night-950/60 p-4 text-xs text-night-200">
+              等待登录…
+            </pre>
+          )}
         </section>
       </div>
     </div>

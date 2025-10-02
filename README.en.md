@@ -56,9 +56,10 @@ docker-compose up --build
 This brings up Postgres alongside the backend container. Adjust environment variables inside `docker-compose.yml` before running if you need custom credentials.
 
 ### Authentication
-- Click the “SDID one-click login” button on the web console to request a challenge from `/auth/request-nonce`; the response includes both the nonce and the human-readable message your SDID wallet should sign.
+- Click the “SDID one-click login” button on the web console to request a challenge from `/auth/request-nonce`; if that endpoint is unreachable (e.g., when serving the UI from a static file share), the page will mint a local challenge before calling the extension.
 - The browser extension (from [ferrarif1/SDID](https://github.com/ferrarif1/SDID)) calls `requestLogin` and returns the DID, an ECDSA P-256 public key JWK, and a canonical authentication payload with the signature embedded in either `signature` or `proof.signatureValue`.
 - Submit `{nonce, response}` to `/auth/login` where `response` is the untouched object from `requestLogin`; the Go backend rebuilds the canonical request, verifies the DER-encoded signature against the supplied JWK, and issues a session token. Identity and approval remain fully managed inside the SDID wallet.
+- The login screen verifies signatures with WebCrypto when available and transparently falls back to a pure TypeScript P-256 implementation when the browser blocks `crypto.subtle` on HTTP-only intranet deployments. After a successful login the SDID button is replaced with “`${username} 已登陆`” and the returned payload is summarized alongside the raw JSON for auditing.
 - You can still manage IP allowlists from the console to restrict which networks may reach the authenticated APIs.
 
 ## Project Layout

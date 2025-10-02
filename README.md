@@ -69,11 +69,13 @@ Once both containers are healthy, the API is reachable at <http://localhost:8080
 
 ## Authentication Flow
 
-1. **Request nonce** – POST `/auth/request-nonce`. The response contains a unique `nonce` plus a readable `message` that the SDID 钱包 should sign.
+1. **Request nonce** – POST `/auth/request-nonce`. The response contains a unique `nonce` plus a readable `message` that the SDID 钱包 should sign. When the UI is hosted from a static share and cannot reach this endpoint, it mints a local challenge before invoking the extension.
 2. **Wallet signature** – 浏览器插件调用 `requestLogin` 后会返回完整的认证结果，其中包含 DID、带 ECDSA P-256 公钥的 `publicKeyJwk`，以及 `signature`/`proof.signatureValue` 中的签名和 canonical 请求体。
 3. **Login** – POST `/auth/login` with `{nonce, response}`，其中 `response` 为插件返回的原始对象。服务端会重建 canonical 请求、基于提供的 JWK 校验 DER 编码的签名，并在成功后签发令牌。
 
-All身份管理逻辑由 SDID 完成，本系统仅校验签名。可选的 IP 白名单仍可在控制台中维护以限制访问来源。详见 `openapi.yaml` 获取完整的请求/响应示例和错误码。
+前端登录页会优先使用 WebCrypto 验证签名；在仅 HTTP 的内网环境下若 `crypto.subtle` 被禁用，则自动切换到 TypeScript 实现的 P-256 验证，不会阻断流程。登录成功后，“连接 SDID 登录”按钮会替换为“`${用户名} 已登陆`”，并在页面展示 SDID 响应的摘要与原始 JSON 供核对。
+
+All 身份管理逻辑由 SDID 完成，本系统仅校验签名。可选的 IP 白名单仍可在控制台中维护以限制访问来源。详见 `openapi.yaml` 获取完整的请求/响应示例和错误码。
 
 ## Ledgers & Excel Import/Export
 
