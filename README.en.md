@@ -7,7 +7,7 @@ RoundOneLeger is a full-stack asset ledger system that centralizes inventory for
 - **Ledger management APIs** for IPs, devices, personnel, and systems with support for manual CRUD, ordering, and tag metadata.
 - **Excel import/export pipeline** that can normalize header variations, detect IP columns via regex, and generate multi-sheet or Cartesian reports.
 - **Undo/redo history** that captures mutating operations so operators can roll back up to ten steps in either direction.
-- **Authentication and allowlisting hooks** for enrollment, nonce-based login, device fingerprint verification, and IP restrictions.
+- **Authentication and allowlisting hooks** supporting SDID wallet challenge/response logins plus optional fixed-network allowlisting.
 - **Tamper-evident audit log** endpoints capable of exporting signed chains and verifying historical integrity.
 
 ## Architecture
@@ -32,7 +32,6 @@ RoundOneLeger is a full-stack asset ledger system that centralizes inventory for
    make run
    ```
    The health endpoint responds at `http://localhost:8080/health` with `{"status":"ok"}`.
-
 4. Run the test suite:
    ```bash
    make test
@@ -56,16 +55,22 @@ docker-compose up --build
 ```
 This brings up Postgres alongside the backend container. Adjust environment variables inside `docker-compose.yml` before running if you need custom credentials.
 
+### Authentication
+- Click the “SDID one-click login” button on the web console to request a challenge from `/auth/request-nonce`; if that endpoint is unreachable (e.g., when serving the UI from a static file share), the page will mint a local challenge before calling the extension.
+- The browser extension (from [ferrarif1/SDID](https://github.com/ferrarif1/SDID)) calls `requestLogin` and returns the DID, an ECDSA P-256 public key JWK, and a canonical authentication payload with the signature embedded in either `signature` or `proof.signatureValue`.
+- Submit `{nonce, response}` to `/auth/login` where `response` is the untouched object from `requestLogin`; the Go backend rebuilds the canonical request, verifies the DER-encoded signature against the supplied JWK, and issues a session token. Identity and approval remain fully managed inside the SDID wallet.
+- The login screen verifies signatures with WebCrypto when available and transparently falls back to a pure TypeScript P-256 implementation when the browser blocks `crypto.subtle` on HTTP-only intranet deployments. After a successful login the SDID button is replaced with “`${username} 已登陆`” and the returned payload is summarized alongside the raw JSON for auditing.
+- You can still manage IP allowlists from the console to restrict which networks may reach the authenticated APIs.
+
 ## Project Layout
 ```
 .
 ├── cmd/server            # API entry point and HTTP server bootstrap
 ├── internal/api          # HTTP handlers and router wiring
-├── internal/auth         # Enrollment, nonce, and signature helpers
+├── internal/auth         # Session token manager
 ├── internal/db           # Database configuration helpers
-├── internal/ledger       # In-memory ledger store with history and tagging
 ├── internal/middleware   # Shared Gin middleware (IP allowlist, etc.)
-├── internal/models       # Data model definitions
+├── internal/models       # Data models and in-memory store
 ├── internal/xlsx         # Excel reader/writer utilities
 ├── migrations            # Database migration files (create your own)
 ├── openapi.yaml          # OpenAPI v3 specification
