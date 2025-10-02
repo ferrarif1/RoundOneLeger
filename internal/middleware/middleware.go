@@ -86,3 +86,27 @@ func OptionalSession(manager *auth.Manager) gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// CORS enables cross-origin requests so the frontend can interact with the API when
+// served from a different origin. It mirrors the Origin header to support
+// credentialed requests and terminates preflight checks early.
+func CORS() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		origin := c.GetHeader("Origin")
+		if origin != "" {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+			c.Writer.Header().Set("Vary", "Origin")
+		}
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept, Origin, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+
+		if c.Request.Method == http.MethodOptions {
+			c.Status(http.StatusNoContent)
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}
