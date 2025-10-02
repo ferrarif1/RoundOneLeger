@@ -626,16 +626,16 @@ const Login = () => {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-6 py-16">
-      <div className="w-full max-w-3xl space-y-6 rounded-[32px] border border-white bg-white/90 p-10 shadow-glow">
+    <div className="flex min-h-screen items-center justify-center bg-[var(--bg-page)] px-6 py-16">
+      <div className="w-full max-w-3xl space-y-6 rounded-[32px] border border-black/5 bg-white/95 p-10 shadow-[var(--shadow-soft)] backdrop-blur-xl">
         <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
-            <div className="rounded-2xl bg-neon-500/15 p-3 text-neon-500">
+            <div className="rounded-2xl bg-[rgba(255,138,101,0.12)] p-3 text-[var(--accent)]">
               <LockClosedIcon className="h-7 w-7" />
             </div>
             <div>
-              <h1 className="text-2xl font-semibold text-night-50">登录控制台</h1>
-              <p className="text-sm text-night-200">
+              <h1 className="text-2xl font-semibold text-[var(--text)]">登录控制台</h1>
+              <p className="text-sm text-[var(--muted)]">
                 使用 SDID 钱包进行一键验证，无需注册，身份审批与管理全部在 SDID 扩展中完成。
               </p>
             </div>
@@ -652,7 +652,7 @@ const Login = () => {
             {loginComplete && (
               <button
                 type="button"
-                className="w-full rounded-2xl border border-night-700 px-6 py-3 text-sm font-medium text-night-100 transition hover:bg-night-900/40 md:w-auto"
+                className="w-full rounded-full border border-black/10 px-6 py-3 text-sm font-medium text-[var(--text)] transition hover:bg-white md:w-auto"
                 onClick={() => navigate('/dashboard')}
               >
                 进入控制台
@@ -662,9 +662,9 @@ const Login = () => {
         </div>
 
         <div className="grid gap-6 md:grid-cols-2">
-          <section className="space-y-3 rounded-2xl bg-night-900/20 p-5">
-            <h2 className="text-sm font-medium text-night-100">流程说明</h2>
-            <ol className="list-decimal space-y-2 pl-5 text-sm text-night-300">
+          <section className="space-y-3 rounded-2xl border border-black/8 bg-white/92 p-5 shadow-[var(--shadow-sm)]">
+            <h2 className="text-sm font-medium text-[var(--text)]">流程说明</h2>
+            <ol className="list-decimal space-y-2 pl-5 text-sm text-[var(--muted)]">
               <li>页面生成随机 challenge，并请求 SDID 插件发起登录签名。</li>
               <li>插件弹出确认窗口，用户选择身份并授权签名。</li>
               <li>扩展返回 DID、公钥以及签名，页面使用 WebCrypto 验证签名。</li>
@@ -672,25 +672,25 @@ const Login = () => {
             </ol>
           </section>
 
-          <section className="space-y-3 rounded-2xl bg-night-900/20 p-5">
-            <h2 className="text-sm font-medium text-night-100">当前状态</h2>
+          <section className="space-y-3 rounded-2xl border border-black/8 bg-white/92 p-5 shadow-[var(--shadow-sm)]">
+            <h2 className="text-sm font-medium text-[var(--text)]">当前状态</h2>
             <p
-              className={`rounded-xl px-4 py-3 text-sm ${
+              className={`rounded-xl border px-4 py-3 text-sm shadow-sm ${
                 status.tone === 'success'
-                  ? 'bg-emerald-100 text-emerald-700'
+                  ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
                   : status.tone === 'error'
-                  ? 'bg-red-100 text-red-600'
-                  : 'bg-night-900/40 text-night-200'
+                  ? 'border-red-100 bg-red-50 text-red-600'
+                  : 'border-black/5 bg-white/85 text-[var(--text)]'
               }`}
             >
               {status.message}
             </p>
             {verification && (
               <div
-                className={`rounded-xl px-4 py-3 text-sm ${
+                className={`rounded-xl border px-4 py-3 text-sm shadow-sm ${
                   verification.success
-                    ? 'bg-emerald-100 text-emerald-700'
-                    : 'bg-red-100 text-red-600'
+                    ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
+                    : 'border-red-100 bg-red-50 text-red-600'
                 }`}
               >
                 <div className="flex items-center justify-between gap-3">
@@ -699,8 +699,8 @@ const Login = () => {
                     <span
                       className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ${
                         verification.success
-                          ? 'bg-emerald-200/70 text-emerald-900'
-                          : 'bg-red-200/70 text-red-700'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-red-100 text-red-600'
                       }`}
                     >
                       {verificationBadge}
@@ -713,18 +713,18 @@ const Login = () => {
         </div>
 
         {approvalStatus && (
-          <section className="rounded-2xl bg-night-900/20 p-5">
-            <h2 className="text-sm font-medium text-night-100">身份审批</h2>
+          <section className="rounded-2xl border border-black/8 bg-white/92 p-5 shadow-[var(--shadow-sm)]">
+            <h2 className="text-sm font-medium text-[var(--text)]">身份审批</h2>
             {approvalStatus === 'approved' ? (
-              <p className="mt-2 rounded-xl bg-emerald-100/70 px-4 py-3 text-sm text-emerald-700">
+              <p className="mt-2 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
                 身份已通过管理员认证，可重新登录以获取会话。
               </p>
             ) : approvalStatus === 'pending' ? (
-              <p className="mt-2 rounded-xl bg-amber-100/70 px-4 py-3 text-sm text-amber-700">
+              <p className="mt-2 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-700">
                 审批请求已提交，等待管理员签名确认。
               </p>
             ) : (
-              <p className="mt-2 rounded-xl bg-red-100/70 px-4 py-3 text-sm text-red-600">
+              <p className="mt-2 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">
                 当前身份尚未提交审批请求，请点击下方按钮申请管理员认证。
               </p>
             )}
@@ -739,21 +739,21 @@ const Login = () => {
               </button>
             )}
             {approvalRecord && (
-              <dl className="mt-4 grid gap-3 text-sm text-night-200 sm:grid-cols-2">
+              <dl className="mt-4 grid gap-3 text-sm text-[var(--muted)] sm:grid-cols-2">
                 <div>
-                  <dt className="text-xs uppercase tracking-wide text-night-500">提交时间</dt>
-                  <dd className="mt-1 break-words text-night-100">{formatTimestamp(approvalRecord.createdAt)}</dd>
+                  <dt className="text-xs uppercase tracking-wide text-[rgba(20,22,26,0.55)]">提交时间</dt>
+                  <dd className="mt-1 break-words text-[var(--text)]">{formatTimestamp(approvalRecord.createdAt)}</dd>
                 </div>
                 {approvalRecord.approvedAt && (
                   <div>
-                    <dt className="text-xs uppercase tracking-wide text-night-500">批准时间</dt>
-                    <dd className="mt-1 break-words text-night-100">{formatTimestamp(approvalRecord.approvedAt)}</dd>
+                    <dt className="text-xs uppercase tracking-wide text-[rgba(20,22,26,0.55)]">批准时间</dt>
+                    <dd className="mt-1 break-words text-[var(--text)]">{formatTimestamp(approvalRecord.approvedAt)}</dd>
                   </div>
                 )}
                 {approvalRecord.approverLabel && (
                   <div>
-                    <dt className="text-xs uppercase tracking-wide text-night-500">审批人</dt>
-                    <dd className="mt-1 break-words text-night-100">
+                    <dt className="text-xs uppercase tracking-wide text-[rgba(20,22,26,0.55)]">审批人</dt>
+                    <dd className="mt-1 break-words text-[var(--text)]">
                       {approvalRecord.approverLabel}
                       {approvalRecord.approverDid ? `（${approvalRecord.approverDid}）` : ''}
                     </dd>
@@ -761,8 +761,8 @@ const Login = () => {
                 )}
                 {approvalRecord.applicantRoles && approvalRecord.applicantRoles.length > 0 && (
                   <div>
-                    <dt className="text-xs uppercase tracking-wide text-night-500">申请角色</dt>
-                    <dd className="mt-1 break-words text-night-100">{formatRoles(approvalRecord.applicantRoles)}</dd>
+                    <dt className="text-xs uppercase tracking-wide text-[rgba(20,22,26,0.55)]">申请角色</dt>
+                    <dd className="mt-1 break-words text-[var(--text)]">{formatRoles(approvalRecord.applicantRoles)}</dd>
                   </div>
                 )}
               </dl>
@@ -770,18 +770,18 @@ const Login = () => {
           </section>
         )}
 
-        <section className="rounded-2xl bg-night-900/20 p-5">
-          <h2 className="text-sm font-medium text-night-100">SDID 返回数据</h2>
+        <section className="rounded-2xl border border-black/8 bg-white/92 p-5 shadow-[var(--shadow-sm)]">
+          <h2 className="text-sm font-medium text-[var(--text)]">SDID 返回数据</h2>
           {identityResponse ? (
             <>
               <dl className="mt-3 grid gap-3 sm:grid-cols-2">
                 {identitySummary.map((item) => (
-                  <div key={item.label} className="rounded-xl bg-night-950/40 p-3">
-                    <dt className="text-xs font-semibold uppercase tracking-wide text-night-400">
+                  <div key={item.label} className="rounded-xl border border-black/5 bg-white p-3 shadow-sm">
+                    <dt className="text-xs font-semibold uppercase tracking-wide text-[rgba(20,22,26,0.55)]">
                       {item.label}
                     </dt>
                     <dd
-                      className="mt-1 break-all text-sm text-night-100"
+                      className="mt-1 break-all text-sm text-[var(--text)]"
                       title={item.value}
                     >
                       {item.label === '签名' || item.label === 'Canonical'
@@ -791,14 +791,14 @@ const Login = () => {
                   </div>
                 ))}
               </dl>
-              <pre className="mt-4 max-h-72 overflow-auto rounded-xl bg-night-950/60 p-4 text-xs text-night-200">
+              <pre className="mt-4 max-h-72 overflow-auto rounded-2xl border border-black/5 bg-[#f5f6f9] p-4 text-xs text-[var(--text)]">
                 {JSON.stringify(identityResponse, null, 2)}
               </pre>
             </>
           ) : (
-            <pre className="mt-3 max-h-72 overflow-auto rounded-xl bg-night-950/60 p-4 text-xs text-night-200">
-              等待登录…
-            </pre>
+            <p className="mt-2 rounded-xl border border-black/5 bg-white/85 px-4 py-3 text-sm text-[var(--muted)]">
+              点击上方按钮连接 SDID，完成授权后将展示返回的数据与签名详情。
+            </p>
           )}
         </section>
       </div>

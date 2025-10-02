@@ -9,13 +9,11 @@ export const ToastStack = ({ status, error }: ToastStackProps) => {
   }
   const message = error ?? status ?? '';
   const isError = Boolean(error);
+  const baseClass = isError
+    ? 'bg-red-50 text-red-600 border border-red-100'
+    : 'bg-white/90 text-[var(--text)] border border-black/10';
+
   return (
-    <div
-      className={`rounded-full px-4 py-2 text-sm shadow-[var(--shadow-sm)] ${
-        isError ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-700'
-      }`}
-    >
-      {message}
-    </div>
+    <div className={`rounded-full px-4 py-2 text-sm shadow-[var(--shadow-sm)] ${baseClass}`}>{message}</div>
   );
 };
