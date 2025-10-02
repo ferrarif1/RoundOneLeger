@@ -4,7 +4,6 @@ import (
 	"context"
 	"log"
 	"net/http"
-	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -32,8 +31,8 @@ func main() {
 		}()
 	}
 
-	fingerprintSecret := []byte(os.Getenv("FINGERPRINT_SECRET"))
-	store := models.NewLedgerStore(fingerprintSecret)
+	store := models.NewLedgerStore()
+
 	sessions := auth.NewManager(12 * time.Hour)
 
 	router := api.NewRouter(api.Config{Database: database, Store: store, Sessions: sessions})
