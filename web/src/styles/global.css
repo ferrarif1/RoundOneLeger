@@ -2,15 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
+@import './design-tokens.css';
+
 :root {
   color-scheme: light;
 }
 
 body {
   min-height: 100vh;
-  background: linear-gradient(180deg, #f9f9fc 0%, #f4f5fa 60%, #f0f1f7 100%);
+  background: var(--bg);
   background-attachment: fixed;
-  color: #1a1d2d;
+  color: var(--text);
   font-smooth: always;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -64,4 +66,163 @@ a {
   height: 1px;
   margin-left: 8px;
   background: linear-gradient(90deg, rgba(248, 155, 84, 0.4), transparent);
+}
+
+.doc-editor {
+  position: relative;
+  word-break: break-word;
+  font-size: 0.9375rem;
+  line-height: 1.75;
+}
+
+.doc-editor[data-placeholder]:empty::before {
+  content: attr(data-placeholder);
+  color: rgba(17, 24, 39, 0.35);
+}
+
+.doc-editor h1,
+.doc-editor h2,
+.doc-editor h3 {
+  font-weight: 700;
+  margin: 1.5rem 0 0.75rem;
+  line-height: 1.3;
+}
+
+.doc-editor h1 {
+  font-size: 2rem;
+}
+
+.doc-editor h2 {
+  font-size: 1.6rem;
+}
+
+.doc-editor h3 {
+  font-size: 1.35rem;
+}
+
+.doc-editor p {
+  margin: 0.75rem 0;
+}
+
+.doc-editor ul,
+.doc-editor ol {
+  margin: 0.75rem 0 0.75rem 1.5rem;
+  padding-left: 0.5rem;
+}
+
+.doc-editor ul.doc-checklist {
+  list-style: none;
+  margin-left: 0;
+  padding-left: 0;
+}
+
+.doc-editor ul.doc-checklist li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+.doc-editor ul.doc-checklist input {
+  width: 16px;
+  height: 16px;
+  accent-color: #5eeef7;
+}
+
+.doc-editor blockquote {
+  margin: 1rem 0;
+  padding: 1rem 1.25rem;
+  border-left: 4px solid rgba(94, 238, 247, 0.7);
+  background: rgba(94, 238, 247, 0.08);
+  border-radius: 16px;
+  color: #0f172a;
+  font-style: italic;
+}
+
+.doc-editor pre {
+  margin: 1rem 0;
+  padding: 1rem 1.25rem;
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #f8fafc;
+  overflow-x: auto;
+  font-family: 'SFMono-Regular', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 0.85rem;
+}
+
+.doc-editor code {
+  font-family: 'SFMono-Regular', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  background: rgba(15, 23, 42, 0.08);
+  border-radius: 6px;
+  padding: 0.1rem 0.35rem;
+}
+
+.doc-editor table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.25rem 0;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 12px 35px rgba(15, 23, 42, 0.08);
+}
+
+.doc-editor th,
+.doc-editor td {
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.95);
+  vertical-align: top;
+}
+
+.doc-editor th {
+  background: linear-gradient(135deg, rgba(94, 238, 247, 0.18), rgba(73, 78, 225, 0.18));
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.doc-editor hr {
+  border: none;
+  border-top: 1px dashed rgba(73, 78, 225, 0.3);
+  margin: 1.75rem 0;
+}
+
+.doc-editor figure.doc-figure {
+  margin: 1.75rem auto;
+  text-align: center;
+}
+
+.doc-editor figure.doc-figure img {
+  max-width: 100%;
+  border-radius: 24px;
+  box-shadow: 0 28px 60px rgba(15, 23, 42, 0.25);
+}
+
+.doc-editor figure.doc-figure figcaption {
+  margin-top: 0.6rem;
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.doc-editor audio,
+.doc-editor video {
+  width: 100%;
+  margin: 1rem 0;
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.08);
+}
+
+.doc-editor .doc-callout {
+  margin: 1.5rem 0;
+  padding: 1rem 1.5rem;
+  border-radius: 18px;
+  border: 1px solid rgba(94, 238, 247, 0.6);
+  background: rgba(94, 238, 247, 0.12);
+  color: #0f172a;
+}
+
+.doc-editor mark.doc-search-highlight {
+  background: #fef3c7;
+  border-radius: 6px;
+  padding: 0 0.25rem;
+  box-shadow: 0 0 0 2px rgba(254, 243, 199, 0.6);
 }

@@ -5,9 +5,9 @@ import { BellIcon, PowerIcon, UserCircleIcon } from '@heroicons/react/24/outline
 const titles: Record<string, string> = {
   '/dashboard': '实时概览',
   '/assets': '台账编排',
-  '/devices': '终端设备',
   '/ip-allowlist': 'IP 白名单',
-  '/audit-logs': '审计追踪'
+  '/audit-logs': '审计追踪',
+  '/approvals': '身份审批'
 };
 
 const TopBar = () => {
