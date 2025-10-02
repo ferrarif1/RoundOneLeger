@@ -1,12 +1,13 @@
 # Ledger Platform
 
-This repository contains a self-contained asset ledger backend written in Go. It exposes a REST API for device/IP/personnel/system management, supports public-key based authentication, enforces IP allowlists, provides undo/redo history, and can import/export Excel workbooks that describe the ledgers individually or as a Cartesian matrix.
+This repository contains a self-contained asset ledger backend written in Go. It exposes REST APIs for IP/personnel/system management, supports public-key based authentication, enforces IP allowlists, provides undo/redo history, and can import/export Excel workbooks that describe the ledgers individually or as a Cartesian matrix.
 
 ## Features
 
-- **Authentication** – Ed25519 enrollment/login flows that bind users to browser/device fingerprints and issue bearer tokens.
-- **Ledger management** – CRUD endpoints for IPs, devices, personnel, and systems with tagging, ordering, and cross-linking.
+- **Authentication** – Ed25519 enrollment/login flows that bind users to browser fingerprints and issue bearer tokens.
+- **Ledger management** – CRUD endpoints for IPs, personnel, and systems with tagging, ordering, and cross-linking.
 - **Excel workflows** – Import/export XLSX workbooks with automatic IP column detection and a derived matrix sheet representing all combinations.
+- **Collaborative workspaces** – Create free-form tables with dynamic columns, clipboard import, Excel syncing, and an inline rich text editor for narrative context or embedded imagery.
 - **Undo/redo** – Ten-level history stack for manual corrections across all ledgers.
 - **Audit log chain** – Tamper-evident audit trail with verification endpoint.
 - **IP allowlist** – CIDR-aware middleware that blocks requests from unapproved addresses.
@@ -45,7 +46,6 @@ web/                  # Frontend placeholder (not required to run backend)
 | `DB_NAME`            | `ledger`    | PostgreSQL database name                         |
 | `DB_USER`            | `postgres`  | PostgreSQL user                                  |
 | `DB_PASS`            | `postgres`  | PostgreSQL password                              |
-| `FINGERPRINT_SECRET` | random      | HMAC secret for fingerprint hashing (optional)   |
 
 ### Local Development
 
@@ -70,21 +70,33 @@ Once both containers are healthy, the API is reachable at <http://localhost:8080
 
 ## Authentication Flow
 
-1. **Enrollment Request** – POST `/auth/enroll-request` with `{username, device_name, public_key}` (Ed25519 public key base64). The server issues a `device_id` and `nonce`.
-2. **Enrollment Complete** – POST `/auth/enroll-complete` with `{username, device_id, nonce, signature, fingerprint}` where `signature` is over the nonce and `fingerprint` is a client-generated descriptor. The server stores the fingerprint hash.
-3. **Request Login Nonce** – POST `/auth/request-nonce` to fetch a short-lived nonce for the device.
-4. **Login** – POST `/auth/login` with `{username, device_id, nonce, signature, fingerprint}`. Successful validation issues a bearer token used in the `Authorization: Bearer <token>` header for subsequent requests.
+1. **Request nonce** – POST `/auth/request-nonce`. The response contains a unique `nonce` plus a readable `message` that the SDID 钱包 should sign. When the UI is hosted from a static share and cannot reach this endpoint, it mints a local challenge before invoking the extension.
+2. **Wallet signature** – 浏览器插件调用 `requestLogin` 后会返回完整的认证结果，其中包含 DID、带 ECDSA P-256 公钥的 `publicKeyJwk`，以及 `signature`/`proof.signatureValue` 中的签名和 canonical 请求体。
+3. **Login** – POST `/auth/login` with `{nonce, response}`，其中 `response` 为插件返回的原始对象。服务端会重建 canonical 请求、基于提供的 JWK 校验 DER 编码的签名，并在成功后签发令牌；如果身份不包含管理员角色，则还需在 SDID 侧完成管理员认证（例如返回 `authorized: true`），否则接口会返回 `identity_not_approved`。
 
-See `openapi.yaml` for complete request/response schemas and error codes.
+前端登录页会优先使用 WebCrypto 验证签名；在仅 HTTP 的内网环境下若 `crypto.subtle` 被禁用，则自动切换到 TypeScript 实现的 P-256 验证，不会阻断流程。登录成功后，“连接 SDID 登录”按钮会替换为“`${用户名} 已登陆`”，并在页面展示 SDID 响应的摘要与原始 JSON 供核对。
+
+All 身份管理逻辑由 SDID 完成，本系统仅校验签名并确认非管理员账号已经获得管理员认证。可选的 IP 白名单仍可在控制台中维护以限制访问来源。详见 `openapi.yaml` 获取完整的请求/响应示例和错误码。
 
 ## Ledgers & Excel Import/Export
 
-- `GET /api/v1/ledgers/{type}` – Retrieve ledger entries (`type` = `ips`, `devices`, `personnel`, or `systems`).
+- `GET /api/v1/ledgers/{type}` – Retrieve ledger entries (`type` = `ips`, `personnel`, or `systems`).
 - `POST /api/v1/ledgers/{type}` / `PUT` / `DELETE` – Manage entries with tags, attributes, and cross-ledger links.
 - `POST /api/v1/ledgers/{type}/reorder` – Persist manual ordering (drag/drop style).
 - `POST /api/v1/ledgers/{type}/import` – Provide a base64-encoded XLSX snippet to replace a single ledger. IP columns are auto-detected via regex even if headers are missing.
-- `GET /api/v1/ledgers/export` – Download a multi-sheet workbook containing individual ledgers and a `Matrix` sheet that renders every linked combination (Cartesian product) of IP → Device → Personnel → System.
+- `GET /api/v1/ledgers/export` – Download a multi-sheet workbook containing individual ledgers and a `Matrix` sheet that renders every linked combination (Cartesian product) of IP → Personnel → System.
 - `POST /api/v1/ledgers/import` – Replace all ledgers using a multi-sheet workbook.
+
+## Workspace Collaboration
+
+- `GET /api/v1/workspaces` – List flexible, spreadsheet-style ledgers with their dynamic columns, rows, and attached documentation.
+- `POST /api/v1/workspaces` – Create a new workspace; the frontend offers immediate editing with column/row controls and rich text notes.
+- `PUT /api/v1/workspaces/{id}` / `DELETE` – Persist structural changes or archive an obsolete workspace.
+- `POST /api/v1/workspaces/{id}/import/excel` – Upload an XLSX file to replace the table data, preserving the workspace shell and document.
+- `POST /api/v1/workspaces/{id}/import/text` – Paste tab/CSV content directly for quick bulk entry.
+- `GET /api/v1/workspaces/{id}/export` – Download the current workspace as an Excel sheet for offline sharing.
+
+The React console mirrors these endpoints with an interactive grid. Users can add or remove columns on demand, paste clipboard data, upload Excel files, and maintain a narrative document with formatting and inline images alongside the structured records.
 
 ## History & Audit
 
@@ -105,7 +117,7 @@ The tests exercise the ledger store, authentication flow, XLSX codec, and matrix
 
 ## Migrations
 
-The `migrations/0001_init.sql` script creates PostgreSQL tables for users, devices, allowlists, and audit logs, and seeds an `admin` account. Apply it with your preferred migration tool before switching the store implementation to a database-backed version.
+The `migrations/0001_init.sql` script creates PostgreSQL tables for users, allowlists, and audit logs, and seeds an `admin` account. Apply it with your preferred migration tool before switching the store implementation to a database-backed version.
 
 ## API Reference
 

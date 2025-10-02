@@ -5,6 +5,7 @@ import (
 
 	"ledger/internal/auth"
 	"ledger/internal/db"
+	"ledger/internal/middleware"
 	"ledger/internal/models"
 )
 
@@ -18,7 +19,7 @@ type Config struct {
 // NewRouter configures HTTP routes for the application.
 func NewRouter(cfg Config) *gin.Engine {
 	r := gin.New()
-	r.Use(gin.Recovery(), gin.Logger())
+	r.Use(gin.Recovery(), gin.Logger(), middleware.CORS())
 
 	server := &Server{Database: cfg.Database, Store: cfg.Store, Sessions: cfg.Sessions}
 	server.RegisterRoutes(r)

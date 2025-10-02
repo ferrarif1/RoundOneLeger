@@ -1,4 +1,4 @@
-import { SparklesIcon, ShieldCheckIcon, CpuChipIcon } from '@heroicons/react/24/outline';
+import { SparklesIcon, ShieldCheckIcon, PencilSquareIcon } from '@heroicons/react/24/outline';
 
 const metrics = [
   {
@@ -8,16 +8,16 @@ const metrics = [
     icon: ShieldCheckIcon
   },
   {
-    title: '活跃设备',
-    value: '42',
-    change: '6 台待审批',
-    icon: CpuChipIcon
+    title: '活跃台账',
+    value: '12',
+    change: '3 个正在协作编辑',
+    icon: SparklesIcon
   },
   {
-    title: '资产变更',
-    value: '18',
-    change: '今日新增 3 条',
-    icon: SparklesIcon
+    title: '文档更新',
+    value: '27',
+    change: '今日新增 5 条批注',
+    icon: PencilSquareIcon
   }
 ];
 
@@ -47,9 +47,9 @@ const Dashboard = () => (
           <p className="mt-4 text-sm text-night-200">最新审计链校验通过，无篡改风险。</p>
         </div>
         <div className="rounded-2xl border border-ink-200 bg-white p-5 shadow-sm">
-          <p className="text-xs uppercase tracking-[0.18em] text-night-300">指纹匹配</p>
-          <p className="mt-2 text-2xl font-semibold text-night-50">38/38</p>
-          <p className="mt-4 text-sm text-night-200">所有今日登录设备均通过硬件指纹验证。</p>
+          <p className="text-xs uppercase tracking-[0.18em] text-night-300">协同编辑</p>
+          <p className="mt-2 text-2xl font-semibold text-night-50">48 次</p>
+          <p className="mt-4 text-sm text-night-200">多用户实时维护共享台账与智能文档。</p>
         </div>
         <div className="rounded-2xl border border-ink-200 bg-white p-5 shadow-sm">
           <p className="text-xs uppercase tracking-[0.18em] text-night-300">IP 合规</p>
