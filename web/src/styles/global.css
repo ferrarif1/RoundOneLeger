@@ -2,15 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
+@import './design-tokens.css';
+
 :root {
   color-scheme: light;
 }
 
 body {
   min-height: 100vh;
-  background: linear-gradient(180deg, #f9f9fc 0%, #f4f5fa 60%, #f0f1f7 100%);
+  background: var(--bg);
   background-attachment: fixed;
-  color: #1a1d2d;
+  color: var(--text);
   font-smooth: always;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
