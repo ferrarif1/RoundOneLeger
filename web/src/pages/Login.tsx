@@ -297,6 +297,20 @@ const formatIdentityLabel = (identity: SdidLoginIdentity | undefined): string =>
   return identity.did?.trim() || '未知身份';
 };
 
+const createChallenge = (): string => {
+  const buffer = new Uint32Array(1);
+  const cryptoObj: Crypto | undefined =
+    typeof window !== 'undefined' && window.crypto
+      ? window.crypto
+      : (globalThis as { crypto?: Crypto }).crypto;
+  if (cryptoObj?.getRandomValues) {
+    cryptoObj.getRandomValues(buffer);
+    return `demo:${Date.now().toString(16)}:${buffer[0].toString(16)}`;
+  }
+  const fallback = Math.floor(Math.random() * 0xffffffff).toString(16);
+  return `demo:${Date.now().toString(16)}:${fallback}`;
+};
+
 const Login = () => {
   const navigate = useNavigate();
   const { setToken } = useSession();
@@ -344,20 +358,26 @@ const Login = () => {
     setStatus({ message: '正在请求授权…', tone: 'info' });
 
     try {
-      const [nonceResp, bridge] = await Promise.all([
-        api.post<{ nonce: string; message?: string }>('/auth/request-nonce').then((res) => res.data),
+      const [bridge] = await Promise.all([
         waitForSdidBridge()
       ]);
+
+      const challenge = createChallenge();
 
       setStatus({ message: '请在 SDID 插件中确认登录请求…', tone: 'info' });
 
       const response = await bridge.requestLogin({
-        message: nonceResp.message || 'RoundOne Ledger 请求访问',
-        challenge: nonceResp.nonce
+        message: 'RoundOne Ledger 请求访问',
+        challenge
       });
 
+      const loginResponse: SdidLoginResponse = {
+        ...response,
+        challenge: response.challenge || challenge
+      };
+
       setStatus({ message: '正在验证签名…', tone: 'info' });
-      const verificationResult = await verifySdidResponse(response);
+      const verificationResult = await verifySdidResponse(loginResponse);
       setVerification(verificationResult);
       if (!verificationResult?.success) {
         setStatus({
@@ -367,14 +387,14 @@ const Login = () => {
         return;
       }
 
-      setIdentityResponse(response);
+      setIdentityResponse(loginResponse);
 
       const { data } = await api.post('/auth/login', {
-        nonce: nonceResp.nonce,
-        response
+        nonce: challenge,
+        response: loginResponse
       });
 
-      const label = formatIdentityLabel(response.identity);
+      const label = formatIdentityLabel(loginResponse.identity);
       setStatus({ message: `已连接身份：${label}`, tone: 'success' });
       setToken(data.token);
       navigate('/dashboard');

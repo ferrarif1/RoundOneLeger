@@ -150,8 +150,22 @@ func (s *Server) handleLogin(c *gin.Context) {
 	}
 	challenge, err := s.Store.ConsumeLoginChallenge(req.Nonce)
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": models.ErrLoginChallengeNotFound.Error()})
-		return
+		if !errors.Is(err, models.ErrLoginChallengeNotFound) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": models.ErrLoginChallengeNotFound.Error()})
+			return
+		}
+		if strings.TrimSpace(req.Response.Challenge) != strings.TrimSpace(req.Nonce) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": models.ErrLoginChallengeNotFound.Error()})
+			return
+		}
+		challenge = &models.LoginChallenge{
+			Nonce:     strings.TrimSpace(req.Nonce),
+			Message:   strings.TrimSpace(req.Response.Challenge),
+			CreatedAt: time.Now().UTC(),
+		}
+		if challenge.Message == "" {
+			challenge.Message = challenge.Nonce
+		}
 	}
 	if err := s.verifySdidLoginResponse(challenge, &req.Response); err != nil {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
