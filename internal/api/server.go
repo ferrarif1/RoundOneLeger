@@ -36,15 +36,16 @@ type Server struct {
 func (s *Server) RegisterRoutes(router *gin.Engine) {
 	router.GET("/health", s.handleHealth)
 
-	authGroup := router.Group("/auth")
-	{
-		authGroup.POST("/request-nonce", s.handleRequestNonce)
-		authGroup.POST("/login", s.handleLogin)
-	}
+        authGroup := router.Group("/auth")
+        {
+                authGroup.POST("/request-nonce", s.handleRequestNonce)
+                authGroup.POST("/login", s.handleLogin)
+                authGroup.POST("/approvals", s.handleSubmitApproval)
+        }
 
-	secured := router.Group("/api/v1")
-	secured.Use(middleware.RequireSession(s.Sessions))
-	{
+        secured := router.Group("/api/v1")
+        secured.Use(middleware.RequireSession(s.Sessions))
+        {
 		secured.GET("/ledgers/:type", s.handleListLedger)
 		secured.POST("/ledgers/:type", s.handleCreateLedger)
 		secured.PUT("/ledgers/:type/:id", s.handleUpdateLedger)
@@ -64,9 +65,11 @@ func (s *Server) RegisterRoutes(router *gin.Engine) {
 		secured.POST("/history/redo", s.handleRedo)
 		secured.GET("/history", s.handleHistoryStatus)
 
-		secured.GET("/audit", s.handleAuditList)
-		secured.GET("/audit/verify", s.handleAuditVerify)
-	}
+                secured.GET("/audit", s.handleAuditList)
+                secured.GET("/audit/verify", s.handleAuditVerify)
+                secured.GET("/approvals", s.handleListApprovals)
+                secured.POST("/approvals/:id/approve", s.handleApproveRequest)
+        }
 }
 
 func (s *Server) handleHealth(c *gin.Context) {
@@ -122,17 +125,31 @@ type sdidProof struct {
 }
 
 type sdidAuthentication struct {
-	CanonicalRequest string          `json:"canonicalRequest"`
-	Payload          json.RawMessage `json:"payload"`
+        CanonicalRequest string          `json:"canonicalRequest"`
+        Payload          json.RawMessage `json:"payload"`
 }
 
 type sdidLoginResponse struct {
-	Identity       sdidIdentity        `json:"identity"`
-	Challenge      string              `json:"challenge"`
-	Signature      string              `json:"signature"`
-	Proof          sdidProof           `json:"proof"`
-	Authentication *sdidAuthentication `json:"authentication"`
-	Authorized     bool                `json:"authorized"`
+        Identity       sdidIdentity        `json:"identity"`
+        Challenge      string              `json:"challenge"`
+        Signature      string              `json:"signature"`
+        Proof          sdidProof           `json:"proof"`
+        Authentication *sdidAuthentication `json:"authentication"`
+        Authorized     bool                `json:"authorized"`
+}
+
+type approvalResponse struct {
+        ID               string    `json:"id"`
+        ApplicantDid     string    `json:"applicantDid"`
+        ApplicantLabel   string    `json:"applicantLabel"`
+        ApplicantRoles   []string  `json:"applicantRoles"`
+        Status           string    `json:"status"`
+        CreatedAt        time.Time `json:"createdAt"`
+        ApprovedAt       *time.Time `json:"approvedAt,omitempty"`
+        ApproverDid      string    `json:"approverDid,omitempty"`
+        ApproverLabel    string    `json:"approverLabel,omitempty"`
+        ApproverRoles    []string  `json:"approverRoles,omitempty"`
+        SigningChallenge string    `json:"signingChallenge,omitempty"`
 }
 
 type approvalClaims struct {
@@ -155,55 +172,221 @@ type authenticationClaims struct {
 }
 
 type loginRequest struct {
-	Nonce    string            `json:"nonce"`
-	Response sdidLoginResponse `json:"response"`
+        Nonce    string            `json:"nonce"`
+        Response sdidLoginResponse `json:"response"`
 }
 
 func (s *Server) handleLogin(c *gin.Context) {
-	var req loginRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
-		return
-	}
-	if strings.TrimSpace(req.Nonce) == "" {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
-		return
-	}
-	challenge, err := s.Store.ConsumeLoginChallenge(req.Nonce)
-	if err != nil {
-		if !errors.Is(err, models.ErrLoginChallengeNotFound) {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": models.ErrLoginChallengeNotFound.Error()})
-			return
-		}
-		if strings.TrimSpace(req.Response.Challenge) != strings.TrimSpace(req.Nonce) {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": models.ErrLoginChallengeNotFound.Error()})
-			return
-		}
-		challenge = &models.LoginChallenge{
-			Nonce:     strings.TrimSpace(req.Nonce),
-			Message:   strings.TrimSpace(req.Response.Challenge),
-			CreatedAt: time.Now().UTC(),
-		}
-		if challenge.Message == "" {
-			challenge.Message = challenge.Nonce
-		}
-	}
-	if err := s.verifySdidLoginResponse(challenge, &req.Response); err != nil {
-		status := http.StatusUnauthorized
-		if errors.Is(err, models.ErrIdentityNotApproved) {
-			status = http.StatusForbidden
-		}
-		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
-		return
-	}
-	sdid := strings.TrimSpace(req.Response.Identity.DID)
-	s.Store.RecordLogin(sdid)
-	session, err := s.Sessions.Issue(sdid, sdid)
+        var req loginRequest
+        if err := c.ShouldBindJSON(&req); err != nil {
+                c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+                return
+        }
+        if strings.TrimSpace(req.Nonce) == "" {
+                c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+                return
+        }
+        challenge, err := s.resolveChallenge(req.Nonce, &req.Response)
+        if err != nil {
+                c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+                return
+        }
+        claims, _, err := s.verifySdidLoginResponse(challenge, &req.Response)
+        if err != nil {
+                c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+                return
+        }
+        approvalStatus, approval, evalErr := s.evaluateIdentityApproval(&req.Response, claims)
+        if evalErr != nil {
+                status := http.StatusUnauthorized
+                if errors.Is(evalErr, models.ErrIdentityNotApproved) {
+                        status = http.StatusForbidden
+                }
+                payload := gin.H{"error": evalErr.Error(), "status": approvalStatus}
+                if approval != nil {
+                        payload["approval"] = approvalToResponse(approval)
+                }
+                c.AbortWithStatusJSON(status, payload)
+                return
+        }
+        sdid := strings.TrimSpace(req.Response.Identity.DID)
+        s.Store.RecordLogin(sdid)
+        session, err := s.Sessions.Issue(sdid, sdid)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "session_issue_failed"})
 		return
 	}
-	c.JSON(http.StatusOK, session)
+        c.JSON(http.StatusOK, session)
+}
+
+func (s *Server) resolveChallenge(nonce string, resp *sdidLoginResponse) (*models.LoginChallenge, error) {
+        challenge, err := s.Store.ConsumeLoginChallenge(nonce)
+        if err == nil {
+                return challenge, nil
+        }
+        if !errors.Is(err, models.ErrLoginChallengeNotFound) {
+                return nil, err
+        }
+        if resp == nil {
+                return nil, models.ErrLoginChallengeNotFound
+        }
+        if strings.TrimSpace(resp.Challenge) != strings.TrimSpace(nonce) {
+                return nil, models.ErrLoginChallengeNotFound
+        }
+        fallback := &models.LoginChallenge{
+                Nonce:     strings.TrimSpace(nonce),
+                Message:   strings.TrimSpace(resp.Challenge),
+                CreatedAt: time.Now().UTC(),
+        }
+        if fallback.Message == "" {
+                fallback.Message = fallback.Nonce
+        }
+        return fallback, nil
+}
+
+func (s *Server) handleSubmitApproval(c *gin.Context) {
+        var req loginRequest
+        if err := c.ShouldBindJSON(&req); err != nil {
+                c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+                return
+        }
+        if strings.TrimSpace(req.Nonce) == "" {
+                c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+                return
+        }
+        challenge, err := s.resolveChallenge(req.Nonce, &req.Response)
+        if err != nil {
+                c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+                return
+        }
+        claims, signed, err := s.verifySdidLoginResponse(challenge, &req.Response)
+        if err != nil {
+                c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+                return
+        }
+        status, approval, evalErr := s.evaluateIdentityApproval(&req.Response, claims)
+        roles := mergeRoles(normaliseRoles(req.Response.Identity.Roles), normaliseRoles(claims.Resources.Roles))
+        signatureValue := strings.TrimSpace(req.Response.Proof.SignatureValue)
+        if signatureValue == "" {
+                signatureValue = strings.TrimSpace(req.Response.Signature)
+        }
+        if evalErr == nil {
+                payload := gin.H{"status": status}
+                if approval != nil {
+                        view := approvalToResponse(approval)
+                        payload["approval"] = view
+                }
+                c.JSON(http.StatusOK, payload)
+                return
+        }
+        if !errors.Is(evalErr, models.ErrIdentityNotApproved) {
+                c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": evalErr.Error()})
+                return
+        }
+        record, submitErr := s.Store.SubmitApproval(req.Response.Identity.DID, req.Response.Identity.Label, roles, challenge.Message, signatureValue, signed)
+        if submitErr != nil {
+                if errors.Is(submitErr, models.ErrApprovalAlreadyPending) || errors.Is(submitErr, models.ErrApprovalAlreadyCompleted) {
+                        view := approvalToResponse(record)
+                        c.JSON(http.StatusOK, gin.H{"status": view.Status, "approval": view})
+                        return
+                }
+                c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": submitErr.Error()})
+                return
+        }
+        c.JSON(http.StatusCreated, gin.H{"status": record.Status, "approval": approvalToResponse(record)})
+}
+
+type approveRequest struct {
+        Response sdidLoginResponse `json:"response"`
+}
+
+func (s *Server) handleListApprovals(c *gin.Context) {
+        actor := currentSession(c, s.Sessions)
+        if !s.Store.IdentityIsAdmin(actor) {
+                c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+                return
+        }
+        approvals := s.Store.ListApprovals()
+        views := make([]approvalResponse, 0, len(approvals))
+        for _, item := range approvals {
+                views = append(views, approvalToResponse(item))
+        }
+        c.JSON(http.StatusOK, gin.H{"items": views})
+}
+
+func (s *Server) handleApproveRequest(c *gin.Context) {
+        actor := currentSession(c, s.Sessions)
+        if !s.Store.IdentityIsAdmin(actor) {
+                c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+                return
+        }
+        id := strings.TrimSpace(c.Param("id"))
+        if id == "" {
+                c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+                return
+        }
+        approval, err := s.Store.ApprovalByID(id)
+        if err != nil {
+                status := http.StatusNotFound
+                if !errors.Is(err, models.ErrApprovalNotFound) {
+                        status = http.StatusInternalServerError
+                }
+                c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
+                return
+        }
+        if approval.Status != models.ApprovalStatusPending {
+            c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "approval_not_pending"})
+            return
+        }
+        var req approveRequest
+        if err := c.ShouldBindJSON(&req); err != nil {
+                c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+                return
+        }
+        expectedChallenge := buildApprovalSigningChallenge(approval)
+        if strings.TrimSpace(req.Response.Challenge) != expectedChallenge {
+                c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "challenge_mismatch"})
+                return
+        }
+        pseudoChallenge := &models.LoginChallenge{Nonce: expectedChallenge, Message: expectedChallenge, CreatedAt: time.Now().UTC()}
+        claims, signed, err := s.verifySdidLoginResponse(pseudoChallenge, &req.Response)
+        if err != nil {
+                c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+                return
+        }
+        if signed != expectedChallenge {
+                c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "challenge_mismatch"})
+                return
+        }
+        approverDID := strings.TrimSpace(req.Response.Identity.DID)
+        if approverDID == "" || approverDID != actor {
+                c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "admin_mismatch"})
+                return
+        }
+        if !s.Store.IdentityIsAdmin(approverDID) {
+                c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "admin_required"})
+                return
+        }
+        _, _, evalErr := s.evaluateIdentityApproval(&req.Response, claims)
+        if evalErr != nil && !errors.Is(evalErr, models.ErrIdentityNotApproved) {
+                c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": evalErr.Error()})
+                return
+        }
+        signatureValue := strings.TrimSpace(req.Response.Proof.SignatureValue)
+        if signatureValue == "" {
+                signatureValue = strings.TrimSpace(req.Response.Signature)
+        }
+        approverProfile := s.Store.IdentityProfileByDID(approverDID)
+        record, approveErr := s.Store.ApproveRequest(id, approverProfile, expectedChallenge, signatureValue)
+        if approveErr != nil {
+                status := http.StatusInternalServerError
+                if errors.Is(approveErr, models.ErrApprovalAlreadyCompleted) {
+                        status = http.StatusConflict
+                }
+                c.AbortWithStatusJSON(status, gin.H{"error": approveErr.Error()})
+                return
+        }
+        c.JSON(http.StatusOK, gin.H{"status": record.Status, "approval": approvalToResponse(record)})
 }
 
 func canonicalizeJSONValue(value any) string {
@@ -353,88 +536,146 @@ func claimsApproved(claims authenticationClaims) bool {
 	return false
 }
 
-func (s *Server) verifySdidLoginResponse(challenge *models.LoginChallenge, resp *sdidLoginResponse) error {
-	if resp == nil {
-		return errors.New("invalid_payload")
-	}
-	sdid := strings.TrimSpace(resp.Identity.DID)
-	if sdid == "" {
-		return errors.New("missing_sdid")
-	}
-	if strings.TrimSpace(resp.Challenge) != strings.TrimSpace(challenge.Nonce) {
-		return errors.New("challenge_mismatch")
-	}
-	signatureValue := strings.TrimSpace(resp.Proof.SignatureValue)
-	if signatureValue == "" {
-		signatureValue = strings.TrimSpace(resp.Signature)
-	}
-	if signatureValue == "" {
-		return errors.New("missing_signature")
-	}
-	sigBytes, err := decodeWebBase64(signatureValue)
-	if err != nil {
-		return errors.New("invalid_signature")
-	}
-	publicKey, err := decodeJWK(resp.Identity.PublicKeyJWK)
-	if err != nil {
-		return err
-	}
-	signedData := ""
-	var claims authenticationClaims
-	if resp.Authentication != nil {
-		signedData = strings.TrimSpace(resp.Authentication.CanonicalRequest)
-		if len(resp.Authentication.Payload) > 0 {
-			_ = json.Unmarshal(resp.Authentication.Payload, &claims)
-			canonical, err := canonicalizeJSON(resp.Authentication.Payload)
-			if err != nil {
-				return errors.New("invalid_authentication_payload")
-			}
-			if signedData != "" && canonical != signedData {
-				return errors.New("authentication_mismatch")
-			}
-			if signedData == "" {
-				signedData = canonical
-			}
-		}
-	}
-	if signedData == "" {
-		signedData = strings.TrimSpace(resp.Challenge)
-	}
-	if signedData == "" {
-		signedData = strings.TrimSpace(challenge.Message)
-	}
-	if signedData == "" {
-		return errors.New("missing_challenge")
-	}
-	hash := sha256.Sum256([]byte(signedData))
-	if ecdsa.VerifyASN1(publicKey, hash[:], sigBytes) {
-		return s.evaluateIdentityApproval(resp, claims)
-	}
-	raw := sigBytes
-	if len(raw) == 65 && raw[0] == 0x00 {
-		raw = raw[1:]
-	}
-	if len(raw) == 64 {
-		r := new(big.Int).SetBytes(raw[:32])
-		sVal := new(big.Int).SetBytes(raw[32:])
-		if ecdsa.Verify(publicKey, hash[:], r, sVal) {
-			return s.evaluateIdentityApproval(resp, claims)
-		}
-	}
-	return models.ErrSignatureInvalid
+func (s *Server) verifySdidLoginResponse(challenge *models.LoginChallenge, resp *sdidLoginResponse) (authenticationClaims, string, error) {
+        if resp == nil {
+                return authenticationClaims{}, "", errors.New("invalid_payload")
+        }
+        sdid := strings.TrimSpace(resp.Identity.DID)
+        if sdid == "" {
+                return authenticationClaims{}, "", errors.New("missing_sdid")
+        }
+        if strings.TrimSpace(resp.Challenge) != strings.TrimSpace(challenge.Nonce) {
+                return authenticationClaims{}, "", errors.New("challenge_mismatch")
+        }
+        signatureValue := strings.TrimSpace(resp.Proof.SignatureValue)
+        if signatureValue == "" {
+                signatureValue = strings.TrimSpace(resp.Signature)
+        }
+        if signatureValue == "" {
+                return authenticationClaims{}, "", errors.New("missing_signature")
+        }
+        sigBytes, err := decodeWebBase64(signatureValue)
+        if err != nil {
+                return authenticationClaims{}, "", errors.New("invalid_signature")
+        }
+        publicKey, err := decodeJWK(resp.Identity.PublicKeyJWK)
+        if err != nil {
+                return authenticationClaims{}, "", err
+        }
+        signedData := ""
+        var claims authenticationClaims
+        if resp.Authentication != nil {
+                signedData = strings.TrimSpace(resp.Authentication.CanonicalRequest)
+                if len(resp.Authentication.Payload) > 0 {
+                        _ = json.Unmarshal(resp.Authentication.Payload, &claims)
+                        canonical, err := canonicalizeJSON(resp.Authentication.Payload)
+                        if err != nil {
+                                return authenticationClaims{}, "", errors.New("invalid_authentication_payload")
+                        }
+                        if signedData != "" && canonical != signedData {
+                                return authenticationClaims{}, "", errors.New("authentication_mismatch")
+                        }
+                        if signedData == "" {
+                                signedData = canonical
+                        }
+                }
+        }
+        if signedData == "" {
+                signedData = strings.TrimSpace(resp.Challenge)
+        }
+        if signedData == "" {
+                signedData = strings.TrimSpace(challenge.Message)
+        }
+        if signedData == "" {
+                return authenticationClaims{}, "", errors.New("missing_challenge")
+        }
+        hash := sha256.Sum256([]byte(signedData))
+        if ecdsa.VerifyASN1(publicKey, hash[:], sigBytes) {
+                return claims, signedData, nil
+        }
+        raw := sigBytes
+        if len(raw) == 65 && raw[0] == 0x00 {
+                raw = raw[1:]
+        }
+        if len(raw) == 64 {
+                r := new(big.Int).SetBytes(raw[:32])
+                sVal := new(big.Int).SetBytes(raw[32:])
+                if ecdsa.Verify(publicKey, hash[:], r, sVal) {
+                        return claims, signedData, nil
+                }
+        }
+        return authenticationClaims{}, "", models.ErrSignatureInvalid
 }
 
-func (s *Server) evaluateIdentityApproval(resp *sdidLoginResponse, claims authenticationClaims) error {
-	roles := normaliseRoles(resp.Identity.Roles)
-	resourceRoles := normaliseRoles(claims.Resources.Roles)
-	mergedRoles := mergeRoles(roles, resourceRoles)
-	if containsAdminRole(mergedRoles) {
-		return nil
-	}
-	if resp.Identity.Authorized || resp.Authorized || claimsApproved(claims) {
-		return nil
-	}
-	return models.ErrIdentityNotApproved
+func (s *Server) evaluateIdentityApproval(resp *sdidLoginResponse, claims authenticationClaims) (string, *models.IdentityApproval, error) {
+        if resp == nil {
+                return models.ApprovalStatusMissing, nil, errors.New("invalid_payload")
+        }
+        sdid := strings.TrimSpace(resp.Identity.DID)
+        if sdid == "" {
+                return models.ApprovalStatusMissing, nil, errors.New("missing_sdid")
+        }
+        roles := normaliseRoles(resp.Identity.Roles)
+        resourceRoles := normaliseRoles(claims.Resources.Roles)
+        mergedRoles := mergeRoles(roles, resourceRoles)
+        admin := containsAdminRole(mergedRoles)
+        approvedByClaims := resp.Identity.Authorized || resp.Authorized || claimsApproved(claims)
+        profile := s.Store.UpdateIdentityProfile(sdid, resp.Identity.Label, mergedRoles, admin, approvedByClaims)
+        if profile.Admin || profile.Approved {
+                return models.ApprovalStatusApproved, nil, nil
+        }
+        status, approval := s.Store.IdentityApprovalState(sdid)
+        if status == models.ApprovalStatusApproved {
+                s.Store.UpdateIdentityProfile(sdid, resp.Identity.Label, mergedRoles, profile.Admin, true)
+                return status, approval, nil
+        }
+        return status, approval, models.ErrIdentityNotApproved
+}
+
+func approvalToResponse(approval *models.IdentityApproval) approvalResponse {
+        if approval == nil {
+                return approvalResponse{}
+        }
+        resp := approvalResponse{
+                        ID:             approval.ID,
+                        ApplicantDid:   approval.ApplicantDid,
+                        ApplicantLabel: approval.ApplicantLabel,
+                        ApplicantRoles: append([]string{}, approval.ApplicantRoles...),
+                        Status:         approval.Status,
+                        CreatedAt:      approval.CreatedAt,
+        }
+        if approval.ApprovedAt != nil {
+                approved := *approval.ApprovedAt
+                resp.ApprovedAt = &approved
+        }
+        if approval.ApproverDid != "" {
+                resp.ApproverDid = approval.ApproverDid
+        }
+        if approval.ApproverLabel != "" {
+                resp.ApproverLabel = approval.ApproverLabel
+        }
+        if len(approval.ApproverRoles) > 0 {
+                resp.ApproverRoles = append([]string{}, approval.ApproverRoles...)
+        }
+        if approval.Status == models.ApprovalStatusPending {
+                resp.SigningChallenge = buildApprovalSigningChallenge(approval)
+        }
+        return resp
+}
+
+func buildApprovalSigningChallenge(approval *models.IdentityApproval) string {
+        if approval == nil {
+                return ""
+        }
+        payload := map[string]any{
+                "type":          "roundone:identity-approval",
+                "approvalId":    approval.ID,
+                "applicantDid":  approval.ApplicantDid,
+                "applicantLabel": approval.ApplicantLabel,
+                "applicantRoles": approval.ApplicantRoles,
+                "submittedAt":   approval.CreatedAt.UTC().Format(time.RFC3339Nano),
+        }
+        return canonicalizeJSONValue(payload)
 }
 
 func clientIP(r *http.Request) string {

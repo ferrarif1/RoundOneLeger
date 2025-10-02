@@ -8,6 +8,7 @@ import Assets from './pages/Assets';
 import Devices from './pages/Devices';
 import IPAllowlist from './pages/IPAllowlist';
 import AuditLogs from './pages/AuditLogs';
+import Approvals from './pages/Approvals';
 import { useSession } from './hooks/useSession';
 
 const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
@@ -108,6 +109,23 @@ const App = () => {
                       className="mx-auto max-w-5xl"
                     >
                       <AuditLogs />
+                    </motion.div>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/approvals"
+                element={
+                  <ProtectedRoute>
+                    <motion.div
+                      key="approvals"
+                      initial={{ opacity: 0, y: 16 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -16 }}
+                      transition={{ duration: 0.3, ease: 'easeOut' }}
+                      className="mx-auto max-w-5xl"
+                    >
+                      <Approvals />
                     </motion.div>
                   </ProtectedRoute>
                 }

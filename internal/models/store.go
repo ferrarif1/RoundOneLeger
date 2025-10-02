@@ -26,6 +26,12 @@ var (
 	ErrSignatureInvalid = errors.New("signature invalid")
 	// ErrIdentityNotApproved indicates that the SDID identity lacks the required administrator certification.
 	ErrIdentityNotApproved = errors.New("identity_not_approved")
+	// ErrApprovalAlreadyPending is returned when an approval request already exists for an identity.
+	ErrApprovalAlreadyPending = errors.New("approval_pending")
+	// ErrApprovalNotFound indicates the approval request cannot be located.
+	ErrApprovalNotFound = errors.New("approval_not_found")
+	// ErrApprovalAlreadyCompleted indicates the approval request has already been signed off.
+	ErrApprovalAlreadyCompleted = errors.New("approval_already_completed")
 	// ErrIPNotAllowed indicates the source IP is not within the allowlist.
 	ErrIPNotAllowed = errors.New("ip not allowed")
 )
@@ -40,21 +46,85 @@ var (
 type LedgerStore struct {
 	mu sync.RWMutex
 
-	entries map[LedgerType][]LedgerEntry
-	allow   map[string]*IPAllowlistEntry
-	audits  []*AuditLogEntry
+	entries             map[LedgerType][]LedgerEntry
+	allow               map[string]*IPAllowlistEntry
+	audits              []*AuditLogEntry
+	profiles            map[string]IdentityProfile
+	approvals           map[string]*IdentityApproval
+	approvalOrder       []*IdentityApproval
+	approvalByApplicant map[string]*IdentityApproval
 
 	loginChallenges map[string]*LoginChallenge
 
 	history historyStack
 }
 
+// IdentityProfile stores metadata about a SDID identity that has interacted with the system.
+type IdentityProfile struct {
+	DID      string
+	Label    string
+	Roles    []string
+	Admin    bool
+	Approved bool
+	Updated  time.Time
+}
+
+// IdentityApproval captures an approval workflow between an applicant and an administrator.
+type IdentityApproval struct {
+	ID                string     `json:"id"`
+	ApplicantDid      string     `json:"applicantDid"`
+	ApplicantLabel    string     `json:"applicantLabel"`
+	ApplicantRoles    []string   `json:"applicantRoles"`
+	CreatedAt         time.Time  `json:"createdAt"`
+	Status            string     `json:"status"`
+	ApprovedAt        *time.Time `json:"approvedAt,omitempty"`
+	ApproverDid       string     `json:"approverDid,omitempty"`
+	ApproverLabel     string     `json:"approverLabel,omitempty"`
+	ApproverRoles     []string   `json:"approverRoles,omitempty"`
+	RequestChallenge  string     `json:"requestChallenge,omitempty"`
+	RequestSignature  string     `json:"requestSignature,omitempty"`
+	RequestCanonical  string     `json:"requestCanonical,omitempty"`
+	ApprovalChallenge string     `json:"approvalChallenge,omitempty"`
+	ApprovalSignature string     `json:"approvalSignature,omitempty"`
+}
+
+// Clone returns a copy of the approval entry.
+func (a *IdentityApproval) Clone() *IdentityApproval {
+	if a == nil {
+		return nil
+	}
+	clone := *a
+	if a.ApplicantRoles != nil {
+		clone.ApplicantRoles = append([]string{}, a.ApplicantRoles...)
+	}
+	if a.ApproverRoles != nil {
+		clone.ApproverRoles = append([]string{}, a.ApproverRoles...)
+	}
+	if a.ApprovedAt != nil {
+		approvedAt := *a.ApprovedAt
+		clone.ApprovedAt = &approvedAt
+	}
+	return &clone
+}
+
+const (
+	// ApprovalStatusPending represents an approval request awaiting administrator action.
+	ApprovalStatusPending = "pending"
+	// ApprovalStatusApproved indicates the request has been certified by an administrator.
+	ApprovalStatusApproved = "approved"
+	// ApprovalStatusMissing indicates that no approval request exists for the identity.
+	ApprovalStatusMissing = "missing"
+)
+
 // NewLedgerStore constructs a ledger store.
 func NewLedgerStore() *LedgerStore {
 	store := &LedgerStore{
-		entries:         make(map[LedgerType][]LedgerEntry),
-		allow:           make(map[string]*IPAllowlistEntry),
-		loginChallenges: make(map[string]*LoginChallenge),
+		entries:             make(map[LedgerType][]LedgerEntry),
+		allow:               make(map[string]*IPAllowlistEntry),
+		profiles:            make(map[string]IdentityProfile),
+		approvals:           make(map[string]*IdentityApproval),
+		approvalByApplicant: make(map[string]*IdentityApproval),
+		loginChallenges:     make(map[string]*LoginChallenge),
 	}
 	store.history.limit = 11
 	store.history.Reset(store.snapshotLocked())
@@ -419,6 +489,224 @@ func (s *LedgerStore) appendAuditLocked(actor, action, details string) {
 	s.audits = append(s.audits, entry)
 }
 
+// UpdateIdentityProfile upserts metadata about an identity interacting with the system.
+func (s *LedgerStore) UpdateIdentityProfile(did, label string, roles []string, admin, approved bool) IdentityProfile {
+	did = strings.TrimSpace(did)
+	if did == "" {
+		return IdentityProfile{}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	normalisedRoles := normaliseStrings(roles)
+	profile := IdentityProfile{
+		DID:      did,
+		Label:    strings.TrimSpace(label),
+		Roles:    append([]string{}, normalisedRoles...),
+		Admin:    admin,
+		Approved: approved || admin,
+		Updated:  time.Now().UTC(),
+	}
+	if existing, ok := s.profiles[did]; ok {
+		if profile.Label == "" {
+			profile.Label = existing.Label
+		}
+		if len(profile.Roles) == 0 {
+			profile.Roles = append([]string{}, existing.Roles...)
+		}
+		profile.Admin = profile.Admin || existing.Admin
+		profile.Approved = profile.Approved || existing.Approved || existing.Admin
+	}
+	s.profiles[did] = profile
+	return profile
+}
+
+// IdentityProfileByDID returns a copy of the stored profile for the DID.
+func (s *LedgerStore) IdentityProfileByDID(did string) IdentityProfile {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	profile, ok := s.profiles[strings.TrimSpace(did)]
+	if !ok {
+		return IdentityProfile{}
+	}
+	profileCopy := profile
+	profileCopy.Roles = append([]string{}, profile.Roles...)
+	return profileCopy
+}
+
+// IdentityIsAdmin reports whether the DID is recognised as an administrator.
+func (s *LedgerStore) IdentityIsAdmin(did string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	profile, ok := s.profiles[strings.TrimSpace(did)]
+	return ok && profile.Admin
+}
+
+// IdentityApproved reports whether the DID has been approved (either by admin role or certification).
+func (s *LedgerStore) IdentityApproved(did string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	trimmed := strings.TrimSpace(did)
+	if trimmed == "" {
+		return false
+	}
+	if profile, ok := s.profiles[trimmed]; ok {
+		if profile.Admin || profile.Approved {
+			return true
+		}
+	}
+	if approval, ok := s.approvalByApplicant[trimmed]; ok {
+		return approval.Status == ApprovalStatusApproved
+	}
+	return false
+}
+
+// LatestApprovalForApplicant returns the most recent approval request for a DID.
+func (s *LedgerStore) LatestApprovalForApplicant(did string) *IdentityApproval {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if approval, ok := s.approvalByApplicant[strings.TrimSpace(did)]; ok {
+		return approval.Clone()
+	}
+	return nil
+}
+
+// SubmitApproval records a pending approval request for an identity.
+func (s *LedgerStore) SubmitApproval(did, label string, roles []string, challenge, signature, canonical string) (*IdentityApproval, error) {
+	did = strings.TrimSpace(did)
+	if did == "" {
+		return nil, ErrApprovalNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if existing, ok := s.approvalByApplicant[did]; ok {
+		switch existing.Status {
+		case ApprovalStatusPending:
+			return existing.Clone(), ErrApprovalAlreadyPending
+		case ApprovalStatusApproved:
+			return existing.Clone(), ErrApprovalAlreadyCompleted
+		}
+	}
+	now := time.Now().UTC()
+	approval := &IdentityApproval{
+		ID:               GenerateID("approval"),
+		ApplicantDid:     did,
+		ApplicantLabel:   strings.TrimSpace(label),
+		ApplicantRoles:   normaliseStrings(roles),
+		CreatedAt:        now,
+		Status:           ApprovalStatusPending,
+		RequestChallenge: strings.TrimSpace(challenge),
+		RequestSignature: strings.TrimSpace(signature),
+		RequestCanonical: strings.TrimSpace(canonical),
+	}
+	s.approvals[approval.ID] = approval
+	s.approvalOrder = append(s.approvalOrder, approval)
+	s.approvalByApplicant[did] = approval
+	profile := s.profiles[did]
+	profile.DID = did
+	if approval.ApplicantLabel != "" {
+		profile.Label = approval.ApplicantLabel
+	}
+	if len(approval.ApplicantRoles) > 0 {
+		profile.Roles = append([]string{}, approval.ApplicantRoles...)
+	}
+	profile.Approved = false
+	profile.Updated = now
+	s.profiles[did] = profile
+	return approval.Clone(), nil
+}
+
+// ApproveRequest finalises an approval entry with administrator details.
+func (s *LedgerStore) ApproveRequest(id string, approver IdentityProfile, challenge, signature string) (*IdentityApproval, error) {
+	id = strings.TrimSpace(id)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	approval, ok := s.approvals[id]
+	if !ok {
+		return nil, ErrApprovalNotFound
+	}
+	if approval.Status == ApprovalStatusApproved {
+		return approval.Clone(), ErrApprovalAlreadyCompleted
+	}
+	now := time.Now().UTC()
+	approval.Status = ApprovalStatusApproved
+	approval.ApproverDid = strings.TrimSpace(approver.DID)
+	approval.ApproverLabel = strings.TrimSpace(approver.Label)
+	approval.ApproverRoles = normaliseStrings(approver.Roles)
+	approval.ApprovalChallenge = strings.TrimSpace(challenge)
+	approval.ApprovalSignature = strings.TrimSpace(signature)
+	approval.ApprovedAt = &now
+	s.approvalByApplicant[approval.ApplicantDid] = approval
+	profile := s.profiles[approval.ApplicantDid]
+	profile.DID = approval.ApplicantDid
+	if approval.ApplicantLabel != "" {
+		profile.Label = approval.ApplicantLabel
+	}
+	if len(approval.ApplicantRoles) > 0 {
+		profile.Roles = append([]string{}, approval.ApplicantRoles...)
+	}
+	profile.Approved = true
+	profile.Updated = now
+	s.profiles[approval.ApplicantDid] = profile
+	return approval.Clone(), nil
+}
+
+// ListApprovals returns approval requests ordered by status then recency.
+func (s *LedgerStore) ListApprovals() []*IdentityApproval {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]*IdentityApproval, 0, len(s.approvalOrder))
+	for _, approval := range s.approvalOrder {
+		out = append(out, approval.Clone())
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Status == out[j].Status {
+			return out[i].CreatedAt.After(out[j].CreatedAt)
+		}
+		if out[i].Status == ApprovalStatusPending {
+			return true
+		}
+		if out[j].Status == ApprovalStatusPending {
+			return false
+		}
+		return out[i].CreatedAt.After(out[j].CreatedAt)
+	})
+	return out
+}
+
+// ApprovalByID retrieves an approval request by identifier.
+func (s *LedgerStore) ApprovalByID(id string) (*IdentityApproval, error) {
+	trimmed := strings.TrimSpace(id)
+	if trimmed == "" {
+		return nil, ErrApprovalNotFound
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	approval, ok := s.approvals[trimmed]
+	if !ok {
+		return nil, ErrApprovalNotFound
+	}
+	return approval.Clone(), nil
+}
+
+// IdentityApprovalState returns the approval status and latest request for a DID.
+func (s *LedgerStore) IdentityApprovalState(did string) (string, *IdentityApproval) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	trimmed := strings.TrimSpace(did)
+	if trimmed == "" {
+		return ApprovalStatusMissing, nil
+	}
+	if profile, ok := s.profiles[trimmed]; ok {
+		if profile.Admin || profile.Approved {
+			return ApprovalStatusApproved, nil
+		}
+	}
+	if approval, ok := s.approvalByApplicant[trimmed]; ok {
+		return approval.Status, approval.Clone()
+	}
+	return ApprovalStatusMissing, nil
+}
+
 // ListAudits returns stored audit entries.
 func (s *LedgerStore) ListAudits() []*AuditLogEntry {
 	s.mu.RLock()
@@ -458,7 +746,7 @@ func (s *LedgerStore) VerifyAuditChain() bool {
 }
 
 func loginMessage(nonce string) string {
-	return fmt.Sprintf("Sign in to RoundOne Ledger with nonce %s", nonce)
+	return fmt.Sprintf("Sign in to RoundOneLeger with nonce %s", nonce)
 }
 
 // CreateLoginChallenge issues a one-time nonce for SDID authentication.

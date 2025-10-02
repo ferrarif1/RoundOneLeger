@@ -31,6 +31,20 @@ type SdidLoginResponse = {
   [key: string]: unknown;
 };
 
+type ApprovalResponse = {
+  id: string;
+  applicantDid?: string;
+  applicantLabel?: string;
+  applicantRoles?: string[];
+  status: string;
+  createdAt?: string;
+  approvedAt?: string;
+  approverDid?: string;
+  approverLabel?: string;
+  approverRoles?: string[];
+  signingChallenge?: string;
+};
+
 type SdidRequestOptions = {
   message?: string;
   challenge?: string;
@@ -396,6 +410,10 @@ const Login = () => {
   const [loggedInLabel, setLoggedInLabel] = useState<string | null>(null);
   const [loginComplete, setLoginComplete] = useState(false);
   const [sdidReady, setSdidReady] = useState(() => getSdidBridge() !== null);
+  const [approvalStatus, setApprovalStatus] = useState<string | null>(null);
+  const [approvalRecord, setApprovalRecord] = useState<ApprovalResponse | null>(null);
+  const [submittingApproval, setSubmittingApproval] = useState(false);
+  const [lastNonce, setLastNonce] = useState<string | null>(null);
 
   const identitySummary = useMemo(() => {
     if (!identityResponse?.identity) {
@@ -465,6 +483,10 @@ const Login = () => {
     setIdentityResponse(null);
     setLoginComplete(false);
     setLoggedInLabel(null);
+    setApprovalStatus(null);
+    setApprovalRecord(null);
+    setSubmittingApproval(false);
+    setLastNonce(null);
     setStatus({ message: '正在请求授权…', tone: 'info' });
 
     try {
@@ -473,7 +495,7 @@ const Login = () => {
       ]);
 
       let challenge = createChallenge();
-      let requestMessage = 'RoundOne Ledger 请求访问';
+      let requestMessage = 'RoundOneLeger 请求访问';
 
       try {
         const { data } = await api.post('/auth/request-nonce');
@@ -500,6 +522,7 @@ const Login = () => {
       };
 
       setIdentityResponse(loginResponse);
+      setLastNonce(challenge);
 
       setStatus({ message: '正在验证签名…', tone: 'info' });
       const verificationResult = await verifySdidResponse(loginResponse);
@@ -519,11 +542,13 @@ const Login = () => {
       setToken(data.token);
     } catch (error) {
       console.error('SDID login failed', error);
-      const axiosError = error as AxiosError<{ error?: string }>;
+      const axiosError = error as AxiosError<{ error?: string; status?: string; approval?: ApprovalResponse }>;
       const serverCode = axiosError?.response?.data?.error;
       let message: string;
-      if (serverCode === 'identity_not_approved') {
-        message = '当前身份尚未通过管理员认证，请联系管理员完成审批后再试。';
+      if (axiosError.response?.status === 403 && serverCode === 'identity_not_approved') {
+        message = '当前身份尚未通过管理员认证，请提交审批请求后等待管理员签名。';
+        setApprovalStatus(axiosError.response.data?.status ?? 'pending');
+        setApprovalRecord(axiosError.response.data?.approval ?? null);
       } else {
         message =
           serverCode ||
@@ -543,6 +568,60 @@ const Login = () => {
       }));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSubmitApproval = async () => {
+    if (!identityResponse) {
+      setStatus({ message: '请先完成一次 SDID 签名再提交审批请求。', tone: 'error' });
+      return;
+    }
+    if (!lastNonce) {
+      setStatus({ message: '缺少登录挑战，无法提交审批。', tone: 'error' });
+      return;
+    }
+    setSubmittingApproval(true);
+    try {
+      const { data } = await api.post('/auth/approvals', {
+        nonce: lastNonce,
+        response: identityResponse
+      });
+      if (typeof data?.status === 'string') {
+        setApprovalStatus(data.status);
+      }
+      if (data?.approval) {
+        setApprovalRecord(data.approval as ApprovalResponse);
+      }
+      setStatus({ message: '审批请求已提交，请等待管理员签名。', tone: 'info' });
+    } catch (error) {
+      console.error('Unable to submit approval request', error);
+      const axiosError = error as AxiosError<{ error?: string; status?: string; approval?: ApprovalResponse }>;
+      const message =
+        axiosError.response?.data?.error ||
+        axiosError.message ||
+        '审批请求提交失败，请稍后重试。';
+      setStatus({ message, tone: 'error' });
+      if (axiosError.response?.data?.status) {
+        setApprovalStatus(axiosError.response.data.status);
+      }
+      if (axiosError.response?.data?.approval) {
+        setApprovalRecord(axiosError.response.data.approval as ApprovalResponse);
+      }
+    } finally {
+      setSubmittingApproval(false);
+    }
+  };
+
+  const formatTimestamp = (value?: string) => {
+    if (!value) return '—';
+    try {
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        return '—';
+      }
+      return date.toLocaleString();
+    } catch {
+      return value;
     }
   };
 
@@ -632,6 +711,64 @@ const Login = () => {
             )}
           </section>
         </div>
+
+        {approvalStatus && (
+          <section className="rounded-2xl bg-night-900/20 p-5">
+            <h2 className="text-sm font-medium text-night-100">身份审批</h2>
+            {approvalStatus === 'approved' ? (
+              <p className="mt-2 rounded-xl bg-emerald-100/70 px-4 py-3 text-sm text-emerald-700">
+                身份已通过管理员认证，可重新登录以获取会话。
+              </p>
+            ) : approvalStatus === 'pending' ? (
+              <p className="mt-2 rounded-xl bg-amber-100/70 px-4 py-3 text-sm text-amber-700">
+                审批请求已提交，等待管理员签名确认。
+              </p>
+            ) : (
+              <p className="mt-2 rounded-xl bg-red-100/70 px-4 py-3 text-sm text-red-600">
+                当前身份尚未提交审批请求，请点击下方按钮申请管理员认证。
+              </p>
+            )}
+            {approvalStatus !== 'approved' && (
+              <button
+                type="button"
+                onClick={handleSubmitApproval}
+                disabled={submittingApproval || approvalStatus === 'pending'}
+                className="mt-4 button-primary"
+              >
+                {approvalStatus === 'pending' ? '审批处理中' : submittingApproval ? '正在提交…' : '提交审批请求'}
+              </button>
+            )}
+            {approvalRecord && (
+              <dl className="mt-4 grid gap-3 text-sm text-night-200 sm:grid-cols-2">
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-night-500">提交时间</dt>
+                  <dd className="mt-1 break-words text-night-100">{formatTimestamp(approvalRecord.createdAt)}</dd>
+                </div>
+                {approvalRecord.approvedAt && (
+                  <div>
+                    <dt className="text-xs uppercase tracking-wide text-night-500">批准时间</dt>
+                    <dd className="mt-1 break-words text-night-100">{formatTimestamp(approvalRecord.approvedAt)}</dd>
+                  </div>
+                )}
+                {approvalRecord.approverLabel && (
+                  <div>
+                    <dt className="text-xs uppercase tracking-wide text-night-500">审批人</dt>
+                    <dd className="mt-1 break-words text-night-100">
+                      {approvalRecord.approverLabel}
+                      {approvalRecord.approverDid ? `（${approvalRecord.approverDid}）` : ''}
+                    </dd>
+                  </div>
+                )}
+                {approvalRecord.applicantRoles && approvalRecord.applicantRoles.length > 0 && (
+                  <div>
+                    <dt className="text-xs uppercase tracking-wide text-night-500">申请角色</dt>
+                    <dd className="mt-1 break-words text-night-100">{formatRoles(approvalRecord.applicantRoles)}</dd>
+                  </div>
+                )}
+              </dl>
+            )}
+          </section>
+        )}
 
         <section className="rounded-2xl bg-night-900/20 p-5">
           <h2 className="text-sm font-medium text-night-100">SDID 返回数据</h2>
