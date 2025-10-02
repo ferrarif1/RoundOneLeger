@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // LedgerType represents the category of a ledger entry.
 type LedgerType string
@@ -55,6 +58,18 @@ type WorkspaceColumn struct {
 	Width int    `json:"width,omitempty"`
 }
 
+// WorkspaceKind describes the layout style of a workspace entry.
+type WorkspaceKind string
+
+const (
+	// WorkspaceKindSheet represents a spreadsheet-style workspace with rows and columns.
+	WorkspaceKindSheet WorkspaceKind = "sheet"
+	// WorkspaceKindDocument represents a freeform rich-text document.
+	WorkspaceKindDocument WorkspaceKind = "document"
+	// WorkspaceKindFolder groups other workspaces without storing content directly.
+	WorkspaceKindFolder WorkspaceKind = "folder"
+)
+
 // WorkspaceRow stores user-entered cell values keyed by column ID.
 type WorkspaceRow struct {
 	ID        string            `json:"id"`
@@ -63,10 +78,12 @@ type WorkspaceRow struct {
 	UpdatedAt time.Time         `json:"updated_at"`
 }
 
-// Workspace represents a flexible spreadsheet-style ledger combined with rich text content.
+// Workspace represents a flexible workspace that can behave as a sheet, document, or folder.
 type Workspace struct {
 	ID        string            `json:"id"`
 	Name      string            `json:"name"`
+	Kind      WorkspaceKind     `json:"kind"`
+	ParentID  string            `json:"parent_id,omitempty"`
 	Columns   []WorkspaceColumn `json:"columns"`
 	Rows      []WorkspaceRow    `json:"rows"`
 	Document  string            `json:"document,omitempty"`
@@ -80,6 +97,8 @@ func (w *Workspace) Clone() *Workspace {
 		return nil
 	}
 	clone := *w
+	clone.Kind = NormalizeWorkspaceKind(w.Kind)
+	clone.ParentID = strings.TrimSpace(w.ParentID)
 	if len(w.Columns) > 0 {
 		clone.Columns = append([]WorkspaceColumn{}, w.Columns...)
 	}
@@ -97,6 +116,43 @@ func (w *Workspace) Clone() *Workspace {
 		}
 	}
 	return &clone
+}
+
+// NormalizeWorkspaceKind coerces unknown values to the default sheet type.
+func NormalizeWorkspaceKind(kind WorkspaceKind) WorkspaceKind {
+	switch kind {
+	case WorkspaceKindDocument, WorkspaceKindFolder:
+		return kind
+	case WorkspaceKindSheet:
+		return kind
+	default:
+		return WorkspaceKindSheet
+	}
+}
+
+// ParseWorkspaceKind converts free-form input into a WorkspaceKind.
+func ParseWorkspaceKind(value string) WorkspaceKind {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case string(WorkspaceKindDocument):
+		return WorkspaceKindDocument
+	case string(WorkspaceKindFolder):
+		return WorkspaceKindFolder
+	case string(WorkspaceKindSheet):
+		return WorkspaceKindSheet
+	default:
+		return WorkspaceKindSheet
+	}
+}
+
+// WorkspaceKindSupportsTable reports whether the workspace type accepts tabular data.
+func WorkspaceKindSupportsTable(kind WorkspaceKind) bool {
+	return NormalizeWorkspaceKind(kind) == WorkspaceKindSheet
+}
+
+// WorkspaceKindSupportsDocument reports whether the workspace type stores document content.
+func WorkspaceKindSupportsDocument(kind WorkspaceKind) bool {
+	normalized := NormalizeWorkspaceKind(kind)
+	return normalized == WorkspaceKindSheet || normalized == WorkspaceKindDocument
 }
 
 // IPAllowlistEntry represents a single CIDR or address allowed to access the system.

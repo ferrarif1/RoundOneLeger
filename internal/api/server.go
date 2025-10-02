@@ -776,6 +776,8 @@ type workspaceRowPayload struct {
 type workspaceResponse struct {
 	ID        string                   `json:"id"`
 	Name      string                   `json:"name"`
+	Kind      string                   `json:"kind"`
+	ParentID  string                   `json:"parentId,omitempty"`
 	Columns   []workspaceColumnPayload `json:"columns"`
 	Rows      []workspaceRowPayload    `json:"rows"`
 	Document  string                   `json:"document,omitempty"`
@@ -783,11 +785,23 @@ type workspaceResponse struct {
 	UpdatedAt time.Time                `json:"updatedAt"`
 }
 
+type workspaceTreeItem struct {
+	ID        string              `json:"id"`
+	Name      string              `json:"name"`
+	Kind      string              `json:"kind"`
+	ParentID  string              `json:"parentId,omitempty"`
+	CreatedAt time.Time           `json:"createdAt"`
+	UpdatedAt time.Time           `json:"updatedAt"`
+	Children  []workspaceTreeItem `json:"children,omitempty"`
+}
+
 type workspaceRequest struct {
 	Name     string                   `json:"name"`
 	Document string                   `json:"document"`
 	Columns  []workspaceColumnPayload `json:"columns"`
 	Rows     []workspaceRowPayload    `json:"rows"`
+	Kind     string                   `json:"kind"`
+	ParentID string                   `json:"parentId"`
 }
 
 type workspaceUpdateRequest struct {
@@ -795,6 +809,7 @@ type workspaceUpdateRequest struct {
 	Document *string                   `json:"document,omitempty"`
 	Columns  *[]workspaceColumnPayload `json:"columns,omitempty"`
 	Rows     *[]workspaceRowPayload    `json:"rows,omitempty"`
+	ParentID *string                   `json:"parentId,omitempty"`
 }
 
 type workspaceTextImportRequest struct {
@@ -1070,11 +1085,22 @@ func (s *Server) handleLedgerMatrix(c *gin.Context) {
 
 func (s *Server) handleListWorkspaces(c *gin.Context) {
 	items := s.Store.ListWorkspaces()
-	responses := make([]workspaceResponse, 0, len(items))
+	buckets := make(map[string][]workspaceTreeItem)
 	for _, item := range items {
-		responses = append(responses, workspaceToResponse(item))
+		parent := strings.TrimSpace(item.ParentID)
+		buckets[parent] = append(buckets[parent], workspaceTreeItemFromModel(item))
 	}
-	c.JSON(http.StatusOK, gin.H{"items": responses})
+	var build func(parent string) []workspaceTreeItem
+	build = func(parent string) []workspaceTreeItem {
+		nodes := buckets[parent]
+		result := make([]workspaceTreeItem, len(nodes))
+		for i, node := range nodes {
+			node.Children = build(node.ID)
+			result[i] = node
+		}
+		return result
+	}
+	c.JSON(http.StatusOK, gin.H{"items": build("")})
 }
 
 func (s *Server) handleCreateWorkspace(c *gin.Context) {
@@ -1084,9 +1110,22 @@ func (s *Server) handleCreateWorkspace(c *gin.Context) {
 		return
 	}
 	actor := currentSession(c, s.Sessions)
-	workspace, err := s.Store.CreateWorkspace(req.Name, payloadColumnsToModel(req.Columns), payloadRowsToModel(req.Rows), req.Document, actor)
+	kind := models.ParseWorkspaceKind(req.Kind)
+	workspace, err := s.Store.CreateWorkspace(
+		req.Name,
+		kind,
+		req.ParentID,
+		payloadColumnsToModel(req.Columns),
+		payloadRowsToModel(req.Rows),
+		req.Document,
+		actor,
+	)
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status := http.StatusInternalServerError
+		if errors.Is(err, models.ErrWorkspaceParentInvalid) || errors.Is(err, models.ErrWorkspaceKindUnsupported) {
+			status = http.StatusBadRequest
+		}
+		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"workspace": workspaceToResponse(workspace)})
@@ -1128,12 +1167,18 @@ func (s *Server) handleUpdateWorkspace(c *gin.Context) {
 		update.SetRows = true
 		update.Rows = payloadRowsToModel(*req.Rows)
 	}
+	if req.ParentID != nil {
+		update.SetParent = true
+		update.ParentID = strings.TrimSpace(*req.ParentID)
+	}
 	actor := currentSession(c, s.Sessions)
 	workspace, err := s.Store.UpdateWorkspace(c.Param("id"), update, actor)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, models.ErrWorkspaceNotFound) {
 			status = http.StatusNotFound
+		} else if errors.Is(err, models.ErrWorkspaceParentInvalid) || errors.Is(err, models.ErrWorkspaceKindUnsupported) {
+			status = http.StatusBadRequest
 		}
 		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
 		return
@@ -1192,6 +1237,8 @@ func (s *Server) handleImportWorkspaceExcel(c *gin.Context) {
 		status := http.StatusInternalServerError
 		if errors.Is(err, models.ErrWorkspaceNotFound) {
 			status = http.StatusNotFound
+		} else if errors.Is(err, models.ErrWorkspaceKindUnsupported) {
+			status = http.StatusBadRequest
 		}
 		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
 		return
@@ -1222,6 +1269,8 @@ func (s *Server) handleImportWorkspaceText(c *gin.Context) {
 		status := http.StatusInternalServerError
 		if errors.Is(err, models.ErrWorkspaceNotFound) {
 			status = http.StatusNotFound
+		} else if errors.Is(err, models.ErrWorkspaceKindUnsupported) {
+			status = http.StatusBadRequest
 		}
 		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
 		return
@@ -1237,6 +1286,11 @@ func (s *Server) handleExportWorkspace(c *gin.Context) {
 			status = http.StatusNotFound
 		}
 		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
+		return
+	}
+
+	if !models.WorkspaceKindSupportsTable(workspace.Kind) {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": models.ErrWorkspaceKindUnsupported.Error()})
 		return
 	}
 
@@ -1289,9 +1343,25 @@ func workspaceToResponse(workspace *models.Workspace) workspaceResponse {
 	return workspaceResponse{
 		ID:        workspace.ID,
 		Name:      workspace.Name,
+		Kind:      string(models.NormalizeWorkspaceKind(workspace.Kind)),
+		ParentID:  strings.TrimSpace(workspace.ParentID),
 		Columns:   columns,
 		Rows:      rows,
 		Document:  workspace.Document,
+		CreatedAt: workspace.CreatedAt,
+		UpdatedAt: workspace.UpdatedAt,
+	}
+}
+
+func workspaceTreeItemFromModel(workspace *models.Workspace) workspaceTreeItem {
+	if workspace == nil {
+		return workspaceTreeItem{}
+	}
+	return workspaceTreeItem{
+		ID:        workspace.ID,
+		Name:      workspace.Name,
+		Kind:      string(models.NormalizeWorkspaceKind(workspace.Kind)),
+		ParentID:  strings.TrimSpace(workspace.ParentID),
 		CreatedAt: workspace.CreatedAt,
 		UpdatedAt: workspace.UpdatedAt,
 	}

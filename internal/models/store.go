@@ -36,6 +36,10 @@ var (
 	ErrIPNotAllowed = errors.New("ip not allowed")
 	// ErrWorkspaceNotFound indicates the requested collaborative workspace does not exist.
 	ErrWorkspaceNotFound = errors.New("workspace_not_found")
+	// ErrWorkspaceParentInvalid indicates that a workspace parent assignment is invalid.
+	ErrWorkspaceParentInvalid = errors.New("workspace_parent_invalid")
+	// ErrWorkspaceKindUnsupported indicates the requested operation is not allowed for the workspace kind.
+	ErrWorkspaceKindUnsupported = errors.New("workspace_kind_unsupported")
 )
 
 var (
@@ -51,6 +55,7 @@ type LedgerStore struct {
 	entries             map[LedgerType][]LedgerEntry
 	workspaces          map[string]*Workspace
 	workspaceOrder      []string
+	workspaceChildren   map[string][]string
 	allow               map[string]*IPAllowlistEntry
 	audits              []*AuditLogEntry
 	profiles            map[string]IdentityProfile
@@ -125,6 +130,7 @@ func NewLedgerStore() *LedgerStore {
 	store := &LedgerStore{
 		entries:             make(map[LedgerType][]LedgerEntry),
 		workspaces:          make(map[string]*Workspace),
+		workspaceChildren:   make(map[string][]string),
 		allow:               make(map[string]*IPAllowlistEntry),
 		profiles:            make(map[string]IdentityProfile),
 		approvals:           make(map[string]*IdentityApproval),
@@ -407,6 +413,8 @@ type WorkspaceUpdate struct {
 	SetDocument bool
 	SetColumns  bool
 	SetRows     bool
+	ParentID    string
+	SetParent   bool
 }
 
 // ListWorkspaces returns the collaborative workspaces in creation order.
@@ -434,30 +442,48 @@ func (s *LedgerStore) GetWorkspace(id string) (*Workspace, error) {
 }
 
 // CreateWorkspace adds a new collaborative workspace to the store.
-func (s *LedgerStore) CreateWorkspace(name string, columns []WorkspaceColumn, rows []WorkspaceRow, document string, actor string) (*Workspace, error) {
+func (s *LedgerStore) CreateWorkspace(name string, kind WorkspaceKind, parentID string, columns []WorkspaceColumn, rows []WorkspaceRow, document string, actor string) (*Workspace, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	now := time.Now().UTC()
+	normalizedKind := NormalizeWorkspaceKind(kind)
+	parent := strings.TrimSpace(parentID)
+	if err := s.validateWorkspaceParentLocked(parent, ""); err != nil {
+		return nil, err
+	}
 	workspace := &Workspace{
 		ID:        GenerateID("ws"),
 		Name:      sanitizeWorkspaceName(name),
+		Kind:      normalizedKind,
+		ParentID:  parent,
 		Document:  strings.TrimSpace(document),
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
 
-	normalizedColumns := normalizeWorkspaceColumns(columns)
-	if len(normalizedColumns) == 0 {
-		normalizedColumns = []WorkspaceColumn{}
+	switch normalizedKind {
+	case WorkspaceKindSheet:
+		normalizedColumns := normalizeWorkspaceColumns(columns)
+		if len(normalizedColumns) == 0 {
+			normalizedColumns = []WorkspaceColumn{}
+		}
+		normalizedRows := normalizeWorkspaceRows(rows, normalizedColumns, now)
+		workspace.Columns = normalizedColumns
+		workspace.Rows = normalizedRows
+	case WorkspaceKindDocument:
+		workspace.Columns = []WorkspaceColumn{}
+		workspace.Rows = []WorkspaceRow{}
+		workspace.Document = strings.TrimSpace(document)
+	case WorkspaceKindFolder:
+		workspace.Columns = []WorkspaceColumn{}
+		workspace.Rows = []WorkspaceRow{}
+		workspace.Document = ""
 	}
-	normalizedRows := normalizeWorkspaceRows(rows, normalizedColumns, now)
-
-	workspace.Columns = normalizedColumns
-	workspace.Rows = normalizedRows
 
 	s.workspaces[workspace.ID] = workspace
 	s.workspaceOrder = append(s.workspaceOrder, workspace.ID)
+	s.addWorkspaceChildLocked(parent, workspace.ID)
 	s.appendAuditLocked(actor, "workspace_create", workspace.ID)
 	return workspace.Clone(), nil
 }
@@ -473,20 +499,41 @@ func (s *LedgerStore) UpdateWorkspace(id string, update WorkspaceUpdate, actor s
 	}
 
 	now := time.Now().UTC()
+	workspace.Kind = NormalizeWorkspaceKind(workspace.Kind)
 
 	if update.SetName {
 		workspace.Name = sanitizeWorkspaceName(update.Name)
 	}
 	if update.SetDocument {
+		if !WorkspaceKindSupportsDocument(workspace.Kind) {
+			return nil, ErrWorkspaceKindUnsupported
+		}
 		workspace.Document = strings.TrimSpace(update.Document)
 	}
 	if update.SetColumns {
+		if !WorkspaceKindSupportsTable(workspace.Kind) {
+			return nil, ErrWorkspaceKindUnsupported
+		}
 		normalized := normalizeWorkspaceColumns(update.Columns)
 		workspace.Columns = normalized
 		workspace.Rows = normalizeWorkspaceRows(workspace.Rows, normalized, now)
 	}
 	if update.SetRows {
+		if !WorkspaceKindSupportsTable(workspace.Kind) {
+			return nil, ErrWorkspaceKindUnsupported
+		}
 		workspace.Rows = normalizeWorkspaceRows(update.Rows, workspace.Columns, now)
+	}
+	if update.SetParent {
+		newParent := strings.TrimSpace(update.ParentID)
+		if err := s.validateWorkspaceParentLocked(newParent, workspace.ID); err != nil {
+			return nil, err
+		}
+		if newParent != workspace.ParentID {
+			s.removeWorkspaceChildLocked(workspace.ParentID, workspace.ID)
+			workspace.ParentID = newParent
+			s.addWorkspaceChildLocked(newParent, workspace.ID)
+		}
 	}
 
 	workspace.UpdatedAt = now
@@ -507,10 +554,21 @@ func (s *LedgerStore) DeleteWorkspace(id string, actor string) error {
 	if _, ok := s.workspaces[trimmed]; !ok {
 		return ErrWorkspaceNotFound
 	}
-	delete(s.workspaces, trimmed)
+	idsToRemove := make([]string, 0, 1)
+	s.collectWorkspaceDescendantsLocked(trimmed, &idsToRemove)
+	removalSet := make(map[string]struct{}, len(idsToRemove))
+	for _, removeID := range idsToRemove {
+		removalSet[removeID] = struct{}{}
+		ws := s.workspaces[removeID]
+		if ws != nil {
+			s.removeWorkspaceChildLocked(ws.ParentID, removeID)
+		}
+		delete(s.workspaceChildren, removeID)
+		delete(s.workspaces, removeID)
+	}
 	filtered := s.workspaceOrder[:0]
 	for _, existing := range s.workspaceOrder {
-		if existing == trimmed {
+		if _, skip := removalSet[existing]; skip {
 			continue
 		}
 		filtered = append(filtered, existing)
@@ -528,6 +586,9 @@ func (s *LedgerStore) ReplaceWorkspaceData(id string, headers []string, records 
 	workspace, ok := s.workspaces[strings.TrimSpace(id)]
 	if !ok {
 		return nil, ErrWorkspaceNotFound
+	}
+	if !WorkspaceKindSupportsTable(workspace.Kind) {
+		return nil, ErrWorkspaceKindUnsupported
 	}
 
 	now := time.Now().UTC()
@@ -570,6 +631,75 @@ func sanitizeWorkspaceName(name string) string {
 		return trimmed
 	}
 	return "未命名台账"
+}
+
+func (s *LedgerStore) addWorkspaceChildLocked(parentID, childID string) {
+	parent := strings.TrimSpace(parentID)
+	s.workspaceChildren[parent] = append(s.workspaceChildren[parent], childID)
+}
+
+func (s *LedgerStore) removeWorkspaceChildLocked(parentID, childID string) {
+	parent := strings.TrimSpace(parentID)
+	children := s.workspaceChildren[parent]
+	if len(children) == 0 {
+		return
+	}
+	filtered := make([]string, 0, len(children))
+	for _, existing := range children {
+		if existing == childID {
+			continue
+		}
+		filtered = append(filtered, existing)
+	}
+	if len(filtered) == 0 {
+		delete(s.workspaceChildren, parent)
+		return
+	}
+	s.workspaceChildren[parent] = filtered
+}
+
+func (s *LedgerStore) collectWorkspaceDescendantsLocked(id string, acc *[]string) {
+	trimmed := strings.TrimSpace(id)
+	if trimmed == "" {
+		return
+	}
+	*acc = append(*acc, trimmed)
+	for _, child := range s.workspaceChildren[trimmed] {
+		s.collectWorkspaceDescendantsLocked(child, acc)
+	}
+}
+
+func (s *LedgerStore) validateWorkspaceParentLocked(parentID, childID string) error {
+	parent := strings.TrimSpace(parentID)
+	if parent == "" {
+		return nil
+	}
+	if childID != "" && parent == childID {
+		return ErrWorkspaceParentInvalid
+	}
+	parentWorkspace, ok := s.workspaces[parent]
+	if !ok {
+		return ErrWorkspaceParentInvalid
+	}
+	if NormalizeWorkspaceKind(parentWorkspace.Kind) != WorkspaceKindFolder {
+		return ErrWorkspaceParentInvalid
+	}
+	if childID != "" && s.isDescendantLocked(childID, parent) {
+		return ErrWorkspaceParentInvalid
+	}
+	return nil
+}
+
+func (s *LedgerStore) isDescendantLocked(rootID, candidate string) bool {
+	if rootID == "" || candidate == "" {
+		return false
+	}
+	for _, child := range s.workspaceChildren[rootID] {
+		if child == candidate || s.isDescendantLocked(child, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeWorkspaceColumns(input []WorkspaceColumn) []WorkspaceColumn {

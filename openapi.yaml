@@ -98,6 +98,15 @@ components:
           type: string
         name:
           type: string
+        kind:
+          type: string
+          enum:
+            - sheet
+            - document
+            - folder
+        parentId:
+          type: string
+          nullable: true
         columns:
           type: array
           items:
@@ -120,12 +129,38 @@ components:
         items:
           type: array
           items:
-            $ref: '#/components/schemas/Workspace'
+            $ref: '#/components/schemas/WorkspaceTreeItem'
     WorkspaceEnvelope:
       type: object
       properties:
         workspace:
           $ref: '#/components/schemas/Workspace'
+    WorkspaceTreeItem:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+          enum:
+            - sheet
+            - document
+            - folder
+        parentId:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkspaceTreeItem'
     WorkspaceRequest:
       type: object
       properties:
@@ -141,6 +176,15 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/WorkspaceRow'
+        kind:
+          type: string
+          enum:
+            - sheet
+            - document
+            - folder
+        parentId:
+          type: string
+          nullable: true
     WorkspaceUpdateRequest:
       type: object
       properties:
@@ -156,6 +200,9 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/WorkspaceRow'
+        parentId:
+          type: string
+          nullable: true
     WorkspaceTextImportRequest:
       type: object
       properties:

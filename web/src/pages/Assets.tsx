@@ -1,4 +1,4 @@
-import { ChangeEvent, Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { ChangeEvent, Fragment, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDownTrayIcon,
   ArrowUpTrayIcon,
@@ -8,11 +8,17 @@ import {
   XMarkIcon,
   ClipboardDocumentListIcon,
   PencilSquareIcon,
-  CheckIcon
+  CheckIcon,
+  ChevronDownIcon,
+  DocumentTextIcon,
+  FolderIcon,
+  TableCellsIcon
 } from '@heroicons/react/24/outline';
 import type { AxiosError } from 'axios';
 
 import api from '../api/client';
+
+type WorkspaceKind = 'sheet' | 'document' | 'folder';
 
 type WorkspaceColumn = {
   id: string;
@@ -25,17 +31,25 @@ type WorkspaceRow = {
   cells: Record<string, string>;
 };
 
+type WorkspaceNode = {
+  id: string;
+  name: string;
+  kind: WorkspaceKind;
+  parentId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  children?: WorkspaceNode[];
+};
+
 type Workspace = {
   id: string;
   name: string;
+  kind: WorkspaceKind;
+  parentId?: string | null;
   columns: WorkspaceColumn[];
   rows: WorkspaceRow[];
   document?: string;
-};
-
-type WorkspaceSummary = {
-  id: string;
-  name: string;
+  createdAt?: string;
   updatedAt?: string;
 };
 
@@ -64,19 +78,93 @@ const createEmptyRow = (columns: WorkspaceColumn[]): WorkspaceRow => ({
   }, {})
 });
 
+const flattenWorkspaces = (nodes: WorkspaceNode[]): WorkspaceNode[] => {
+  const result: WorkspaceNode[] = [];
+  const walk = (list: WorkspaceNode[]) => {
+    list.forEach((node) => {
+      result.push(node);
+      if (node.children?.length) {
+        walk(node.children);
+      }
+    });
+  };
+  walk(nodes);
+  return result;
+};
+
+const normalizeKind = (value?: string): WorkspaceKind => {
+  if (!value) {
+    return 'sheet';
+  }
+  const lower = value.toLowerCase();
+  if (lower === 'document') {
+    return 'document';
+  }
+  if (lower === 'folder') {
+    return 'folder';
+  }
+  return 'sheet';
+};
+
+const formatTimestamp = (value?: string) => {
+  if (!value) {
+    return '';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(date);
+};
+
+const CREATION_OPTIONS: Array<{
+  kind: WorkspaceKind;
+  label: string;
+  description: string;
+  icon: typeof TableCellsIcon;
+}> = [
+  {
+    kind: 'sheet',
+    label: '新建表格台账',
+    description: '用于结构化字段的协同维护',
+    icon: TableCellsIcon
+  },
+  {
+    kind: 'document',
+    label: '新建在线文档',
+    description: '记录会议纪要、方案与流程说明',
+    icon: DocumentTextIcon
+  },
+  {
+    kind: 'folder',
+    label: '新建文件夹',
+    description: '整理不同台账与文档',
+    icon: FolderIcon
+  }
+];
+
 const ToolbarButton = ({
   icon: Icon,
   label,
-  onClick
+  onClick,
+  disabled = false
 }: {
   icon: typeof ArrowDownTrayIcon;
   label: string;
   onClick: () => void;
+  disabled?: boolean;
 }) => (
   <button
     type="button"
     onClick={onClick}
-    className="flex items-center gap-1 rounded-xl border border-white bg-white/80 px-3 py-2 text-xs font-medium text-night-300 transition hover:text-night-50"
+    disabled={disabled}
+    className={`flex items-center gap-1 rounded-xl border border-white bg-white/80 px-3 py-2 text-xs font-medium transition ${
+      disabled ? 'cursor-not-allowed text-night-200 opacity-60' : 'text-night-300 hover:text-night-50'
+    }`}
   >
     <Icon className="h-4 w-4" />
     {label}
@@ -203,7 +291,7 @@ const PasteModal = ({
 };
 
 const Assets = () => {
-  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
+  const [workspaceTree, setWorkspaceTree] = useState<WorkspaceNode[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [currentWorkspace, setCurrentWorkspace] = useState<Workspace | null>(null);
   const [columns, setColumns] = useState<WorkspaceColumn[]>([]);
@@ -214,9 +302,12 @@ const Assets = () => {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showPasteModal, setShowPasteModal] = useState(false);
+  const [showCreateMenu, setShowCreateMenu] = useState(false);
   const documentRef = useRef<HTMLDivElement>(null);
   const excelInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const createMenuRef = useRef<HTMLDivElement>(null);
+  const createButtonRef = useRef<HTMLButtonElement>(null);
 
   const selectedWorkspace = useMemo(() => {
     if (!currentWorkspace) return null;
@@ -228,21 +319,41 @@ const Assets = () => {
     };
   }, [currentWorkspace, columns, rows, documentContent]);
 
-  const refreshList = async () => {
+  const allNodes = useMemo(() => flattenWorkspaces(workspaceTree), [workspaceTree]);
+  const workspaceMap = useMemo(() => {
+    const map = new Map<string, WorkspaceNode>();
+    allNodes.forEach((node) => {
+      map.set(node.id, node);
+    });
+    return map;
+  }, [allNodes]);
+
+  const selectedNode = selectedId ? workspaceMap.get(selectedId) : null;
+  const selectedKind: WorkspaceKind = selectedWorkspace?.kind ?? normalizeKind(selectedNode?.kind);
+  const isSheet = selectedKind === 'sheet';
+  const isDocument = selectedKind === 'document';
+  const isFolder = selectedKind === 'folder';
+  const canEditDocument = isSheet || isDocument;
+  const folderChildren = selectedNode?.children ?? [];
+
+  const refreshList = async (focusId?: string | null) => {
     try {
-      const { data } = await api.get<{ items: WorkspaceSummary[] }>('/api/v1/workspaces');
-      const summaries = Array.isArray(data?.items) ? data.items : [];
-      setWorkspaces(summaries);
-      if (summaries.length && !selectedId) {
-        setSelectedId(summaries[0].id);
-      } else if (!summaries.length) {
+      const { data } = await api.get<{ items: WorkspaceNode[] }>('/api/v1/workspaces');
+      const nodes = Array.isArray(data?.items) ? data.items : [];
+      setWorkspaceTree(nodes);
+      const flattened = flattenWorkspaces(nodes);
+      if (!flattened.length) {
         setSelectedId(null);
         setCurrentWorkspace(null);
         setColumns([]);
         setRows([]);
         setDocumentContent('');
         setName('');
+        return;
       }
+      const candidate = focusId ?? selectedId;
+      const nextId = candidate && flattened.some((item) => item.id === candidate) ? candidate : flattened[0].id;
+      setSelectedId(nextId);
     } catch (err) {
       console.error('加载台账列表失败', err);
       setError('无法加载台账列表，请稍后再试。');
@@ -258,26 +369,33 @@ const Assets = () => {
         throw new Error('未获取到台账数据');
       }
       const workspace = data.workspace;
-      const normalizedColumns = workspace.columns.length
-        ? workspace.columns
-        : [
-            {
-              id: generateId(),
-              title: '列 1'
-            }
-          ];
-      const normalizedRows = workspace.rows.length
-        ? workspace.rows.map((row) => fillRowCells(row, normalizedColumns))
-        : [];
+      const kind = normalizeKind(workspace.kind);
+      const normalizedColumns =
+        kind === 'sheet'
+          ? workspace.columns.length
+            ? workspace.columns
+            : [
+                {
+                  id: generateId(),
+                  title: '字段 1'
+                }
+              ]
+          : [];
+      const normalizedRows =
+        kind === 'sheet' && workspace.rows.length
+          ? workspace.rows.map((row) => fillRowCells(row, normalizedColumns))
+          : [];
 
-      setCurrentWorkspace(workspace);
+      const normalizedDocument = kind === 'folder' ? '' : workspace.document || '';
+
+      setCurrentWorkspace({ ...workspace, kind, parentId: workspace.parentId ?? '' });
       setColumns(normalizedColumns);
       setRows(normalizedRows);
       setName(workspace.name || DEFAULT_TITLE);
-      setDocumentContent(workspace.document || '');
+      setDocumentContent(normalizedDocument);
 
       if (documentRef.current) {
-        documentRef.current.innerHTML = workspace.document || '';
+        documentRef.current.innerHTML = normalizedDocument;
       }
     } catch (err) {
       console.error('加载台账失败', err);
@@ -298,13 +416,34 @@ const Assets = () => {
     }
   }, [selectedId]);
 
+  useEffect(() => {
+    if (!showCreateMenu) {
+      return;
+    }
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (
+        createMenuRef.current &&
+        !createMenuRef.current.contains(target) &&
+        createButtonRef.current &&
+        !createButtonRef.current.contains(target)
+      ) {
+        setShowCreateMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [showCreateMenu]);
+
   const updateColumnTitle = (id: string, title: string) => {
+    if (!isSheet) return;
     setColumns((prev) =>
       prev.map((column) => (column.id === id ? { ...column, title } : column))
     );
   };
 
   const removeColumn = (id: string) => {
+    if (!isSheet) return;
     setColumns((prev) => prev.filter((column) => column.id !== id));
     setRows((prev) =>
       prev.map((row) => {
@@ -316,6 +455,7 @@ const Assets = () => {
   };
 
   const addColumn = () => {
+    if (!isSheet) return;
     const title = window.prompt('请输入新列的标题', `列 ${columns.length + 1}`);
     if (!title) {
       return;
@@ -327,14 +467,17 @@ const Assets = () => {
   };
 
   const addRow = () => {
+    if (!isSheet) return;
     setRows((prev) => [...prev, createEmptyRow(columns)]);
   };
 
   const removeRow = (id: string) => {
+    if (!isSheet) return;
     setRows((prev) => prev.filter((row) => row.id !== id));
   };
 
   const updateCell = (rowId: string, columnId: string, value: string) => {
+    if (!isSheet) return;
     setRows((prev) =>
       prev.map((row) =>
         row.id === rowId ? { ...row, cells: { ...row.cells, [columnId]: value } } : row
@@ -348,16 +491,19 @@ const Assets = () => {
     }
     setStatus(null);
     setError(null);
-    const payload = {
-      name: name.trim() || DEFAULT_TITLE,
-      document: documentContent,
-      columns,
-      rows: rows.map((row) => ({ id: row.id, cells: row.cells }))
-    };
+    const trimmedName = name.trim() || DEFAULT_TITLE;
+    const payload: Record<string, unknown> = { name: trimmedName };
+    if (isSheet) {
+      payload.document = documentContent;
+      payload.columns = columns;
+      payload.rows = rows.map((row) => ({ id: row.id, cells: row.cells }));
+    } else if (isDocument) {
+      payload.document = documentContent;
+    }
     try {
       await api.put(`/api/v1/workspaces/${currentWorkspace.id}`, payload);
       setStatus('已保存所有更改。');
-      await refreshList();
+      await refreshList(currentWorkspace.id);
     } catch (err) {
       console.error('保存失败', err);
       const axiosError = err as AxiosError<{ error?: string }>;
@@ -365,20 +511,53 @@ const Assets = () => {
     }
   };
 
-  const handleCreateWorkspace = async () => {
-    const title = window.prompt('新台账名称', DEFAULT_TITLE) || DEFAULT_TITLE;
+  const resolveParentForCreation = () => {
+    if (!selectedNode) {
+      return '';
+    }
+    if (selectedNode.kind === 'folder') {
+      return selectedNode.id;
+    }
+    return selectedNode.parentId ?? '';
+  };
+
+  const handleCreateWorkspace = async (kind: WorkspaceKind) => {
+    const labels: Record<WorkspaceKind, { title: string; prompt: string }> = {
+      sheet: { title: '新建表格台账', prompt: '请输入新台账名称' },
+      document: { title: '新建在线文档', prompt: '请输入文档名称' },
+      folder: { title: '新建文件夹', prompt: '请输入文件夹名称' }
+    };
+    const defaultName = kind === 'folder' ? '未命名文件夹' : kind === 'document' ? '未命名文档' : DEFAULT_TITLE;
+    const userInput = window.prompt(labels[kind].prompt, defaultName);
+    if (userInput === null) {
+      return;
+    }
+    const title = userInput.trim() || defaultName;
+    const parentId = resolveParentForCreation();
+    const payload: Record<string, unknown> = {
+      name: title,
+      kind,
+      parentId,
+      document: '',
+      columns: [] as WorkspaceColumn[],
+      rows: [] as WorkspaceRow[]
+    };
+    if (kind === 'sheet') {
+      payload.columns = [{ id: generateId(), title: '字段 1' }];
+      payload.rows = [];
+    }
+    if (kind === 'document') {
+      payload.document = '';
+    }
+    setShowCreateMenu(false);
     try {
-      const { data } = await api.post<{ workspace: Workspace }>('/api/v1/workspaces', {
-        name: title,
-        document: '',
-        columns: [],
-        rows: []
-      });
-      await refreshList();
-      if (data?.workspace?.id) {
-        setSelectedId(data.workspace.id);
+      const { data } = await api.post<{ workspace: Workspace }>('/api/v1/workspaces', payload);
+      const createdId = data?.workspace?.id;
+      await refreshList(createdId ?? undefined);
+      if (createdId) {
+        setSelectedId(createdId);
       }
-      setStatus('新台账已创建。');
+      setStatus(`${labels[kind].title}已创建。`);
     } catch (err) {
       console.error('创建台账失败', err);
       const axiosError = err as AxiosError<{ error?: string }>;
@@ -395,8 +574,9 @@ const Assets = () => {
     }
     try {
       await api.delete(`/api/v1/workspaces/${currentWorkspace.id}`);
-      setStatus('台账已删除。');
-      await refreshList();
+      setStatus('内容已删除。');
+      const fallback = selectedNode?.parentId ?? currentWorkspace.parentId ?? null;
+      await refreshList(fallback);
     } catch (err) {
       console.error('删除台账失败', err);
       const axiosError = err as AxiosError<{ error?: string }>;
@@ -405,7 +585,11 @@ const Assets = () => {
   };
 
   const handleImportExcel = async (event: ChangeEvent<HTMLInputElement>) => {
-    if (!currentWorkspace) return;
+    if (!currentWorkspace || !isSheet) {
+      setStatus('仅表格台账支持导入功能。');
+      event.target.value = '';
+      return;
+    }
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
@@ -431,7 +615,10 @@ const Assets = () => {
   };
 
   const handleImportText = async (text: string, delimiter: string, hasHeader: boolean) => {
-    if (!currentWorkspace) return;
+    if (!currentWorkspace || !isSheet) {
+      setStatus('仅表格台账支持粘贴导入。');
+      return;
+    }
     const { data } = await api.post<{ workspace: Workspace }>(
       `/api/v1/workspaces/${currentWorkspace.id}/import/text`,
       {
@@ -447,7 +634,10 @@ const Assets = () => {
   };
 
   const handleExport = async () => {
-    if (!currentWorkspace) return;
+    if (!currentWorkspace || !isSheet) {
+      setStatus('仅表格台账支持导出 Excel。');
+      return;
+    }
     try {
       const { data } = await api.get<ArrayBuffer>(
         `/api/v1/workspaces/${currentWorkspace.id}/export`,
@@ -472,7 +662,7 @@ const Assets = () => {
   };
 
   const execCommand = (command: string, value?: string) => {
-    if (!documentRef.current) return;
+    if (!canEditDocument || !documentRef.current) return;
     documentRef.current.focus();
     try {
       document.execCommand(command, false, value);
@@ -485,7 +675,7 @@ const Assets = () => {
   const handleImageInsert = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
-    if (!file || !documentRef.current) return;
+    if (!file || !documentRef.current || !canEditDocument) return;
     const reader = new FileReader();
     reader.onload = () => {
       const result = reader.result;
@@ -496,37 +686,88 @@ const Assets = () => {
     reader.readAsDataURL(file);
   };
 
+  const renderTree = (nodes: WorkspaceNode[], depth = 0): JSX.Element[] => {
+    const items: JSX.Element[] = [];
+    nodes.forEach((node) => {
+      const Icon =
+        node.kind === 'folder' ? FolderIcon : node.kind === 'document' ? DocumentTextIcon : TableCellsIcon;
+      const isActive = node.id === selectedId;
+      const paddingLeft = 12 + depth * 18;
+      const typeLabel = node.kind === 'folder' ? '文件夹' : node.kind === 'document' ? '文档' : '表格';
+      const displayName = node.name || DEFAULT_TITLE;
+      items.push(
+        <button
+          key={node.id}
+          type="button"
+          onClick={() => setSelectedId(node.id)}
+          style={{ paddingLeft: `${paddingLeft}px` }}
+          className={`mt-1 flex w-full items-center gap-3 rounded-2xl border px-4 py-2 text-left text-sm transition ${
+            isActive
+              ? 'border-neon-500/60 bg-neon-500/10 text-neon-500 shadow-glow'
+              : 'border-white bg-white/70 text-night-300 hover:text-night-50'
+          }`}
+        >
+          <Icon className="h-4 w-4 shrink-0" />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <span className="truncate font-medium">{displayName}</span>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-night-400">
+              <span className="rounded-full border border-night-200/60 bg-white/70 px-2 py-0.5">{typeLabel}</span>
+              {formatTimestamp(node.updatedAt) && <span>{formatTimestamp(node.updatedAt)}</span>}
+            </div>
+          </div>
+        </button>
+      );
+      if (node.children?.length) {
+        items.push(...renderTree(node.children, depth + 1));
+      }
+    });
+    return items;
+  };
+
   const workspaceList = (
     <div className="space-y-2">
-      <button
-        type="button"
-        onClick={handleCreateWorkspace}
-        className="flex w-full items-center justify-center gap-2 rounded-2xl border border-neon-500/40 bg-white/70 px-3 py-3 text-sm font-medium text-neon-500 transition hover:bg-neon-500/10"
-      >
-        <PlusIcon className="h-4 w-4" />
-        新建台账
-      </button>
-      <div className="space-y-1">
-        {workspaces.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => setSelectedId(item.id)}
-            className={`w-full rounded-2xl border px-4 py-3 text-left text-sm transition ${
-              item.id === selectedId
-                ? 'border-neon-500/60 bg-neon-500/10 text-neon-500 shadow-glow'
-                : 'border-white bg-white/70 text-night-300 hover:text-night-50'
-            }`}
+      <div className="relative">
+        <button
+          ref={createButtonRef}
+          type="button"
+          onClick={() => setShowCreateMenu((prev) => !prev)}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl border border-neon-500/40 bg-white/70 px-3 py-3 text-sm font-medium text-neon-500 transition hover:bg-neon-500/10"
+        >
+          <PlusIcon className="h-4 w-4" />
+          新建
+          <ChevronDownIcon className="h-4 w-4" />
+        </button>
+        {showCreateMenu && (
+          <div
+            ref={createMenuRef}
+            className="absolute inset-x-0 top-full z-20 mt-2 rounded-2xl border border-night-100/40 bg-white/95 shadow-xl"
           >
-            <div className="flex items-center justify-between gap-2">
-              <span className="truncate font-medium">{item.name || DEFAULT_TITLE}</span>
-              <ClipboardDocumentListIcon className="h-4 w-4" />
-            </div>
-            {item.updatedAt && (
-              <p className="mt-1 text-xs text-night-400">{new Date(item.updatedAt).toLocaleString()}</p>
-            )}
-          </button>
-        ))}
+            <ul className="divide-y divide-night-100/40 text-sm text-night-400">
+              {CREATION_OPTIONS.map(({ kind, label, description, icon: OptionIcon }) => (
+                <li key={kind}>
+                  <button
+                    type="button"
+                    onClick={() => handleCreateWorkspace(kind)}
+                    className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-neon-500/5"
+                  >
+                    <OptionIcon className="mt-0.5 h-4 w-4 text-neon-500" />
+                    <span>
+                      <span className="block font-medium text-night-300">{label}</span>
+                      <span className="mt-1 block text-xs text-night-400">{description}</span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+      <div className="space-y-1">
+        {workspaceTree.length ? renderTree(workspaceTree) : (
+          <div className="rounded-2xl border border-dashed border-night-200/60 bg-white/60 p-4 text-center text-sm text-night-300">
+            暂无台账内容，点击上方“新建”开始创建。
+          </div>
+        )}
       </div>
     </div>
   );
@@ -610,9 +851,24 @@ const Assets = () => {
                     className="flex-1 rounded-2xl border border-white bg-white/80 px-4 py-2 text-lg font-semibold text-night-100 focus:border-neon-400 focus:outline-none focus:ring-2 focus:ring-neon-400/30"
                   />
                   <div className="flex flex-wrap items-center gap-2">
-                    <ToolbarButton icon={ArrowUpTrayIcon} label="Excel 导入" onClick={() => excelInputRef.current?.click()} />
-                    <ToolbarButton icon={ClipboardDocumentListIcon} label="粘贴导入" onClick={() => setShowPasteModal(true)} />
-                    <ToolbarButton icon={ArrowDownTrayIcon} label="导出 Excel" onClick={handleExport} />
+                    <ToolbarButton
+                      icon={ArrowUpTrayIcon}
+                      label="Excel 导入"
+                      onClick={() => excelInputRef.current?.click()}
+                      disabled={!isSheet}
+                    />
+                    <ToolbarButton
+                      icon={ClipboardDocumentListIcon}
+                      label="粘贴导入"
+                      onClick={() => setShowPasteModal(true)}
+                      disabled={!isSheet}
+                    />
+                    <ToolbarButton
+                      icon={ArrowDownTrayIcon}
+                      label="导出 Excel"
+                      onClick={handleExport}
+                      disabled={!isSheet}
+                    />
                   </div>
                   <div className="flex items-center gap-2">
                     <button
@@ -627,7 +883,7 @@ const Assets = () => {
                       className="rounded-2xl border border-red-400/60 bg-red-50 px-4 py-2 text-sm text-red-500 hover:bg-red-100"
                       onClick={handleDeleteWorkspace}
                     >
-                      删除台账
+                      删除内容
                     </button>
                   </div>
                 </div>
@@ -644,52 +900,119 @@ const Assets = () => {
                 )}
               </div>
 
-              <section className="mt-6 space-y-4">
-                <div className="flex flex-wrap items-center gap-3">
-                  <h3 className="text-base font-semibold text-night-100">表格数据</h3>
-                  <button
-                    type="button"
-                    className="flex items-center gap-1 rounded-xl border border-night-200/60 bg-white/80 px-3 py-2 text-xs text-night-300 hover:text-night-50"
-                    onClick={addColumn}
-                  >
-                    <PlusIcon className="h-4 w-4" />
-                    新增列
-                  </button>
-                  <button
-                    type="button"
-                    className="flex items-center gap-1 rounded-xl border border-night-200/60 bg-white/80 px-3 py-2 text-xs text-night-300 hover:text-night-50"
-                    onClick={addRow}
-                  >
-                    <PlusIcon className="h-4 w-4" />
-                    新增行
-                  </button>
-                </div>
-                <div className="overflow-x-auto rounded-3xl border border-night-100/30">
-                  <table className="min-w-full divide-y divide-night-100/20 text-sm">
-                    {tableHeader}
-                    {tableBody}
-                  </table>
-                </div>
-              </section>
-
-              <section className="mt-10 space-y-4">
-                <div className="flex flex-wrap items-center gap-3">
-                  <h3 className="text-base font-semibold text-night-100">在线文档</h3>
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-night-300">
-                    <ToolbarButton icon={PencilSquareIcon} label="粗体" onClick={() => execCommand('bold')} />
-                    <ToolbarButton icon={CheckIcon} label="斜体" onClick={() => execCommand('italic')} />
-                    <ToolbarButton icon={PlusIcon} label="下划线" onClick={() => execCommand('underline')} />
-                    <ToolbarButton icon={PhotoIcon} label="插入图片" onClick={() => imageInputRef.current?.click()} />
+              {isSheet && (
+                <section className="mt-6 space-y-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <h3 className="text-base font-semibold text-night-100">表格数据</h3>
+                    <button
+                      type="button"
+                      className="flex items-center gap-1 rounded-xl border border-night-200/60 bg-white/80 px-3 py-2 text-xs text-night-300 hover:text-night-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={addColumn}
+                      disabled={!isSheet}
+                    >
+                      <PlusIcon className="h-4 w-4" />
+                      新增列
+                    </button>
+                    <button
+                      type="button"
+                      className="flex items-center gap-1 rounded-xl border border-night-200/60 bg-white/80 px-3 py-2 text-xs text-night-300 hover:text-night-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={addRow}
+                      disabled={!isSheet}
+                    >
+                      <PlusIcon className="h-4 w-4" />
+                      新增行
+                    </button>
                   </div>
-                </div>
-                <div
-                  ref={documentRef}
-                  contentEditable
-                  suppressContentEditableWarning
-                  onInput={(event) => setDocumentContent((event.target as HTMLDivElement).innerHTML)}
-                  className="min-h-[240px] rounded-3xl border border-night-100/40 bg-white/80 p-5 text-sm leading-relaxed text-night-500 focus:outline-none"
-                />
-              </section>
+                  <div className="overflow-x-auto rounded-3xl border border-night-100/30">
+                    <table className="min-w-full divide-y divide-night-100/20 text-sm">
+                      {tableHeader}
+                      {tableBody}
+                    </table>
+                  </div>
+                </section>
+              )}
+
+              {canEditDocument && (
+                <section className="mt-10 space-y-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <h3 className="text-base font-semibold text-night-100">在线文档</h3>
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-night-300">
+                      <ToolbarButton
+                        icon={PencilSquareIcon}
+                        label="粗体"
+                        onClick={() => execCommand('bold')}
+                        disabled={!canEditDocument}
+                      />
+                      <ToolbarButton
+                        icon={CheckIcon}
+                        label="斜体"
+                        onClick={() => execCommand('italic')}
+                        disabled={!canEditDocument}
+                      />
+                      <ToolbarButton
+                        icon={PlusIcon}
+                        label="下划线"
+                        onClick={() => execCommand('underline')}
+                        disabled={!canEditDocument}
+                      />
+                      <ToolbarButton
+                        icon={PhotoIcon}
+                        label="插入图片"
+                        onClick={() => imageInputRef.current?.click()}
+                        disabled={!canEditDocument}
+                      />
+                    </div>
+                  </div>
+                  <div
+                    ref={documentRef}
+                    contentEditable={canEditDocument}
+                    suppressContentEditableWarning
+                    onInput={canEditDocument ? (event) => setDocumentContent((event.target as HTMLDivElement).innerHTML) : undefined}
+                    className={`min-h-[240px] rounded-3xl border border-night-100/40 bg-white/80 p-5 text-sm leading-relaxed text-night-500 focus:outline-none ${
+                      canEditDocument ? '' : 'pointer-events-none opacity-60'
+                    }`}
+                  />
+                </section>
+              )}
+
+              {isFolder && (
+                <section className="mt-10 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-base font-semibold text-night-100">文件夹内容</h3>
+                    <span className="text-xs text-night-300">共 {folderChildren.length} 项</span>
+                  </div>
+                  {folderChildren.length ? (
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      {folderChildren.map((child) => {
+                        const Icon =
+                          child.kind === 'folder'
+                            ? FolderIcon
+                            : child.kind === 'document'
+                            ? DocumentTextIcon
+                            : TableCellsIcon;
+                        return (
+                          <button
+                            key={child.id}
+                            type="button"
+                            onClick={() => setSelectedId(child.id)}
+                            className="flex w-full flex-col gap-1 rounded-2xl border border-night-100/50 bg-white/80 p-4 text-left text-sm text-night-400 transition hover:border-neon-500/60 hover:text-neon-500"
+                          >
+                            <Icon className="h-5 w-5" />
+                            <span className="truncate font-medium text-night-200">{child.name || DEFAULT_TITLE}</span>
+                            {formatTimestamp(child.updatedAt) && (
+                              <span className="text-[10px] text-night-400">更新于 {formatTimestamp(child.updatedAt)}</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="rounded-3xl border border-night-100/30 bg-white/80 p-6 text-sm text-night-300">
+                      当前文件夹暂无内容，可使用左上角“新建”按钮创建台账或文档。
+                    </div>
+                  )}
+                </section>
+              )}
             </Fragment>
           )}
 

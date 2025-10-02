@@ -63,7 +63,7 @@ func TestLedgerStoreLoginChallengeLifecycle(t *testing.T) {
 func TestWorkspaceLifecycle(t *testing.T) {
 	store := NewLedgerStore()
 
-	created, err := store.CreateWorkspace("需求汇总", []WorkspaceColumn{{Title: "事项"}}, nil, "<p>初始说明</p>", "tester")
+	created, err := store.CreateWorkspace("需求汇总", WorkspaceKindSheet, "", []WorkspaceColumn{{Title: "事项"}}, nil, "<p>初始说明</p>", "tester")
 	if err != nil {
 		t.Fatalf("create workspace: %v", err)
 	}
@@ -120,5 +120,58 @@ func TestWorkspaceLifecycle(t *testing.T) {
 	}
 	if _, err := store.GetWorkspace(created.ID); !errors.Is(err, ErrWorkspaceNotFound) {
 		t.Fatalf("expected workspace to be removed, got %v", err)
+	}
+}
+
+func TestWorkspaceHierarchy(t *testing.T) {
+	store := NewLedgerStore()
+
+	folder, err := store.CreateWorkspace("专项项目", WorkspaceKindFolder, "", nil, nil, "", "tester")
+	if err != nil {
+		t.Fatalf("create folder: %v", err)
+	}
+	doc, err := store.CreateWorkspace("项目说明", WorkspaceKindDocument, folder.ID, nil, nil, "<p>说明</p>", "tester")
+	if err != nil {
+		t.Fatalf("create document: %v", err)
+	}
+	sheet, err := store.CreateWorkspace(
+		"任务清单",
+		WorkspaceKindSheet,
+		folder.ID,
+		[]WorkspaceColumn{{Title: "任务"}},
+		nil,
+		"",
+		"tester",
+	)
+	if err != nil {
+		t.Fatalf("create sheet: %v", err)
+	}
+
+	if _, err := store.UpdateWorkspace(doc.ID, WorkspaceUpdate{SetParent: true, ParentID: ""}, "tester"); err != nil {
+		t.Fatalf("move document to root: %v", err)
+	}
+
+	if _, err := store.UpdateWorkspace(doc.ID, WorkspaceUpdate{SetColumns: true, Columns: []WorkspaceColumn{}}, "tester"); !errors.Is(err, ErrWorkspaceKindUnsupported) {
+		t.Fatalf("expected unsupported kind error when updating columns, got %v", err)
+	}
+	if _, err := store.ReplaceWorkspaceData(doc.ID, []string{"A"}, [][]string{{"1"}}, "tester"); !errors.Is(err, ErrWorkspaceKindUnsupported) {
+		t.Fatalf("expected unsupported kind error when importing document data, got %v", err)
+	}
+
+	if err := store.DeleteWorkspace(folder.ID, "tester"); err != nil {
+		t.Fatalf("delete folder: %v", err)
+	}
+	if _, err := store.GetWorkspace(folder.ID); !errors.Is(err, ErrWorkspaceNotFound) {
+		t.Fatalf("expected folder removed, got %v", err)
+	}
+	if _, err := store.GetWorkspace(sheet.ID); !errors.Is(err, ErrWorkspaceNotFound) {
+		t.Fatalf("expected sheet removed with folder, got %v", err)
+	}
+	if _, err := store.GetWorkspace(doc.ID); err != nil {
+		t.Fatalf("expected document to remain after folder deletion, got %v", err)
+	}
+
+	if _, err := store.UpdateWorkspace(doc.ID, WorkspaceUpdate{SetParent: true, ParentID: doc.ID}, "tester"); !errors.Is(err, ErrWorkspaceParentInvalid) {
+		t.Fatalf("expected invalid parent error when assigning self, got %v", err)
 	}
 }
