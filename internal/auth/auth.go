@@ -11,7 +11,7 @@ import (
 type Session struct {
 	Token     string    `json:"token"`
 	Username  string    `json:"username"`
-	DeviceID  string    `json:"device_id"`
+	ClientID  string    `json:"client_id"`
 	IssuedAt  time.Time `json:"issued_at"`
 	ExpiresAt time.Time `json:"expires_at"`
 }
@@ -31,8 +31,8 @@ func NewManager(ttl time.Duration) *Manager {
 	return &Manager{ttl: ttl, entries: make(map[string]*Session)}
 }
 
-// Issue creates a new session for a username and device.
-func (m *Manager) Issue(username, deviceID string) (*Session, error) {
+// Issue creates a new session for a username and client fingerprint.
+func (m *Manager) Issue(username, clientID string) (*Session, error) {
 	token, err := randomToken()
 	if err != nil {
 		return nil, err
@@ -41,7 +41,7 @@ func (m *Manager) Issue(username, deviceID string) (*Session, error) {
 	session := &Session{
 		Token:     token,
 		Username:  username,
-		DeviceID:  deviceID,
+		ClientID:  clientID,
 		IssuedAt:  now,
 		ExpiresAt: now.Add(m.ttl),
 	}

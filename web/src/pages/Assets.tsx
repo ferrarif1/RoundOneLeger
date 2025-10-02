@@ -1,527 +1,716 @@
-import { FormEvent, KeyboardEvent, useEffect, useMemo, useState } from 'react';
-import api from '../api/client';
+import { ChangeEvent, Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowDownIcon,
-  ArrowUpIcon,
-  ArrowUturnLeftIcon,
-  ArrowUturnRightIcon,
-  PencilSquareIcon,
+  ArrowDownTrayIcon,
+  ArrowUpTrayIcon,
+  PhotoIcon,
   PlusIcon,
-  TagIcon,
-  TrashIcon
+  TrashIcon,
+  XMarkIcon,
+  ClipboardDocumentListIcon,
+  PencilSquareIcon,
+  CheckIcon
 } from '@heroicons/react/24/outline';
+import type { AxiosError } from 'axios';
 
-type LedgerType = 'ips' | 'devices' | 'personnel' | 'systems';
+import api from '../api/client';
 
-interface LedgerRecord {
-  id: number;
-  tags?: string[];
-  [key: string]: unknown;
-}
-
-interface HistoryCounters {
-  undoSteps: number;
-  redoSteps: number;
-}
-
-type LedgerStateResponse = Partial<Record<LedgerType, LedgerRecord[]>>;
-
-interface FieldConfig {
-  key: string;
-  label: string;
-  placeholder: string;
-  required?: boolean;
-}
-
-interface LedgerConfig {
-  type: LedgerType;
-  label: string;
-  endpoint: string;
-  responseKey: string;
-  fields: FieldConfig[];
-  accent: string;
-}
-
-const LEDGER_CONFIGS: Record<LedgerType, LedgerConfig> = {
-  ips: {
-    type: 'ips',
-    label: 'IP 白名单',
-    endpoint: '/ledger/ips',
-    responseKey: 'ips',
-    accent: 'text-neon-500',
-    fields: [
-      { key: 'address', label: 'IP 地址', placeholder: '10.0.0.12/24', required: true },
-      { key: 'description', label: '说明', placeholder: '办公网络出入口' }
-    ]
-  },
-  devices: {
-    type: 'devices',
-    label: '终端设备',
-    endpoint: '/ledger/devices',
-    responseKey: 'devices',
-    accent: 'text-indigo-300',
-    fields: [
-      { key: 'identifier', label: '设备标识', placeholder: 'MacBook Pro SN', required: true },
-      { key: 'type', label: '类型', placeholder: 'Laptop' },
-      { key: 'owner', label: '责任人', placeholder: '张三' }
-    ]
-  },
-  personnel: {
-    type: 'personnel',
-    label: '人员',
-    endpoint: '/ledger/personnel',
-    responseKey: 'personnel',
-    accent: 'text-amber-300',
-    fields: [
-      { key: 'name', label: '姓名', placeholder: '李四', required: true },
-      { key: 'role', label: '角色', placeholder: '安全负责人' },
-      { key: 'contact', label: '联系方式', placeholder: 'lisa@example.com' }
-    ]
-  },
-  systems: {
-    type: 'systems',
-    label: '系统',
-    endpoint: '/ledger/systems',
-    responseKey: 'systems',
-    accent: 'text-cyan-300',
-    fields: [
-      { key: 'name', label: '系统名称', placeholder: '核心交易平台', required: true },
-      { key: 'environment', label: '环境', placeholder: '生产/预发' },
-      { key: 'owner', label: '系统负责人', placeholder: '王五' }
-    ]
-  }
+type WorkspaceColumn = {
+  id: string;
+  title: string;
+  width?: number;
 };
 
-const initialValues = (config: LedgerConfig) =>
-  config.fields.reduce<Record<string, string>>((acc, field) => {
-    acc[field.key] = '';
+type WorkspaceRow = {
+  id: string;
+  cells: Record<string, string>;
+};
+
+type Workspace = {
+  id: string;
+  name: string;
+  columns: WorkspaceColumn[];
+  rows: WorkspaceRow[];
+  document?: string;
+};
+
+type WorkspaceSummary = {
+  id: string;
+  name: string;
+  updatedAt?: string;
+};
+
+const DEFAULT_TITLE = '未命名台账';
+
+const generateId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `id-${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
+};
+
+const fillRowCells = (row: WorkspaceRow, columns: WorkspaceColumn[]): WorkspaceRow => {
+  const cells: Record<string, string> = {};
+  columns.forEach((column) => {
+    cells[column.id] = row.cells?.[column.id] ?? '';
+  });
+  return { id: row.id, cells };
+};
+
+const createEmptyRow = (columns: WorkspaceColumn[]): WorkspaceRow => ({
+  id: generateId(),
+  cells: columns.reduce<Record<string, string>>((acc, column) => {
+    acc[column.id] = '';
     return acc;
-  }, {});
+  }, {})
+});
 
-const HISTORY_LIMIT = 10;
+const ToolbarButton = ({
+  icon: Icon,
+  label,
+  onClick
+}: {
+  icon: typeof ArrowDownTrayIcon;
+  label: string;
+  onClick: () => void;
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className="flex items-center gap-1 rounded-xl border border-white bg-white/80 px-3 py-2 text-xs font-medium text-night-300 transition hover:text-night-50"
+  >
+    <Icon className="h-4 w-4" />
+    {label}
+  </button>
+);
 
-const normalizeRecords = (items: LedgerRecord[] = []) =>
-  items.map((item) => ({ ...item, tags: Array.isArray(item.tags) ? item.tags : [] }));
+const PasteModal = ({
+  open,
+  onClose,
+  onSubmit
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSubmit: (text: string, delimiter: string, hasHeader: boolean) => Promise<void>;
+}) => {
+  const [text, setText] = useState('');
+  const [delimiter, setDelimiter] = useState<'tab' | 'comma' | 'semicolon' | 'space'>('tab');
+  const [hasHeader, setHasHeader] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setText('');
+      setDelimiter('tab');
+      setHasHeader(true);
+      setSubmitting(false);
+      setError(null);
+    }
+  }, [open]);
+
+  if (!open) {
+    return null;
+  }
+
+  const handleSubmit = async () => {
+    if (!text.trim()) {
+      setError('请粘贴需要导入的数据。');
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      await onSubmit(text, delimiter, hasHeader);
+      onClose();
+    } catch (err) {
+      const axiosError = err as AxiosError<{ error?: string }>;
+      setError(axiosError.response?.data?.error || axiosError.message || '导入失败，请稍后再试。');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-night-900/60 px-4">
+      <div className="w-full max-w-2xl rounded-3xl border border-white bg-white/95 p-6 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-night-100">批量粘贴导入</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full border border-night-700/40 p-2 text-night-400 hover:text-night-50"
+            aria-label="关闭"
+          >
+            <XMarkIcon className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="space-y-3">
+          <textarea
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            placeholder="将 Excel 或其他表格数据复制后粘贴在此处，每列使用制表符分隔"
+            rows={10}
+            className="w-full rounded-2xl border border-night-200/50 bg-white/70 p-3 text-sm text-night-500 focus:border-neon-500 focus:outline-none focus:ring-2 focus:ring-neon-400/30"
+          />
+          <div className="flex flex-wrap items-center gap-4 text-sm text-night-300">
+            <label className="flex items-center gap-2">
+              <span>分隔符</span>
+              <select
+                value={delimiter}
+                onChange={(event) => setDelimiter(event.target.value as typeof delimiter)}
+                className="rounded-xl border border-night-200/60 bg-white/80 px-2 py-1 text-night-400 focus:border-neon-500 focus:outline-none"
+              >
+                <option value="tab">制表符</option>
+                <option value="comma">逗号</option>
+                <option value="semicolon">分号</option>
+                <option value="space">空格</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={hasHeader}
+                onChange={(event) => setHasHeader(event.target.checked)}
+                className="rounded border-night-200/60 text-neon-500 focus:ring-neon-500"
+              />
+              首行是表头
+            </label>
+          </div>
+          {error && (
+            <div className="rounded-2xl border border-red-400/60 bg-red-100/60 px-3 py-2 text-sm text-red-600">{error}</div>
+          )}
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              className="rounded-xl border border-night-200/60 px-4 py-2 text-sm text-night-300 hover:text-night-50"
+              onClick={onClose}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className="button-primary"
+              onClick={handleSubmit}
+              disabled={submitting}
+            >
+              {submitting ? '正在导入…' : '导入数据'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const Assets = () => {
-  const [activeType, setActiveType] = useState<LedgerType>('ips');
-  const [records, setRecords] = useState<Record<LedgerType, LedgerRecord[]>>({
-    ips: [],
-    devices: [],
-    personnel: [],
-    systems: []
-  });
+  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [currentWorkspace, setCurrentWorkspace] = useState<Workspace | null>(null);
+  const [columns, setColumns] = useState<WorkspaceColumn[]>([]);
+  const [rows, setRows] = useState<WorkspaceRow[]>([]);
+  const [name, setName] = useState('');
+  const [documentContent, setDocumentContent] = useState('');
   const [loading, setLoading] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [formValues, setFormValues] = useState<Record<string, string>>(initialValues(LEDGER_CONFIGS.ips));
-  const [formTags, setFormTags] = useState<string[]>([]);
-  const [tagDraft, setTagDraft] = useState('');
-  const [history, setHistory] = useState<HistoryCounters>({ undoSteps: 0, redoSteps: 0 });
+  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [showPasteModal, setShowPasteModal] = useState(false);
+  const documentRef = useRef<HTMLDivElement>(null);
+  const excelInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
-  const activeConfig = useMemo(() => LEDGER_CONFIGS[activeType], [activeType]);
+  const selectedWorkspace = useMemo(() => {
+    if (!currentWorkspace) return null;
+    return {
+      ...currentWorkspace,
+      columns,
+      rows,
+      document: documentContent
+    };
+  }, [currentWorkspace, columns, rows, documentContent]);
 
-  const refreshHistory = async () => {
+  const refreshList = async () => {
     try {
-      const { data } = await api.get('/ledger/history');
-      const counters = data?.history ?? {};
-      setHistory({
-        undoSteps: typeof counters.undoSteps === 'number' ? counters.undoSteps : 0,
-        redoSteps: typeof counters.redoSteps === 'number' ? counters.redoSteps : 0
-      });
-    } catch (error) {
-      console.error('Failed to load history counters', error);
+      const { data } = await api.get<{ items: WorkspaceSummary[] }>('/api/v1/workspaces');
+      const summaries = Array.isArray(data?.items) ? data.items : [];
+      setWorkspaces(summaries);
+      if (summaries.length && !selectedId) {
+        setSelectedId(summaries[0].id);
+      } else if (!summaries.length) {
+        setSelectedId(null);
+        setCurrentWorkspace(null);
+        setColumns([]);
+        setRows([]);
+        setDocumentContent('');
+        setName('');
+      }
+    } catch (err) {
+      console.error('加载台账列表失败', err);
+      setError('无法加载台账列表，请稍后再试。');
     }
   };
 
-  const fetchLedger = async (type: LedgerType) => {
-    const config = LEDGER_CONFIGS[type];
+  const loadWorkspace = async (id: string) => {
     try {
-      if (type === activeType) {
-        setLoading(true);
+      setLoading(true);
+      setError(null);
+      const { data } = await api.get<{ workspace: Workspace }>(`/api/v1/workspaces/${id}`);
+      if (!data?.workspace) {
+        throw new Error('未获取到台账数据');
       }
-      const { data } = await api.get(config.endpoint);
-      const responseKey = config.responseKey;
-      const items: LedgerRecord[] = normalizeRecords(data[responseKey] ?? []);
-      setRecords((prev) => ({ ...prev, [type]: items }));
-    } catch (error) {
-      console.error('Failed to load ledger', error);
+      const workspace = data.workspace;
+      const normalizedColumns = workspace.columns.length
+        ? workspace.columns
+        : [
+            {
+              id: generateId(),
+              title: '列 1'
+            }
+          ];
+      const normalizedRows = workspace.rows.length
+        ? workspace.rows.map((row) => fillRowCells(row, normalizedColumns))
+        : [];
+
+      setCurrentWorkspace(workspace);
+      setColumns(normalizedColumns);
+      setRows(normalizedRows);
+      setName(workspace.name || DEFAULT_TITLE);
+      setDocumentContent(workspace.document || '');
+
+      if (documentRef.current) {
+        documentRef.current.innerHTML = workspace.document || '';
+      }
+    } catch (err) {
+      console.error('加载台账失败', err);
+      const axiosError = err as AxiosError<{ error?: string }>;
+      setError(axiosError.response?.data?.error || axiosError.message || '无法加载台账内容。');
     } finally {
-      if (type === activeType) {
-        setLoading(false);
-      }
+      setLoading(false);
     }
-    await refreshHistory();
   };
 
   useEffect(() => {
-    fetchLedger(activeType);
-  }, [activeType]);
+    refreshList().catch((err) => console.error(err));
+  }, []);
 
   useEffect(() => {
-    setFormValues(initialValues(activeConfig));
-    setFormTags([]);
-    setTagDraft('');
-    setEditingId(null);
-  }, [activeConfig]);
-
-  const handleValueChange = (key: string, value: string) => {
-    setFormValues((prev) => ({ ...prev, [key]: value }));
-  };
-
-  const handleTagKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key !== 'Enter' && event.key !== ',') return;
-    event.preventDefault();
-    const trimmed = tagDraft.trim();
-    if (!trimmed) return;
-    if (!formTags.includes(trimmed)) {
-      setFormTags((prev) => [...prev, trimmed]);
+    if (selectedId) {
+      loadWorkspace(selectedId).catch((err) => console.error(err));
     }
-    setTagDraft('');
+  }, [selectedId]);
+
+  const updateColumnTitle = (id: string, title: string) => {
+    setColumns((prev) =>
+      prev.map((column) => (column.id === id ? { ...column, title } : column))
+    );
   };
 
-  const handleTagRemove = (tag: string) => {
-    setFormTags((prev) => prev.filter((item) => item !== tag));
+  const removeColumn = (id: string) => {
+    setColumns((prev) => prev.filter((column) => column.id !== id));
+    setRows((prev) =>
+      prev.map((row) => {
+        const nextCells = { ...row.cells };
+        delete nextCells[id];
+        return { ...row, cells: nextCells };
+      })
+    );
   };
 
-  const resetForm = () => {
-    setFormValues(initialValues(activeConfig));
-    setFormTags([]);
-    setTagDraft('');
-    setEditingId(null);
-  };
-
-  const syncStateFromPayload = (state?: LedgerStateResponse, counters?: HistoryCounters) => {
-    if (state) {
-      const nextState: Record<LedgerType, LedgerRecord[]> = {
-        ips: normalizeRecords(state.ips ?? []),
-        devices: normalizeRecords(state.devices ?? []),
-        personnel: normalizeRecords(state.personnel ?? []),
-        systems: normalizeRecords(state.systems ?? [])
-      };
-      setRecords(nextState);
-      if (editingId !== null) {
-        const activeList = nextState[activeType];
-        if (!activeList.some((item) => item.id === editingId)) {
-          resetForm();
-        }
-      }
+  const addColumn = () => {
+    const title = window.prompt('请输入新列的标题', `列 ${columns.length + 1}`);
+    if (!title) {
+      return;
     }
-    if (counters) {
-      setHistory(counters);
+    const id = generateId();
+    const column: WorkspaceColumn = { id, title };
+    setColumns((prev) => [...prev, column]);
+    setRows((prev) => prev.map((row) => ({ ...row, cells: { ...row.cells, [id]: '' } })));
+  };
+
+  const addRow = () => {
+    setRows((prev) => [...prev, createEmptyRow(columns)]);
+  };
+
+  const removeRow = (id: string) => {
+    setRows((prev) => prev.filter((row) => row.id !== id));
+  };
+
+  const updateCell = (rowId: string, columnId: string, value: string) => {
+    setRows((prev) =>
+      prev.map((row) =>
+        row.id === rowId ? { ...row, cells: { ...row.cells, [columnId]: value } } : row
+      )
+    );
+  };
+
+  const handleSave = async () => {
+    if (!currentWorkspace) {
+      return;
     }
-  };
-
-  const handleEdit = (entry: LedgerRecord) => {
-    const nextValues = initialValues(activeConfig);
-    activeConfig.fields.forEach((field) => {
-      const value = entry[field.key];
-      if (typeof value === 'string') {
-        nextValues[field.key] = value;
-      }
-    });
-    setFormValues(nextValues);
-    setFormTags(Array.isArray(entry.tags) ? entry.tags : []);
-    setEditingId(entry.id);
-  };
-
-  const handleDelete = async (id: number) => {
-    const confirmed = window.confirm('确定删除这条台账记录吗？');
-    if (!confirmed) return;
+    setStatus(null);
+    setError(null);
+    const payload = {
+      name: name.trim() || DEFAULT_TITLE,
+      document: documentContent,
+      columns,
+      rows: rows.map((row) => ({ id: row.id, cells: row.cells }))
+    };
     try {
-      await api.delete(`${activeConfig.endpoint}/${id}`);
-      await fetchLedger(activeType);
-      if (editingId === id) {
-        resetForm();
-      }
-    } catch (error) {
-      console.error('删除失败', error);
+      await api.put(`/api/v1/workspaces/${currentWorkspace.id}`, payload);
+      setStatus('已保存所有更改。');
+      await refreshList();
+    } catch (err) {
+      console.error('保存失败', err);
+      const axiosError = err as AxiosError<{ error?: string }>;
+      setError(axiosError.response?.data?.error || axiosError.message || '保存失败，请稍后再试。');
     }
   };
 
-  const handleUndo = async () => {
+  const handleCreateWorkspace = async () => {
+    const title = window.prompt('新台账名称', DEFAULT_TITLE) || DEFAULT_TITLE;
     try {
-      const { data } = await api.post('/ledger/history/undo');
-      if (data?.state) {
-        syncStateFromPayload(data.state, data.history);
-      } else {
-        await refreshHistory();
+      const { data } = await api.post<{ workspace: Workspace }>('/api/v1/workspaces', {
+        name: title,
+        document: '',
+        columns: [],
+        rows: []
+      });
+      await refreshList();
+      if (data?.workspace?.id) {
+        setSelectedId(data.workspace.id);
       }
-    } catch (error) {
-      console.error('回退失败', error);
-      await refreshHistory();
-      window.alert('暂时没有可回退的记录');
+      setStatus('新台账已创建。');
+    } catch (err) {
+      console.error('创建台账失败', err);
+      const axiosError = err as AxiosError<{ error?: string }>;
+      setError(axiosError.response?.data?.error || axiosError.message || '创建台账失败。');
     }
   };
 
-  const handleRedo = async () => {
-    try {
-      const { data } = await api.post('/ledger/history/redo');
-      if (data?.state) {
-        syncStateFromPayload(data.state, data.history);
-      } else {
-        await refreshHistory();
-      }
-    } catch (error) {
-      console.error('前进失败', error);
-      await refreshHistory();
-      window.alert('暂时没有可前进的记录');
+  const handleDeleteWorkspace = async () => {
+    if (!currentWorkspace) {
+      return;
     }
-  };
-
-  const handleSubmit = async (event: FormEvent) => {
-    event.preventDefault();
-    const payload = { ...formValues, tags: formTags };
-    const hasRequired = activeConfig.fields.every((field) => {
-      if (!field.required) return true;
-      const value = (payload as Record<string, unknown>)[field.key];
-      if (typeof value === 'string') {
-        return value.trim().length > 0;
-      }
-      return Boolean(value);
-    });
-    if (!hasRequired) {
-      alert('请填写必填字段');
+    if (!window.confirm(`确认删除「${currentWorkspace.name || DEFAULT_TITLE}」？该操作无法撤销。`)) {
       return;
     }
     try {
-      if (editingId !== null) {
-        await api.put(`${activeConfig.endpoint}/${editingId}`, payload);
-      } else {
-        await api.post(activeConfig.endpoint, payload);
-      }
-      await fetchLedger(activeType);
-      resetForm();
-    } catch (error) {
-      console.error('保存失败', error);
+      await api.delete(`/api/v1/workspaces/${currentWorkspace.id}`);
+      setStatus('台账已删除。');
+      await refreshList();
+    } catch (err) {
+      console.error('删除台账失败', err);
+      const axiosError = err as AxiosError<{ error?: string }>;
+      setError(axiosError.response?.data?.error || axiosError.message || '删除失败，请稍后再试。');
     }
   };
 
-  const reorderEntries = async (index: number, direction: -1 | 1) => {
-    const items = records[activeType];
-    const targetIndex = index + direction;
-    if (targetIndex < 0 || targetIndex >= items.length) return;
-    const reordered = [...items];
-    const [moved] = reordered.splice(index, 1);
-    reordered.splice(targetIndex, 0, moved);
-    setRecords((prev) => ({ ...prev, [activeType]: reordered }));
+  const handleImportExcel = async (event: ChangeEvent<HTMLInputElement>) => {
+    if (!currentWorkspace) return;
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('file', file);
     try {
-      const order = reordered.map((item) => item.id);
-      await api.put(`${activeConfig.endpoint}/order`, { order });
-      await fetchLedger(activeType);
-    } catch (error) {
-      console.error('排序失败', error);
-      await fetchLedger(activeType);
+      const { data } = await api.post<{ workspace: Workspace }>(
+        `/api/v1/workspaces/${currentWorkspace.id}/import/excel`,
+        formData,
+        {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        }
+      );
+      if (data?.workspace) {
+        await loadWorkspace(data.workspace.id);
+        setStatus('Excel 数据已导入。');
+      }
+    } catch (err) {
+      console.error('导入 Excel 失败', err);
+      const axiosError = err as AxiosError<{ error?: string }>;
+      setError(axiosError.response?.data?.error || axiosError.message || '导入失败，请确认文件格式。');
     }
   };
 
-  const currentRecords = records[activeType];
-  const undoDisabled = history.undoSteps === 0;
-  const redoDisabled = history.redoSteps === 0;
+  const handleImportText = async (text: string, delimiter: string, hasHeader: boolean) => {
+    if (!currentWorkspace) return;
+    const { data } = await api.post<{ workspace: Workspace }>(
+      `/api/v1/workspaces/${currentWorkspace.id}/import/text`,
+      {
+        text,
+        delimiter,
+        hasHeader
+      }
+    );
+    if (data?.workspace) {
+      await loadWorkspace(data.workspace.id);
+      setStatus('粘贴内容已导入。');
+    }
+  };
+
+  const handleExport = async () => {
+    if (!currentWorkspace) return;
+    try {
+      const { data } = await api.get<ArrayBuffer>(
+        `/api/v1/workspaces/${currentWorkspace.id}/export`,
+        { responseType: 'arraybuffer' }
+      );
+      const blob = new Blob([data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${(currentWorkspace.name || DEFAULT_TITLE).replace(/\s+/g, '_')}.xlsx`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('导出失败', err);
+      const axiosError = err as AxiosError<{ error?: string }>;
+      setError(axiosError.response?.data?.error || axiosError.message || '导出失败，请稍后再试。');
+    }
+  };
+
+  const execCommand = (command: string, value?: string) => {
+    if (!documentRef.current) return;
+    documentRef.current.focus();
+    try {
+      document.execCommand(command, false, value);
+      setDocumentContent(documentRef.current.innerHTML);
+    } catch (err) {
+      console.warn('执行编辑命令失败', command, err);
+    }
+  };
+
+  const handleImageInsert = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !documentRef.current) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === 'string') {
+        execCommand('insertImage', result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const workspaceList = (
+    <div className="space-y-2">
+      <button
+        type="button"
+        onClick={handleCreateWorkspace}
+        className="flex w-full items-center justify-center gap-2 rounded-2xl border border-neon-500/40 bg-white/70 px-3 py-3 text-sm font-medium text-neon-500 transition hover:bg-neon-500/10"
+      >
+        <PlusIcon className="h-4 w-4" />
+        新建台账
+      </button>
+      <div className="space-y-1">
+        {workspaces.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => setSelectedId(item.id)}
+            className={`w-full rounded-2xl border px-4 py-3 text-left text-sm transition ${
+              item.id === selectedId
+                ? 'border-neon-500/60 bg-neon-500/10 text-neon-500 shadow-glow'
+                : 'border-white bg-white/70 text-night-300 hover:text-night-50'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate font-medium">{item.name || DEFAULT_TITLE}</span>
+              <ClipboardDocumentListIcon className="h-4 w-4" />
+            </div>
+            {item.updatedAt && (
+              <p className="mt-1 text-xs text-night-400">{new Date(item.updatedAt).toLocaleString()}</p>
+            )}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  const tableHeader = (
+    <thead className="bg-night-900/10">
+      <tr>
+        {columns.map((column) => (
+          <th key={column.id} className="px-3 py-2 text-left text-xs font-semibold text-night-400">
+            <div className="flex items-center gap-2">
+              <input
+                value={column.title}
+                onChange={(event) => updateColumnTitle(column.id, event.target.value)}
+                className="w-full rounded-lg border border-transparent bg-transparent px-2 py-1 text-sm text-night-100 focus:border-neon-400 focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => removeColumn(column.id)}
+                className="rounded-full border border-night-700/50 p-1 text-night-400 hover:text-red-500"
+                aria-label="删除列"
+              >
+                <TrashIcon className="h-4 w-4" />
+              </button>
+            </div>
+          </th>
+        ))}
+        <th className="px-3 py-2" />
+      </tr>
+    </thead>
+  );
+
+  const tableBody = (
+    <tbody>
+      {rows.map((row) => (
+        <tr key={row.id} className="border-t border-night-100/20">
+          {columns.map((column) => (
+            <td key={column.id} className="px-3 py-2">
+              <input
+                value={row.cells[column.id] ?? ''}
+                onChange={(event) => updateCell(row.id, column.id, event.target.value)}
+                className="w-full rounded-xl border border-white bg-white/70 px-3 py-2 text-sm text-night-500 focus:border-neon-400 focus:outline-none focus:ring-2 focus:ring-neon-400/30"
+              />
+            </td>
+          ))}
+          <td className="px-3 py-2 text-right">
+            <button
+              type="button"
+              onClick={() => removeRow(row.id)}
+              className="rounded-full border border-night-200/60 p-2 text-night-300 hover:text-red-500"
+              aria-label="删除行"
+            >
+              <TrashIcon className="h-4 w-4" />
+            </button>
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  );
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="max-w-3xl">
-          <h2 className="section-title">台账编排</h2>
-          <p className="mt-1 text-sm leading-relaxed text-night-300 break-words">
-            参考 Eidos 的霓虹层次，将 IP、设备、人员、系统四大维度统筹管理，可添加标签并自由排序。
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex gap-2 rounded-full bg-night-900/70 p-1">
-            {(Object.values(LEDGER_CONFIGS) as LedgerConfig[]).map((config) => (
-              <button
-                key={config.type}
-                onClick={() => setActiveType(config.type)}
-                className={`rounded-full px-4 py-2 text-sm transition-all ${
-                  activeType === config.type
-                    ? 'glass-panel border-neon-500/50 text-neon-500 shadow-glow'
-                    : 'text-night-300 hover:text-neon-500'
-                }`}
-              >
-                {config.label}
-              </button>
-            ))}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={handleUndo}
-              disabled={undoDisabled}
-              title={`剩余 ${history.undoSteps} 步可回退`}
-              className="glass-panel inline-flex min-w-[88px] items-center gap-2 rounded-full px-3 py-2 text-xs font-medium text-night-200 transition-colors hover:text-neon-500 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <ArrowUturnLeftIcon className="h-4 w-4 shrink-0" />
-              <span className="truncate">回退</span>
-            </button>
-            <button
-              onClick={handleRedo}
-              disabled={redoDisabled}
-              title={`剩余 ${history.redoSteps} 步可前进`}
-              className="glass-panel inline-flex min-w-[88px] items-center gap-2 rounded-full px-3 py-2 text-xs font-medium text-night-200 transition-colors hover:text-neon-500 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <ArrowUturnRightIcon className="h-4 w-4 shrink-0" />
-              <span className="truncate">前进</span>
-            </button>
-            <span className="text-[11px] text-night-500 whitespace-nowrap">
-              回退 {history.undoSteps}/{HISTORY_LIMIT} · 前进 {history.redoSteps}/{HISTORY_LIMIT}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
-        <div className="space-y-4">
-          {loading ? (
-            <div className="glass-panel rounded-3xl p-6 text-center text-night-300 break-words">正在加载 {activeConfig.label}...</div>
-          ) : currentRecords.length === 0 ? (
-            <div className="glass-panel rounded-3xl p-6 text-center text-night-300 break-words">
-              暂无 {activeConfig.label} 记录，右侧可手动创建。
+    <div className="flex h-full flex-1 flex-col overflow-hidden">
+      <div className="flex flex-1 flex-col gap-6 overflow-hidden px-6 py-6 lg:flex-row">
+        <aside className="w-full max-w-xs space-y-6 rounded-3xl border border-white bg-white/80 p-5 shadow-sm lg:w-72 xl:w-80">
+          <h2 className="text-lg font-semibold text-night-100">台账列表</h2>
+          {workspaceList}
+        </aside>
+        <main className="flex-1 overflow-y-auto rounded-3xl border border-white bg-white/90 p-6 shadow-sm">
+          {loading && (
+            <div className="rounded-3xl border border-white bg-white/80 p-6 text-center text-night-300">
+              正在加载台账内容…
             </div>
-          ) : (
-            currentRecords.map((entry, index) => (
-              <div
-                key={entry.id}
-                className={`glass-panel rounded-3xl border border-ink-200/80 p-5 transition-all hover:border-neon-500/30 overflow-hidden ${
-                  editingId === entry.id ? 'ring-2 ring-neon-400/60' : ''
-                }`}
-              >
-                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                  <div className="min-w-0 space-y-3">
-                    <h3 className={`text-base font-semibold text-night-100 ${activeConfig.accent} break-all`}>
-                      {activeConfig.fields[0] && typeof entry[activeConfig.fields[0].key] === 'string'
-                        ? (entry[activeConfig.fields[0].key] as string)
-                        : '未命名'}
-                    </h3>
-                    <div className="space-y-2 text-sm text-night-300 break-words">
-                      {activeConfig.fields.slice(1).map((field) => {
-                        const value = entry[field.key];
-                        if (!value) return null;
-                        return (
-                          <p key={field.key} className="flex flex-wrap items-center gap-2 text-left break-words">
-                            <span className="text-night-500 whitespace-nowrap">{field.label}：</span>
-                            <span className="break-all text-night-100">{String(value)}</span>
-                          </p>
-                        );
-                      })}
-                    </div>
-                    {entry.tags && entry.tags.length > 0 && (
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        {entry.tags.map((tag) => (
-                          <span
-                            key={tag}
-                            className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-full border border-night-700/70 bg-white px-3 py-1 text-xs text-neon-500"
-                            title={tag}
-                          >
-                            <TagIcon className="h-3 w-3 shrink-0" />
-                            <span className="break-all">{tag}</span>
-                          </span>
-                        ))}
-                      </div>
-                    )}
+          )}
+
+          {!loading && currentWorkspace && (
+            <Fragment>
+              <div className="flex flex-col gap-4 pb-6 border-b border-night-100/20">
+                <div className="flex flex-wrap items-center gap-3">
+                  <input
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    className="flex-1 rounded-2xl border border-white bg-white/80 px-4 py-2 text-lg font-semibold text-night-100 focus:border-neon-400 focus:outline-none focus:ring-2 focus:ring-neon-400/30"
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <ToolbarButton icon={ArrowUpTrayIcon} label="Excel 导入" onClick={() => excelInputRef.current?.click()} />
+                    <ToolbarButton icon={ClipboardDocumentListIcon} label="粘贴导入" onClick={() => setShowPasteModal(true)} />
+                    <ToolbarButton icon={ArrowDownTrayIcon} label="导出 Excel" onClick={handleExport} />
                   </div>
-                  <div className="flex shrink-0 flex-row items-center gap-2 text-night-400 md:flex-col md:items-end">
+                  <div className="flex items-center gap-2">
                     <button
-                      onClick={() => handleEdit(entry)}
-                      className="glass-panel rounded-full p-2 transition-colors hover:text-neon-500"
-                      aria-label="编辑"
+                      type="button"
+                      className="rounded-2xl border border-neon-500/60 bg-neon-500/10 px-4 py-2 text-sm font-medium text-neon-500 hover:bg-neon-500/20"
+                      onClick={handleSave}
                     >
-                      <PencilSquareIcon className="h-5 w-5" />
+                      保存
                     </button>
                     <button
-                      onClick={() => handleDelete(entry.id)}
-                      className="glass-panel rounded-full p-2 transition-colors hover:text-red-400"
-                      aria-label="删除"
+                      type="button"
+                      className="rounded-2xl border border-red-400/60 bg-red-50 px-4 py-2 text-sm text-red-500 hover:bg-red-100"
+                      onClick={handleDeleteWorkspace}
                     >
-                      <TrashIcon className="h-5 w-5" />
+                      删除台账
                     </button>
-                    <div className="mt-2 flex flex-col items-center gap-1">
-                      <button
-                        onClick={() => reorderEntries(index, -1)}
-                        disabled={index === 0}
-                        className="glass-panel rounded-full p-1 disabled:cursor-not-allowed disabled:opacity-40"
-                        aria-label="上移"
-                      >
-                        <ArrowUpIcon className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => reorderEntries(index, 1)}
-                        disabled={index === currentRecords.length - 1}
-                        className="glass-panel rounded-full p-1 disabled:cursor-not-allowed disabled:opacity-40"
-                        aria-label="下移"
-                      >
-                        <ArrowDownIcon className="h-4 w-4" />
-                      </button>
-                    </div>
                   </div>
                 </div>
-              </div>
-            ))
-          )}
-        </div>
-
-        <div className="glass-panel rounded-3xl border border-ink-200/80 p-6 overflow-hidden">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h3 className="text-lg font-semibold text-night-100 break-words">
-              {editingId ? '编辑台账' : '新增台账'} · {activeConfig.label}
-            </h3>
-            {editingId && (
-              <button onClick={resetForm} className="text-xs text-night-400 hover:text-neon-500 whitespace-nowrap">
-                取消编辑
-              </button>
-            )}
-          </div>
-
-          <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
-            {activeConfig.fields.map((field) => (
-              <div key={field.key}>
-                <label className="block text-xs uppercase tracking-[0.18em] text-night-400 break-words">
-                  {field.label}
-                  {field.required && <span className="text-red-400"> *</span>}
-                </label>
-                <input
-                  value={formValues[field.key] ?? ''}
-                  onChange={(event) => handleValueChange(field.key, event.target.value)}
-                  placeholder={field.placeholder}
-                  className="mt-2 w-full rounded-2xl border border-ink-200 bg-white px-4 py-3 text-sm text-night-100 placeholder-night-400 focus:border-neon-500 focus:outline-none focus:ring-2 focus:ring-neon-500/30"
-                />
-              </div>
-            ))}
-
-            <div>
-              <label className="block text-xs uppercase tracking-[0.18em] text-night-400">标签</label>
-              <div className="mt-2 flex flex-wrap gap-2 rounded-2xl border border-ink-200 bg-white p-3">
-                {formTags.map((tag) => (
-                  <button
-                    key={tag}
-                    type="button"
-                    onClick={() => handleTagRemove(tag)}
-                    className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-full border border-night-700/70 px-3 py-1 text-xs text-neon-500 hover:border-neon-500/60"
-                    title={`点击移除 ${tag}`}
+                {(status || error) && (
+                  <div
+                    className={`rounded-2xl border px-4 py-2 text-sm ${
+                      error
+                        ? 'border-red-400/60 bg-red-100/70 text-red-600'
+                        : 'border-emerald-300/60 bg-emerald-100/70 text-emerald-700'
+                    }`}
                   >
-                    <span className="break-all">{tag}</span>
-                    <span className="text-night-500">×</span>
-                  </button>
-                ))}
-                <input
-                  value={tagDraft}
-                  onChange={(event) => setTagDraft(event.target.value)}
-                  onKeyDown={handleTagKeyDown}
-                  placeholder="输入后回车添加标签"
-                  className="flex-1 min-w-[120px] bg-transparent text-sm text-night-200 placeholder-night-600 focus:outline-none"
-                />
+                    {error || status}
+                  </div>
+                )}
               </div>
-              <p className="mt-1 text-xs text-night-500 break-words">
-                为每条记录附加 Eidos 风格的标签，如“核心”、“外包”、“高风险”等，用于多维筛选。
-              </p>
-            </div>
 
-            <button type="submit" className="button-primary flex w-full items-center justify-center gap-2 whitespace-nowrap">
-              <PlusIcon className="h-4 w-4" />
-              {editingId ? '保存更改' : '创建记录'}
-            </button>
-          </form>
-        </div>
+              <section className="mt-6 space-y-4">
+                <div className="flex flex-wrap items-center gap-3">
+                  <h3 className="text-base font-semibold text-night-100">表格数据</h3>
+                  <button
+                    type="button"
+                    className="flex items-center gap-1 rounded-xl border border-night-200/60 bg-white/80 px-3 py-2 text-xs text-night-300 hover:text-night-50"
+                    onClick={addColumn}
+                  >
+                    <PlusIcon className="h-4 w-4" />
+                    新增列
+                  </button>
+                  <button
+                    type="button"
+                    className="flex items-center gap-1 rounded-xl border border-night-200/60 bg-white/80 px-3 py-2 text-xs text-night-300 hover:text-night-50"
+                    onClick={addRow}
+                  >
+                    <PlusIcon className="h-4 w-4" />
+                    新增行
+                  </button>
+                </div>
+                <div className="overflow-x-auto rounded-3xl border border-night-100/30">
+                  <table className="min-w-full divide-y divide-night-100/20 text-sm">
+                    {tableHeader}
+                    {tableBody}
+                  </table>
+                </div>
+              </section>
+
+              <section className="mt-10 space-y-4">
+                <div className="flex flex-wrap items-center gap-3">
+                  <h3 className="text-base font-semibold text-night-100">在线文档</h3>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-night-300">
+                    <ToolbarButton icon={PencilSquareIcon} label="粗体" onClick={() => execCommand('bold')} />
+                    <ToolbarButton icon={CheckIcon} label="斜体" onClick={() => execCommand('italic')} />
+                    <ToolbarButton icon={PlusIcon} label="下划线" onClick={() => execCommand('underline')} />
+                    <ToolbarButton icon={PhotoIcon} label="插入图片" onClick={() => imageInputRef.current?.click()} />
+                  </div>
+                </div>
+                <div
+                  ref={documentRef}
+                  contentEditable
+                  suppressContentEditableWarning
+                  onInput={(event) => setDocumentContent((event.target as HTMLDivElement).innerHTML)}
+                  className="min-h-[240px] rounded-3xl border border-night-100/40 bg-white/80 p-5 text-sm leading-relaxed text-night-500 focus:outline-none"
+                />
+              </section>
+            </Fragment>
+          )}
+
+          {!loading && !currentWorkspace && (
+            <div className="rounded-3xl border border-white bg-white/80 p-6 text-center text-night-300">
+              请选择左侧的台账或新建一个台账以开始编辑。
+            </div>
+          )}
+        </main>
       </div>
+
+      <input
+        ref={excelInputRef}
+        type="file"
+        accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        className="hidden"
+        onChange={handleImportExcel}
+      />
+      <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageInsert} />
+
+      <PasteModal open={showPasteModal} onClose={() => setShowPasteModal(false)} onSubmit={handleImportText} />
     </div>
   );
 };

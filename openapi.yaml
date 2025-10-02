@@ -67,6 +67,104 @@ components:
           type: string
           format: byte
           description: Base64-encoded XLSX payload
+    WorkspaceColumn:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        width:
+          type: integer
+    WorkspaceRow:
+      type: object
+      properties:
+        id:
+          type: string
+        cells:
+          type: object
+          additionalProperties:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    Workspace:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        columns:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkspaceColumn'
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkspaceRow'
+        document:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    WorkspaceListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Workspace'
+    WorkspaceEnvelope:
+      type: object
+      properties:
+        workspace:
+          $ref: '#/components/schemas/Workspace'
+    WorkspaceRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        document:
+          type: string
+        columns:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkspaceColumn'
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkspaceRow'
+    WorkspaceUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        document:
+          type: string
+        columns:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkspaceColumn'
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkspaceRow'
+    WorkspaceTextImportRequest:
+      type: object
+      properties:
+        text:
+          type: string
+        delimiter:
+          type: string
+        hasHeader:
+          type: boolean
     AllowlistEntry:
       type: object
       properties:
@@ -135,7 +233,7 @@ components:
           type: string
         username:
           type: string
-        device_id:
+        client_id:
           type: string
         issued_at:
           type: string
@@ -143,82 +241,85 @@ components:
         expires_at:
           type: string
           format: date-time
-    EnrollmentRequest:
-      type: object
-      required:
-        - username
-        - device_name
-        - public_key
-      properties:
-        username:
-          type: string
-        device_name:
-          type: string
-        public_key:
-          type: string
-          description: Base64-encoded Ed25519 public key
-    EnrollmentResponse:
-      type: object
-      properties:
-        device_id:
-          type: string
-        nonce:
-          type: string
-    EnrollmentCompleteRequest:
-      type: object
-      required:
-        - username
-        - device_id
-        - nonce
-        - signature
-        - fingerprint
-      properties:
-        username:
-          type: string
-        device_id:
-          type: string
-        nonce:
-          type: string
-        signature:
-          type: string
-          description: Base64 signature of the nonce
-        fingerprint:
-          type: string
-          description: Client fingerprint payload
-    NonceRequest:
-      type: object
-      required:
-        - username
-        - device_id
-      properties:
-        username:
-          type: string
-        device_id:
-          type: string
     NonceResponse:
       type: object
       properties:
         nonce:
           type: string
+        message:
+          type: string
+          description: Human-readable message that must be signed by the SDID wallet
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
     LoginRequest:
       type: object
       required:
-        - username
-        - device_id
         - nonce
-        - signature
-        - fingerprint
+        - response
       properties:
-        username:
-          type: string
-        device_id:
-          type: string
         nonce:
+          type: string
+        response:
+          $ref: '#/components/schemas/SdidLoginResponse'
+    SdidLoginResponse:
+      type: object
+      required:
+        - identity
+      properties:
+        challenge:
           type: string
         signature:
           type: string
-        fingerprint:
+          description: Base64-encoded DER ECDSA signature returned by the SDID extension
+        proof:
+          $ref: '#/components/schemas/SdidProof'
+        identity:
+          $ref: '#/components/schemas/SdidIdentity'
+        authentication:
+          $ref: '#/components/schemas/SdidAuthentication'
+        authorized:
+          type: boolean
+        remembered:
+          type: boolean
+    SdidProof:
+      type: object
+      properties:
+        signatureValue:
           type: string
+          description: Alternate location for the login signature
+    SdidIdentity:
+      type: object
+      required:
+        - did
+        - publicKeyJwk
+      properties:
+        did:
+          type: string
+        label:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+        publicKeyJwk:
+          type: object
+          additionalProperties: {}
+          description: JSON Web Key describing an ECDSA P-256 public key
+        authorized:
+          type: boolean
+    SdidAuthentication:
+      type: object
+      properties:
+        canonicalRequest:
+          type: string
+        payload:
+          type: object
+          additionalProperties: {}
     HistoryStatus:
       type: object
       properties:
@@ -237,52 +338,9 @@ paths:
             application/json:
               schema:
                 type: object
-  /auth/enroll-request:
-    post:
-      summary: Initiate device enrollment
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/EnrollmentRequest'
-      responses:
-        '200':
-          description: Enrollment nonce issued
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EnrollmentResponse'
-  /auth/enroll-complete:
-    post:
-      summary: Complete device enrollment
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/EnrollmentCompleteRequest'
-      responses:
-        '200':
-          description: Device enrolled
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  device_id:
-                    type: string
-                  fingerprint_sum:
-                    type: string
   /auth/request-nonce:
     post:
       summary: Request login nonce
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/NonceRequest'
       responses:
         '200':
           description: Nonce issued
@@ -292,7 +350,7 @@ paths:
                 $ref: '#/components/schemas/NonceResponse'
   /auth/login:
     post:
-      summary: Authenticate a device
+      summary: Authenticate via SDID
       requestBody:
         required: true
         content:
@@ -306,6 +364,26 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Session'
+        '401':
+          description: Signature validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                signature_invalid:
+                  value:
+                    error: signature invalid
+        '403':
+          description: Identity lacks administrator approval
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_approved:
+                  value:
+                    error: identity_not_approved
   /api/v1/ledgers/{type}:
     get:
       summary: List ledger entries
@@ -315,7 +393,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [ips, devices, personnel, systems]
+          enum: [ips, personnel, systems]
       security:
         - bearerAuth: []
       responses:
@@ -333,7 +411,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [ips, devices, personnel, systems]
+          enum: [ips, personnel, systems]
       security:
         - bearerAuth: []
       requestBody:
@@ -358,7 +436,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [ips, devices, personnel, systems]
+          enum: [ips, personnel, systems]
         - in: path
           name: id
           required: true
@@ -387,7 +465,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [ips, devices, personnel, systems]
+          enum: [ips, personnel, systems]
         - in: path
           name: id
           required: true
@@ -407,7 +485,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [ips, devices, personnel, systems]
+          enum: [ips, personnel, systems]
       security:
         - bearerAuth: []
       requestBody:
@@ -432,7 +510,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [ips, devices, personnel, systems]
+          enum: [ips, personnel, systems]
       security:
         - bearerAuth: []
       requestBody:
@@ -501,6 +579,196 @@ paths:
                       type: array
                       items:
                         type: string
+  /api/v1/workspaces:
+    get:
+      summary: List collaborative workspaces
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Workspaces returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceListResponse'
+    post:
+      summary: Create collaborative workspace
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceRequest'
+      responses:
+        '201':
+          description: Workspace created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceEnvelope'
+  /api/v1/workspaces/{id}:
+    get:
+      summary: Retrieve workspace
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Workspace details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceEnvelope'
+        '404':
+          description: Workspace not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      summary: Update workspace
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceUpdateRequest'
+      responses:
+        '200':
+          description: Workspace updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceEnvelope'
+        '404':
+          description: Workspace not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      summary: Delete workspace
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Workspace removed
+        '404':
+          description: Workspace not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/workspaces/{id}/import/excel:
+    post:
+      summary: Import workspace data from Excel
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Workspace updated from Excel
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceEnvelope'
+        '404':
+          description: Workspace not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/workspaces/{id}/import/text:
+    post:
+      summary: Import workspace data from pasted text
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceTextImportRequest'
+      responses:
+        '200':
+          description: Workspace updated from text
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceEnvelope'
+        '404':
+          description: Workspace not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/workspaces/{id}/export:
+    get:
+      summary: Export workspace as Excel
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Workspace Excel workbook
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Workspace not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /api/v1/ip-allowlist:
     get:
       summary: List allowlist entries

@@ -1,25 +1,24 @@
 package models
 
 import (
-	"crypto/ed25519"
-	"crypto/rand"
+	"errors"
 	"testing"
 )
 
 func TestLedgerStoreUndoRedo(t *testing.T) {
-	store := NewLedgerStore([]byte("secret"))
+	store := NewLedgerStore()
 
 	if store.CanUndo() {
 		t.Fatalf("expected no undo available initially")
 	}
 
-	if _, err := store.CreateEntry(LedgerTypeDevice, LedgerEntry{Name: "Gateway"}, "tester"); err != nil {
+	if _, err := store.CreateEntry(LedgerTypeSystem, LedgerEntry{Name: "审批平台"}, "tester"); err != nil {
 		t.Fatalf("create entry failed: %v", err)
 	}
 	if !store.CanUndo() {
 		t.Fatalf("expected undo available after create")
 	}
-	if got := len(store.ListEntries(LedgerTypeDevice)); got != 1 {
+	if got := len(store.ListEntries(LedgerTypeSystem)); got != 1 {
 		t.Fatalf("expected 1 entry, got %d", got)
 	}
 
@@ -29,51 +28,97 @@ func TestLedgerStoreUndoRedo(t *testing.T) {
 	if store.CanRedo() == false {
 		t.Fatalf("expected redo available after undo")
 	}
-	if got := len(store.ListEntries(LedgerTypeDevice)); got != 0 {
+	if got := len(store.ListEntries(LedgerTypeSystem)); got != 0 {
 		t.Fatalf("expected entries cleared after undo, got %d", got)
 	}
 	if err := store.Redo(); err != nil {
 		t.Fatalf("redo failed: %v", err)
 	}
-	if got := len(store.ListEntries(LedgerTypeDevice)); got != 1 {
+	if got := len(store.ListEntries(LedgerTypeSystem)); got != 1 {
 		t.Fatalf("expected entries restored after redo, got %d", got)
 	}
 }
 
-func TestLedgerStoreEnrollmentAndLogin(t *testing.T) {
-	store := NewLedgerStore([]byte("secret"))
+func TestLedgerStoreLoginChallengeLifecycle(t *testing.T) {
+	store := NewLedgerStore()
+	challenge := store.CreateLoginChallenge()
+	if challenge.Nonce == "" {
+		t.Fatalf("expected nonce to be generated")
+	}
+	if challenge.Message == "" {
+		t.Fatalf("expected message to be populated")
+	}
+	consumed, err := store.ConsumeLoginChallenge(challenge.Nonce)
+	if err != nil {
+		t.Fatalf("consume challenge: %v", err)
+	}
+	if consumed.Nonce != challenge.Nonce {
+		t.Fatalf("expected consumed nonce to match original")
+	}
+	if _, err := store.ConsumeLoginChallenge(challenge.Nonce); !errors.Is(err, ErrLoginChallengeNotFound) {
+		t.Fatalf("expected challenge to be single-use, got %v", err)
+	}
+}
 
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+func TestWorkspaceLifecycle(t *testing.T) {
+	store := NewLedgerStore()
+
+	created, err := store.CreateWorkspace("需求汇总", []WorkspaceColumn{{Title: "事项"}}, nil, "<p>初始说明</p>", "tester")
 	if err != nil {
-		t.Fatalf("generate key: %v", err)
+		t.Fatalf("create workspace: %v", err)
 	}
-	enrollment, err := store.StartEnrollment("alice", "Laptop", pub)
-	if err != nil {
-		t.Fatalf("start enrollment: %v", err)
+	if created.ID == "" {
+		t.Fatalf("expected workspace id")
 	}
-	sig := ed25519.Sign(priv, []byte(enrollment.Nonce))
-	if _, err := store.CompleteEnrollment("alice", enrollment.DeviceID, enrollment.Nonce, sig, "fingerprint-1"); err != nil {
-		t.Fatalf("complete enrollment: %v", err)
+	if got := len(created.Columns); got != 1 {
+		t.Fatalf("expected 1 column, got %d", got)
 	}
-	if _, err := store.AppendAllowlist(&IPAllowlistEntry{CIDR: "0.0.0.0/0", Label: "any"}, "system"); err != nil {
-		t.Fatalf("allowlist: %v", err)
+	colID := created.Columns[0].ID
+	if colID == "" {
+		t.Fatalf("expected column id to be populated")
 	}
 
-	challenge, err := store.RequestLoginNonce("alice", enrollment.DeviceID)
-	if err != nil {
-		t.Fatalf("request nonce: %v", err)
+	update := WorkspaceUpdate{
+		SetRows: true,
+		Rows: []WorkspaceRow{{
+			ID:    "",
+			Cells: map[string]string{colID: "整理 VPN 账号"},
+		}},
 	}
-	loginSig := ed25519.Sign(priv, []byte(challenge.Nonce))
-	if _, err := store.ValidateLogin("alice", enrollment.DeviceID, challenge.Nonce, loginSig, "fingerprint-1", "192.168.1.10"); err != nil {
-		t.Fatalf("validate login: %v", err)
+	updated, err := store.UpdateWorkspace(created.ID, update, "tester")
+	if err != nil {
+		t.Fatalf("update workspace rows: %v", err)
+	}
+	if got := len(updated.Rows); got != 1 {
+		t.Fatalf("expected 1 row after update, got %d", got)
+	}
+	if value := updated.Rows[0].Cells[colID]; value != "整理 VPN 账号" {
+		t.Fatalf("unexpected cell value: %q", value)
 	}
 
-	challenge2, err := store.RequestLoginNonce("alice", enrollment.DeviceID)
+	headers := []string{"负责人", "计划"}
+	records := [][]string{{"王五", "本周内完成"}}
+	replaced, err := store.ReplaceWorkspaceData(created.ID, headers, records, "tester")
 	if err != nil {
-		t.Fatalf("request nonce 2: %v", err)
+		t.Fatalf("replace workspace data: %v", err)
 	}
-	loginSig2 := ed25519.Sign(priv, []byte(challenge2.Nonce))
-	if _, err := store.ValidateLogin("alice", enrollment.DeviceID, challenge2.Nonce, loginSig2, "fingerprint-bad", "192.168.1.10"); err == nil {
-		t.Fatalf("expected fingerprint mismatch error")
+	if got := len(replaced.Columns); got != 2 {
+		t.Fatalf("expected 2 columns after import, got %d", got)
+	}
+	if got := replaced.Columns[0].Title; got != "负责人" {
+		t.Fatalf("unexpected column title: %q", got)
+	}
+	if got := len(replaced.Rows); got != 1 {
+		t.Fatalf("expected 1 row after import, got %d", got)
+	}
+	if value := replaced.Rows[0].Cells[replaced.Columns[1].ID]; value != "本周内完成" {
+		t.Fatalf("unexpected imported cell value: %q", value)
+	}
+
+	if err := store.DeleteWorkspace(created.ID, "tester"); err != nil {
+		t.Fatalf("delete workspace: %v", err)
+	}
+	if _, err := store.GetWorkspace(created.ID); !errors.Is(err, ErrWorkspaceNotFound) {
+		t.Fatalf("expected workspace to be removed, got %v", err)
 	}
 }
