@@ -391,7 +391,7 @@ const Assets = () => {
   const isSheet = selectedKind === 'sheet';
   const isDocument = selectedKind === 'document';
   const isFolder = selectedKind === 'folder';
-  const canEditDocument = isSheet || isDocument;
+  const showDocumentEditor = isDocument;
   const folderChildren = selectedNode?.children ?? [];
 
   const normalizedOriginalColumns = useMemo(() => {
@@ -936,34 +936,36 @@ const Assets = () => {
       )}
       {!loading && currentWorkspace && (
         <Fragment>
-          <InlineTableEditor
-            columns={columns}
-            rows={rows}
-            filteredRows={filteredRows}
-            selectedRowIds={selectedRowIds}
-            onToggleRowSelection={toggleRowSelection}
-            onToggleSelectAll={toggleSelectAll}
-            onUpdateColumnTitle={updateColumnTitle}
-            onRemoveColumn={removeColumn}
-            onResizeColumn={handleColumnResize}
-            onUpdateCell={updateCell}
-            onRemoveRow={removeRow}
-            onAddRow={addRow}
-            onAddColumn={addColumn}
-            searchTerm={tableSearch}
-            onSearchTermChange={setTableSearch}
-            onOpenBatchEdit={() => setShowBatchEditModal(true)}
-            onRemoveSelected={handleRemoveSelectedRows}
-            hasSelection={hasSelection}
-            selectAllState={selectAllState}
-            isSheet={isSheet}
-            minColumnWidth={MIN_COLUMN_WIDTH}
-            defaultColumnWidth={DEFAULT_COLUMN_WIDTH}
-          />
-          {canEditDocument && (
+          {isSheet && (
+            <InlineTableEditor
+              columns={columns}
+              rows={rows}
+              filteredRows={filteredRows}
+              selectedRowIds={selectedRowIds}
+              onToggleRowSelection={toggleRowSelection}
+              onToggleSelectAll={toggleSelectAll}
+              onUpdateColumnTitle={updateColumnTitle}
+              onRemoveColumn={removeColumn}
+              onResizeColumn={handleColumnResize}
+              onUpdateCell={updateCell}
+              onRemoveRow={removeRow}
+              onAddRow={addRow}
+              onAddColumn={addColumn}
+              searchTerm={tableSearch}
+              onSearchTermChange={setTableSearch}
+              onOpenBatchEdit={() => setShowBatchEditModal(true)}
+              onRemoveSelected={handleRemoveSelectedRows}
+              hasSelection={hasSelection}
+              selectAllState={selectAllState}
+              isSheet={isSheet}
+              minColumnWidth={MIN_COLUMN_WIDTH}
+              defaultColumnWidth={DEFAULT_COLUMN_WIDTH}
+            />
+          )}
+          {showDocumentEditor && (
             <DocumentEditor
               value={documentContent}
-              editable={canEditDocument}
+              editable={isDocument}
               onChange={setDocumentContent}
               onStatus={setStatus}
             />

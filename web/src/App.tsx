@@ -19,7 +19,10 @@ const App = () => {
   const { token } = useSession();
 
   return (
-    <div className="flex min-h-screen text-night-50 bg-eidos-radial">
+    <div
+      className="flex min-h-screen"
+      style={{ background: 'var(--bg)', color: 'var(--text)' }}
+    >
       {token && <Sidebar />}
       <div className="flex-1 flex flex-col">
         {token && <TopBar />}
