@@ -7,7 +7,8 @@ const titles: Record<string, string> = {
   '/assets': '台账编排',
   '/devices': '终端设备',
   '/ip-allowlist': 'IP 白名单',
-  '/audit-logs': '审计追踪'
+  '/audit-logs': '审计追踪',
+  '/approvals': '身份审批'
 };
 
 const TopBar = () => {

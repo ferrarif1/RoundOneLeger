@@ -143,82 +143,85 @@ components:
         expires_at:
           type: string
           format: date-time
-    EnrollmentRequest:
-      type: object
-      required:
-        - username
-        - device_name
-        - public_key
-      properties:
-        username:
-          type: string
-        device_name:
-          type: string
-        public_key:
-          type: string
-          description: Base64-encoded Ed25519 public key
-    EnrollmentResponse:
-      type: object
-      properties:
-        device_id:
-          type: string
-        nonce:
-          type: string
-    EnrollmentCompleteRequest:
-      type: object
-      required:
-        - username
-        - device_id
-        - nonce
-        - signature
-        - fingerprint
-      properties:
-        username:
-          type: string
-        device_id:
-          type: string
-        nonce:
-          type: string
-        signature:
-          type: string
-          description: Base64 signature of the nonce
-        fingerprint:
-          type: string
-          description: Client fingerprint payload
-    NonceRequest:
-      type: object
-      required:
-        - username
-        - device_id
-      properties:
-        username:
-          type: string
-        device_id:
-          type: string
     NonceResponse:
       type: object
       properties:
         nonce:
           type: string
+        message:
+          type: string
+          description: Human-readable message that must be signed by the SDID wallet
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
     LoginRequest:
       type: object
       required:
-        - username
-        - device_id
         - nonce
-        - signature
-        - fingerprint
+        - response
       properties:
-        username:
-          type: string
-        device_id:
-          type: string
         nonce:
+          type: string
+        response:
+          $ref: '#/components/schemas/SdidLoginResponse'
+    SdidLoginResponse:
+      type: object
+      required:
+        - identity
+      properties:
+        challenge:
           type: string
         signature:
           type: string
-        fingerprint:
+          description: Base64-encoded DER ECDSA signature returned by the SDID extension
+        proof:
+          $ref: '#/components/schemas/SdidProof'
+        identity:
+          $ref: '#/components/schemas/SdidIdentity'
+        authentication:
+          $ref: '#/components/schemas/SdidAuthentication'
+        authorized:
+          type: boolean
+        remembered:
+          type: boolean
+    SdidProof:
+      type: object
+      properties:
+        signatureValue:
           type: string
+          description: Alternate location for the login signature
+    SdidIdentity:
+      type: object
+      required:
+        - did
+        - publicKeyJwk
+      properties:
+        did:
+          type: string
+        label:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+        publicKeyJwk:
+          type: object
+          additionalProperties: {}
+          description: JSON Web Key describing an ECDSA P-256 public key
+        authorized:
+          type: boolean
+    SdidAuthentication:
+      type: object
+      properties:
+        canonicalRequest:
+          type: string
+        payload:
+          type: object
+          additionalProperties: {}
     HistoryStatus:
       type: object
       properties:
@@ -237,52 +240,9 @@ paths:
             application/json:
               schema:
                 type: object
-  /auth/enroll-request:
-    post:
-      summary: Initiate device enrollment
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/EnrollmentRequest'
-      responses:
-        '200':
-          description: Enrollment nonce issued
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EnrollmentResponse'
-  /auth/enroll-complete:
-    post:
-      summary: Complete device enrollment
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/EnrollmentCompleteRequest'
-      responses:
-        '200':
-          description: Device enrolled
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  device_id:
-                    type: string
-                  fingerprint_sum:
-                    type: string
   /auth/request-nonce:
     post:
       summary: Request login nonce
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/NonceRequest'
       responses:
         '200':
           description: Nonce issued
@@ -306,6 +266,26 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Session'
+        '401':
+          description: Signature validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                signature_invalid:
+                  value:
+                    error: signature invalid
+        '403':
+          description: Identity lacks administrator approval
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_approved:
+                  value:
+                    error: identity_not_approved
   /api/v1/ledgers/{type}:
     get:
       summary: List ledger entries

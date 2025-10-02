@@ -5,7 +5,8 @@ import {
   DocumentTextIcon,
   ShieldCheckIcon,
   SparklesIcon,
-  Squares2X2Icon
+  Squares2X2Icon,
+  ClipboardDocumentCheckIcon
 } from '@heroicons/react/24/outline';
 
 const links = [
@@ -13,7 +14,8 @@ const links = [
   { to: '/assets', label: '台账', icon: Squares2X2Icon },
   { to: '/devices', label: '设备', icon: CpuChipIcon },
   { to: '/ip-allowlist', label: 'IP 白名单', icon: ShieldCheckIcon },
-  { to: '/audit-logs', label: '审计日志', icon: DocumentTextIcon }
+  { to: '/audit-logs', label: '审计日志', icon: DocumentTextIcon },
+  { to: '/approvals', label: '身份审批', icon: ClipboardDocumentCheckIcon }
 ];
 
 const Sidebar = () => (
@@ -22,8 +24,8 @@ const Sidebar = () => (
       <div className="flex items-center gap-3 text-night-50">
         <SparklesIcon className="h-7 w-7 text-neon-500" />
         <div className="min-w-0">
-          <p className="text-xs uppercase tracking-[0.32em] text-night-300">Ledger</p>
-          <p className="mt-1 text-xl font-semibold tracking-tight">Eidos Control</p>
+          <p className="text-xs uppercase tracking-[0.32em] text-night-300">RoundOneLeger</p>
+          <p className="mt-1 text-xl font-semibold tracking-tight">RoundOneLeger</p>
         </div>
       </div>
     </div>
