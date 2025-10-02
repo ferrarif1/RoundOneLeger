@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LockClosedIcon } from '@heroicons/react/24/outline';
-import { p256 } from '@noble/curves/p256';
-import { sha256 } from '@noble/hashes/sha256';
 
 import api from '../api/client';
 import { useSession } from '../hooks/useSession';
@@ -59,7 +57,7 @@ type StatusState = {
 type VerificationState = {
   message: string;
   success: boolean;
-  mode?: 'webcrypto' | 'fallback' | 'skipped';
+  mode?: 'webcrypto' | 'skipped';
 } | null;
 
 declare global {
@@ -212,39 +210,6 @@ const decodeBase64 = (value: string): Uint8Array => {
 
 const decodeSignature = (value: string): Uint8Array => decodeBase64(value);
 
-const parseSignature = (bytes: Uint8Array): p256.Signature | null => {
-  if (!bytes.length) {
-    return null;
-  }
-  try {
-    return p256.Signature.fromDER(bytes);
-  } catch (derError) {
-    if (bytes.length === 64) {
-      try {
-        return p256.Signature.fromCompact(bytes);
-      } catch (compactError) {
-        console.warn('Unable to parse SDID signature as compact form', compactError);
-      }
-    }
-    if (bytes.length === 65 && bytes[0] === 0x00) {
-      try {
-        return p256.Signature.fromCompact(bytes.slice(1));
-      } catch (compactError) {
-        console.warn('Unable to parse SDID signature with leading tag removed', compactError);
-      }
-    }
-    console.warn('Unable to parse SDID signature as DER', derError);
-    return null;
-  }
-};
-
-const decodeCoordinate = (value: unknown): Uint8Array => {
-  if (typeof value !== 'string' || !value.trim()) {
-    return new Uint8Array();
-  }
-  return decodeBase64(value.trim());
-};
-
 const encodeText = (value: string): Uint8Array => {
   if (typeof TextEncoder !== 'undefined') {
     return new TextEncoder().encode(value);
@@ -258,54 +223,16 @@ const encodeText = (value: string): Uint8Array => {
   throw new Error('TextEncoder not supported');
 };
 
-const buildUncompressedKey = (x: Uint8Array, y: Uint8Array): Uint8Array => {
-  const key = new Uint8Array(1 + x.length + y.length);
-  key[0] = 0x04;
-  key.set(x, 1);
-  key.set(y, 1 + x.length);
-  return key;
-};
-
-const verifyWithFallback = (
+const importPublicKey = async (
   identity: SdidLoginIdentity,
-  signatureValue: string,
-  signedData: string
-): { ok: boolean; reason?: string } => {
-  if (!identity?.publicKeyJwk) {
-    return { ok: false, reason: 'missing_public_key' };
-  }
-  try {
-    const jwk = identity.publicKeyJwk as JsonWebKey;
-    const x = decodeCoordinate(jwk.x);
-    const y = decodeCoordinate(jwk.y);
-    if (!x.length || !y.length) {
-      return { ok: false, reason: 'invalid_coordinate' };
-    }
-    const publicKey = buildUncompressedKey(x, y);
-    const signatureBytes = decodeSignature(signatureValue);
-    if (!signatureBytes.length) {
-      return { ok: false, reason: 'invalid_signature' };
-    }
-    const parsed = parseSignature(signatureBytes);
-    if (!parsed) {
-      return { ok: false, reason: 'invalid_signature_format' };
-    }
-    const hashed = sha256(encodeText(signedData));
-    const verified = parsed.verify(hashed, publicKey);
-    return { ok: verified };
-  } catch (error) {
-    console.warn('Fallback verification failed', error);
-    return { ok: false, reason: 'exception' };
-  }
-};
-
-const importPublicKey = async (identity: SdidLoginIdentity): Promise<CryptoKey> => {
+  subtle: SubtleCrypto
+): Promise<CryptoKey> => {
   if (!identity?.publicKeyJwk) {
     throw new Error('SDID 未返回公钥。');
   }
   const jwk = identity.publicKeyJwk as JsonWebKey;
   try {
-    return await crypto.subtle.importKey(
+    return await subtle.importKey(
       'jwk',
       jwk,
       { name: 'ECDSA', namedCurve: 'P-256' },
@@ -354,10 +281,12 @@ const verifySdidResponse = async (
   if (!identity) {
     return { message: 'SDID 未返回身份信息。', success: false, mode: 'skipped' };
   }
+
   const signatureValue = response.proof?.signatureValue || response.signature;
   if (!signatureValue || !signatureValue.trim()) {
     return { message: 'SDID 返回数据缺少签名。', success: false, mode: 'skipped' };
   }
+
   let signedData: string;
   try {
     signedData = resolveSignedPayload(response);
@@ -369,48 +298,44 @@ const verifySdidResponse = async (
     };
   }
 
-  let webCryptoAttempted = false;
-  let webCryptoSuccess = false;
-  let webCryptoError: string | null = null;
+  const subtle =
+    typeof window !== 'undefined'
+      ? window.crypto?.subtle || (window.crypto as Crypto & { webkitSubtle?: SubtleCrypto })?.webkitSubtle
+      : undefined;
 
-  if (typeof window !== 'undefined' && window.crypto?.subtle) {
-    webCryptoAttempted = true;
-    try {
-      const publicKey = await importPublicKey(identity);
-      const signatureBytes = decodeSignature(signatureValue);
-      const verified = await window.crypto.subtle.verify(
-        { name: 'ECDSA', hash: { name: 'SHA-256' } },
-        publicKey,
-        signatureBytes,
-        encodeText(signedData)
-      );
-      webCryptoSuccess = verified;
-    } catch (error) {
-      webCryptoError =
-        error instanceof Error && error.message
-          ? error.message
-          : 'WebCrypto 验证失败';
+  if (!subtle) {
+    return {
+      message: '当前页面非安全来源，浏览器无法在本地验证签名，系统已默认信任该响应。',
+      success: true,
+      mode: 'skipped'
+    };
+  }
+
+  try {
+    const publicKey = await importPublicKey(identity, subtle);
+    const signatureBytes = decodeSignature(signatureValue);
+    const verified = await subtle.verify(
+      { name: 'ECDSA', hash: { name: 'SHA-256' } },
+      publicKey,
+      signatureBytes,
+      encodeText(signedData)
+    );
+    if (verified) {
+      return { message: '签名验证通过。', success: true, mode: 'webcrypto' };
     }
+    return {
+      message: '签名验证失败，将提交服务器复核。',
+      success: false,
+      mode: 'skipped'
+    };
+  } catch (error) {
+    console.error('WebCrypto 验证失败', error);
+    return {
+      message: '无法完成本地签名验证，将提交服务器复核。',
+      success: false,
+      mode: 'skipped'
+    };
   }
-
-  if (webCryptoSuccess) {
-    return { message: '签名验证通过。', success: true, mode: 'webcrypto' };
-  }
-
-  const fallback = verifyWithFallback(identity, signatureValue, signedData);
-  if (fallback.ok) {
-    const viaFallbackMessage = webCryptoAttempted
-      ? 'WebCrypto 验证失败，已使用兼容算法验证签名。'
-      : '浏览器缺少 WebCrypto，已使用兼容算法验证签名。';
-    return { message: viaFallbackMessage, success: true, mode: 'fallback' };
-  }
-
-  const failureDetail = webCryptoError || fallback.reason;
-  const failureMessage = webCryptoAttempted
-    ? `本地验证未通过，仍将提交服务器进行校验。${failureDetail ? `（${failureDetail}）` : ''}`
-    : '浏览器暂无法完成本地验证，仍将提交服务器进行校验。';
-
-  return { message: failureMessage, success: false, mode: 'skipped' };
 };
 
 const formatIdentityLabel = (identity: SdidLoginIdentity | undefined): string => {
@@ -498,12 +423,12 @@ const Login = () => {
     ? '连接 SDID 登录'
     : '等待 SDID 插件…';
 
-  const verificationBadge = verification?.mode === 'fallback'
-    ? '兼容验证'
-    : verification?.mode === 'webcrypto'
+  const verificationBadge = verification?.mode === 'webcrypto'
     ? 'WebCrypto'
     : verification?.mode === 'skipped'
-    ? '等待服务器'
+    ? verification.success
+      ? '已信任'
+      : '等待服务器'
     : null;
 
   useEffect(() => {
