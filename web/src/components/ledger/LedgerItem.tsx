@@ -54,7 +54,7 @@ export const LedgerItem = ({
       onClick={() => onSelect(node)}
       style={{ paddingLeft }}
       className={clsx(
-        'group mt-1 flex w-full items-center gap-3 rounded-2xl border px-4 py-2 text-left text-sm transition',
+        'ledger-item group mt-1 flex w-full items-center gap-3 rounded-2xl border px-4 py-2 text-left text-sm transition',
         active
           ? 'border-[var(--accent)] bg-[var(--card-bg)] text-[var(--accent)] shadow-[var(--shadow-sm)]'
           : 'border-white/70 bg-white/50 text-[var(--muted)] hover:border-[var(--accent)]/40 hover:text-[var(--text)]'

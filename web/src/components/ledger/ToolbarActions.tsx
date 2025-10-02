@@ -28,8 +28,8 @@ const ActionButton = ({
     onClick={onClick}
     disabled={disabled}
     className={clsx(
-      'flex items-center gap-2 rounded-full border border-white/60 bg-white/90 px-3 py-2 text-xs font-medium text-[var(--muted)] shadow-[var(--shadow-sm)] transition hover:border-[var(--accent)]/60 hover:text-[var(--text)]',
-      disabled && 'cursor-not-allowed opacity-60'
+      'eidos-btn eidos-btn--ghost text-xs font-medium',
+      disabled && 'opacity-60'
     )}
   >
     <Icon className="h-4 w-4" />
@@ -56,17 +56,14 @@ export const ToolbarActions = ({
         type="button"
         onClick={onSave}
         disabled={busy}
-        className={clsx(
-          'rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white shadow-[var(--shadow-sm)] transition hover:bg-[var(--accent-2)]',
-          busy && 'cursor-wait opacity-80'
-        )}
+        className={clsx('eidos-btn', busy && 'is-busy')}
       >
         {busy ? '保存中…' : dirty ? '保存更改' : '保存'}
       </button>
       <button
         type="button"
         onClick={onDelete}
-        className="flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-500 shadow-[var(--shadow-sm)] transition hover:bg-red-100"
+        className="eidos-btn eidos-btn--danger"
       >
         <TrashIcon className="h-4 w-4" />
         删除内容

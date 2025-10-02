@@ -15,6 +15,7 @@ import {
 } from '@heroicons/react/24/outline';
 import type { AxiosError } from 'axios';
 
+import '@/styles/eidos-ledger.css';
 import api from '../api/client';
 import { LedgerLayout } from '../components/ledger/LedgerLayout';
 import { LedgerListCard } from '../components/ledger/LedgerListCard';
@@ -1011,15 +1012,17 @@ const Assets = () => {
   );
 
   return (
-    <div className="min-h-screen bg-[var(--bg)]">
-      <LedgerLayout
-        sidebar={sidebar}
-        editor={
-          <LedgerEditorCard title={editorHeader} toolbar={editorToolbar} status={editorStatus}>
-            {editorBody}
-          </LedgerEditorCard>
-        }
-      />
+    <div className="eidos-ledger-root">
+      <div className="eidos-ledger-wrapper">
+        <LedgerLayout
+          sidebar={sidebar}
+          editor={
+            <LedgerEditorCard title={editorHeader} toolbar={editorToolbar} status={editorStatus}>
+              {editorBody}
+            </LedgerEditorCard>
+          }
+        />
+      </div>
 
       <input
         ref={excelInputRef}
