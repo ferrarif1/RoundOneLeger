@@ -1,16 +1,35 @@
 import axios, { AxiosError } from 'axios';
 
-// Determine API base URL based on current location
-let baseURL = '';
-if (typeof window !== 'undefined') {
-  const { hostname, protocol } = window.location;
-  // For localhost, API is on port 8080
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+const envBaseURL = import.meta.env?.VITE_API_BASE_URL?.trim() ?? '';
+
+let baseURL = envBaseURL;
+
+if (!baseURL && typeof window !== 'undefined') {
+  const { hostname, protocol, port } = window.location;
+  const normalizedPort = port || (protocol === 'https:' ? '443' : protocol === 'http:' ? '80' : '');
+  const isDefaultPort = normalizedPort === '80' || normalizedPort === '443' || normalizedPort === '';
+  const isViteDevPort = normalizedPort === '5173' || normalizedPort === '4173';
+  const isLoopbackHost =
+    hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+
+  if (isViteDevPort) {
+    // Let the Vite proxy rewrite requests to the backend when running the dev server.
+    baseURL = '';
+  } else if (!isDefaultPort) {
+    baseURL = `${protocol}//${hostname}:${port}`;
+  } else if (isLoopbackHost) {
+    // Default to the Go server's port when developing on the same machine.
     baseURL = `${protocol}//${hostname}:8080`;
   } else {
-    // For other hosts, API is on the same host but port 8080
-    baseURL = `${protocol}//${hostname}:8080`;
+    // For non-loopback hosts keep calls on the current origin so that reverse
+    // proxies (e.g. Nginx serving both frontend + backend) continue to work.
+    baseURL = `${protocol}//${hostname}`;
   }
+}
+
+// If the heuristics above still left baseURL empty (e.g. SSR), fall back to relative requests.
+if (!baseURL) {
+  baseURL = '';
 }
 
 const api = axios.create({
