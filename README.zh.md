@@ -57,11 +57,9 @@ docker-compose up --build
 该命令会启动 Postgres 与后端容器。运行前可根据需要修改 `docker-compose.yml` 中的环境变量。
 
 ### 认证
-- 前端点击“使用 SDID 一键登录”后会向 `/auth/request-nonce` 请求随机数；如果在静态文件或仅内网的场景中无法访问该端点，页面会自动生成本地 challenge 再调用扩展。
-- [ferrarif1/SDID](https://github.com/ferrarif1/SDID) 浏览器插件会调用 `requestLogin`，返回 DID、包含 ECDSA P-256 公钥的 `publicKeyJwk`、canonical 请求体以及位于 `signature` 或 `proof.signatureValue` 中的签名。
-- 将 `{nonce, response}` 提交到 `/auth/login`，其中 `response` 为插件的原始返回值；后端会重建 canonical 请求并基于提供的 JWK 验证 DER 编码的签名。带有管理员角色的身份可直接登录，其余账户需在 SDID 端完成管理员认证（例如返回 `authorized: true`），否则服务端会返回 `identity_not_approved`。
-- 登录页默认使用 WebCrypto 验证签名；当浏览器因 HTTP 环境禁用 `crypto.subtle` 时，会自动退回到 TypeScript 实现的 P-256 验证逻辑，不会阻断流程。登录成功后按钮会显示“`${用户名} 已登陆`”，并在页面上呈现 SDID 响应的摘要与原始 JSON 以便审计。
-- 若需限制访问来源，可继续在控制台维护 IP 白名单，只有来自允许网段的请求才可访问受保护接口。
+- 通过 POST `/auth/password-login`，提交 `{ "username": "…", "password": "…" }` 获取会话令牌。返回值会带回用户名及 `admin` 标记，方便前端控制权限。
+- 之后所有 `/api/v1/**` 请求需在 Header 中附加 `Authorization: Bearer <token>`。会话会在设定的 TTL 到期后自动失效，前端退出登录时会清除本地存储的凭据。
+- 系统默认提供管理员账号 `hzdsz_admin`（密码 `Hzdsz@2025#`）。登录后可在“用户中心”页面新增或删除其他操作员；仅管理员可管理用户、IP 白名单及台账结构，普通账号仅能查看。
 
 ## 协同台账工作区
 

@@ -42,6 +42,7 @@ func (s *Server) RegisterRoutes(router *gin.Engine) {
 	{
 		authGroup.POST("/request-nonce", s.handleRequestNonce)
 		authGroup.POST("/login", s.handleLogin)
+		authGroup.POST("/password-login", s.handlePasswordLogin)
 		authGroup.POST("/approvals", s.handleSubmitApproval)
 	}
 
@@ -66,6 +67,10 @@ func (s *Server) RegisterRoutes(router *gin.Engine) {
 		secured.POST("/workspaces/:id/import/excel", s.handleImportWorkspaceExcel)
 		secured.POST("/workspaces/:id/import/text", s.handleImportWorkspaceText)
 		secured.GET("/workspaces/:id/export", s.handleExportWorkspace)
+
+		secured.GET("/users", s.handleListUsers)
+		secured.POST("/users", s.handleCreateUser)
+		secured.DELETE("/users/:id", s.handleDeleteUser)
 
 		secured.GET("/ip-allowlist", s.handleListAllowlist)
 		secured.POST("/ip-allowlist", s.handleCreateAllowlist)
@@ -194,6 +199,11 @@ type loginRequest struct {
 	Response sdidLoginResponse `json:"response"`
 }
 
+type passwordLoginRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
 func (s *Server) handleLogin(c *gin.Context) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -235,6 +245,36 @@ func (s *Server) handleLogin(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, session)
+}
+
+func (s *Server) handlePasswordLogin(c *gin.Context) {
+	var req passwordLoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+		return
+	}
+	user, err := s.Store.AuthenticateUser(req.Username, req.Password)
+	if err != nil {
+		status := http.StatusUnauthorized
+		if errors.Is(err, models.ErrUsernameInvalid) || errors.Is(err, models.ErrPasswordTooShort) {
+			status = http.StatusBadRequest
+		}
+		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	session, err := s.Sessions.Issue(user.Username, user.ID)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "session_issue_failed"})
+		return
+	}
+	s.Store.RecordLogin(user.Username)
+	c.JSON(http.StatusOK, gin.H{
+		"token":     session.Token,
+		"username":  user.Username,
+		"admin":     user.Admin,
+		"issuedAt":  session.IssuedAt,
+		"expiresAt": session.ExpiresAt,
+	})
 }
 
 func (s *Server) resolveChallenge(nonce string, resp *sdidLoginResponse) (*models.LoginChallenge, error) {
@@ -795,6 +835,20 @@ type workspaceTreeItem struct {
 	Children  []workspaceTreeItem `json:"children,omitempty"`
 }
 
+type userResponse struct {
+	ID        string    `json:"id"`
+	Username  string    `json:"username"`
+	Admin     bool      `json:"admin"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+type userCreateRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Admin    bool   `json:"admin"`
+}
+
 type workspaceRequest struct {
 	Name     string                   `json:"name"`
 	Document string                   `json:"document"`
@@ -1324,6 +1378,66 @@ func (s *Server) handleExportWorkspace(c *gin.Context) {
 	c.Writer.Write(encoded)
 }
 
+func (s *Server) handleListUsers(c *gin.Context) {
+	session := currentSession(c, s.Sessions)
+	if !s.Store.IsUserAdmin(session) {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "admin_required"})
+		return
+	}
+	users := s.Store.ListUsers()
+	items := make([]userResponse, 0, len(users))
+	for _, user := range users {
+		items = append(items, userToResponse(user))
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items})
+}
+
+func (s *Server) handleCreateUser(c *gin.Context) {
+	session := currentSession(c, s.Sessions)
+	if !s.Store.IsUserAdmin(session) {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "admin_required"})
+		return
+	}
+	var req userCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+		return
+	}
+	user, err := s.Store.CreateUser(req.Username, req.Password, req.Admin, session)
+	if err != nil {
+		status := http.StatusInternalServerError
+		switch {
+		case errors.Is(err, models.ErrUsernameInvalid), errors.Is(err, models.ErrPasswordTooShort):
+			status = http.StatusBadRequest
+		case errors.Is(err, models.ErrUserExists):
+			status = http.StatusConflict
+		}
+		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"user": userToResponse(user)})
+}
+
+func (s *Server) handleDeleteUser(c *gin.Context) {
+	session := currentSession(c, s.Sessions)
+	if !s.Store.IsUserAdmin(session) {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "admin_required"})
+		return
+	}
+	if err := s.Store.DeleteUser(c.Param("id"), session); err != nil {
+		status := http.StatusInternalServerError
+		switch {
+		case errors.Is(err, models.ErrUserNotFound):
+			status = http.StatusNotFound
+		case errors.Is(err, models.ErrUserDeleteLastAdmin):
+			status = http.StatusBadRequest
+		}
+		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 func workspaceToResponse(workspace *models.Workspace) workspaceResponse {
 	if workspace == nil {
 		return workspaceResponse{}
@@ -1364,6 +1478,19 @@ func workspaceTreeItemFromModel(workspace *models.Workspace) workspaceTreeItem {
 		ParentID:  strings.TrimSpace(workspace.ParentID),
 		CreatedAt: workspace.CreatedAt,
 		UpdatedAt: workspace.UpdatedAt,
+	}
+}
+
+func userToResponse(user *models.User) userResponse {
+	if user == nil {
+		return userResponse{}
+	}
+	return userResponse{
+		ID:        user.ID,
+		Username:  user.Username,
+		Admin:     user.Admin,
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
 	}
 }
 

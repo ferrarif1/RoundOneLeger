@@ -25,36 +25,39 @@ const Dashboard = () => (
   <div className="space-y-6">
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {metrics.map((metric) => (
-        <div key={metric.title} className="rounded-3xl border border-white bg-white/90 p-6 shadow-glow">
+        <div
+          key={metric.title}
+          className="rounded-2xl border border-[var(--line)] bg-white p-6 shadow-[0_20px_36px_rgba(0,0,0,0.08)] transition-transform hover:-translate-y-1"
+        >
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs uppercase tracking-[0.22em] text-night-300">{metric.title}</p>
-              <p className="mt-3 text-3xl font-semibold text-night-50">{metric.value}</p>
+              <p className="text-xs uppercase tracking-[0.22em] text-[rgba(20,20,20,0.45)]">{metric.title}</p>
+              <p className="mt-3 text-3xl font-semibold text-[var(--text)]">{metric.value}</p>
             </div>
-            <metric.icon className="h-10 w-10 text-neon-500" />
+            <metric.icon className="h-10 w-10 text-[var(--accent)]" />
           </div>
-          <p className="mt-6 text-sm text-night-200">{metric.change}</p>
+          <p className="mt-6 text-sm text-[rgba(20,20,20,0.55)]">{metric.change}</p>
         </div>
       ))}
     </section>
 
-    <section className="rounded-3xl border border-white bg-white/80 p-6 shadow-glow">
+    <section className="rounded-2xl border border-[var(--line)] bg-white p-6 shadow-[0_22px_44px_rgba(0,0,0,0.08)]">
       <h2 className="section-title">安全脉冲</h2>
       <div className="mt-4 grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border border-ink-200 bg-white p-5 shadow-sm">
-          <p className="text-xs uppercase tracking-[0.18em] text-night-300">链完整性</p>
-          <p className="mt-2 text-2xl font-semibold text-night-50">100%</p>
-          <p className="mt-4 text-sm text-night-200">最新审计链校验通过，无篡改风险。</p>
+        <div className="rounded-2xl border border-[var(--line)] bg-[var(--bg-subtle)] p-5 shadow-sm">
+          <p className="text-xs uppercase tracking-[0.18em] text-[rgba(20,20,20,0.45)]">链完整性</p>
+          <p className="mt-2 text-2xl font-semibold text-[var(--text)]">100%</p>
+          <p className="mt-4 text-sm text-[rgba(20,20,20,0.55)]">最新审计链校验通过，无篡改风险。</p>
         </div>
-        <div className="rounded-2xl border border-ink-200 bg-white p-5 shadow-sm">
-          <p className="text-xs uppercase tracking-[0.18em] text-night-300">协同编辑</p>
-          <p className="mt-2 text-2xl font-semibold text-night-50">48 次</p>
-          <p className="mt-4 text-sm text-night-200">多用户实时维护共享台账与智能文档。</p>
+        <div className="rounded-2xl border border-[var(--line)] bg-[var(--bg-subtle)] p-5 shadow-sm">
+          <p className="text-xs uppercase tracking-[0.18em] text-[rgba(20,20,20,0.45)]">协同编辑</p>
+          <p className="mt-2 text-2xl font-semibold text-[var(--text)]">48 次</p>
+          <p className="mt-4 text-sm text-[rgba(20,20,20,0.55)]">多用户实时维护共享台账与智能文档。</p>
         </div>
-        <div className="rounded-2xl border border-ink-200 bg-white p-5 shadow-sm">
-          <p className="text-xs uppercase tracking-[0.18em] text-night-300">IP 合规</p>
-          <p className="mt-2 text-2xl font-semibold text-night-50">12 条</p>
-          <p className="mt-4 text-sm text-night-200">卡片化展示白名单健康状态。</p>
+        <div className="rounded-2xl border border-[var(--line)] bg-[var(--bg-subtle)] p-5 shadow-sm">
+          <p className="text-xs uppercase tracking-[0.18em] text-[rgba(20,20,20,0.45)]">IP 合规</p>
+          <p className="mt-2 text-2xl font-semibold text-[var(--text)]">12 条</p>
+          <p className="mt-4 text-sm text-[rgba(20,20,20,0.55)]">卡片化展示白名单健康状态。</p>
         </div>
       </div>
     </section>

@@ -70,13 +70,10 @@ Once both containers are healthy, the API is reachable at <http://localhost:8080
 
 ## Authentication Flow
 
-1. **Request nonce** – POST `/auth/request-nonce`. The response contains a unique `nonce` plus a readable `message` that the SDID 钱包 should sign. When the UI is hosted from a static share and cannot reach this endpoint, it mints a local challenge before invoking the extension.
-2. **Wallet signature** – 浏览器插件调用 `requestLogin` 后会返回完整的认证结果，其中包含 DID、带 ECDSA P-256 公钥的 `publicKeyJwk`，以及 `signature`/`proof.signatureValue` 中的签名和 canonical 请求体。
-3. **Login** – POST `/auth/login` with `{nonce, response}`，其中 `response` 为插件返回的原始对象。服务端会重建 canonical 请求、基于提供的 JWK 校验 DER 编码的签名，并在成功后签发令牌；如果身份不包含管理员角色，则还需在 SDID 侧完成管理员认证（例如返回 `authorized: true`），否则接口会返回 `identity_not_approved`。
+1. **Password login** – POST `/auth/password-login` with `{ "username": "…", "password": "…" }`. The server validates the credentials, issues a bearer token, and returns the username together with an `admin` flag.
+2. **Session usage** – Attach `Authorization: Bearer <token>` to every `/api/v1/**` request. Sessions expire automatically after the configured TTL; the frontend stores the token in `localStorage` and clears it on logout.
 
-前端登录页会优先使用 WebCrypto 验证签名；在仅 HTTP 的内网环境下若 `crypto.subtle` 被禁用，则自动切换到 TypeScript 实现的 P-256 验证，不会阻断流程。登录成功后，“连接 SDID 登录”按钮会替换为“`${用户名} 已登陆`”，并在页面展示 SDID 响应的摘要与原始 JSON 供核对。
-
-All 身份管理逻辑由 SDID 完成，本系统仅校验签名并确认非管理员账号已经获得管理员认证。可选的 IP 白名单仍可在控制台中维护以限制访问来源。详见 `openapi.yaml` 获取完整的请求/响应示例和错误码。
+A default administrator (`hzdsz_admin` / `Hzdsz@2025#`) is provisioned for first-time access. 登录后可在“用户中心”页面增删其他操作员帐号。只有管理员才能管理用户、IP 白名单以及台账结构，普通用户会被限制为只读视图。详见 `openapi.yaml` 获取完整的请求/响应示例和错误码。
 
 ## Ledgers & Excel Import/Export
 
@@ -117,7 +114,7 @@ The tests exercise the ledger store, authentication flow, XLSX codec, and matrix
 
 ## Migrations
 
-The `migrations/0001_init.sql` script creates PostgreSQL tables for users, allowlists, and audit logs, and seeds an `admin` account. Apply it with your preferred migration tool before switching the store implementation to a database-backed version.
+The `migrations/0001_init.sql` script creates PostgreSQL tables for users, allowlists, and audit logs, and seeds the `hzdsz_admin` account with the default password. Apply it with your preferred migration tool before switching the store implementation to a database-backed version.
 
 ## API Reference
 

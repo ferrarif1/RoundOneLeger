@@ -30,9 +30,9 @@ const AuditLogs = () => {
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-3xl border border-ink-200 bg-white shadow-glow">
-        <table className="min-w-full divide-y divide-ink-200">
-          <thead className="bg-ink-50 text-xs uppercase tracking-wider text-night-300">
+      <div className="overflow-hidden rounded-2xl border border-[var(--line)] bg-white shadow-[0_22px_44px_rgba(0,0,0,0.08)]">
+        <table className="min-w-full divide-y divide-[rgba(20,20,20,0.12)]">
+          <thead className="bg-[var(--bg-subtle)] text-xs uppercase tracking-wider text-[rgba(20,20,20,0.45)]">
             <tr>
               <th className="px-6 py-3 text-left">时间</th>
               <th className="px-6 py-3 text-left">操作者</th>
@@ -41,16 +41,16 @@ const AuditLogs = () => {
               <th className="px-6 py-3 text-left">前序哈希</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-ink-200 text-sm">
+          <tbody className="divide-y divide-[rgba(20,20,20,0.12)] text-sm">
             {logs.map((log) => (
-              <tr key={log.id} className="transition-colors hover:bg-ink-50">
-                <td className="px-6 py-4 text-night-300">
+              <tr key={log.id} className="transition-colors hover:bg-[var(--bg-subtle)]">
+                <td className="px-6 py-4 text-[rgba(20,20,20,0.55)]">
                   {new Date(log.created_at).toLocaleString()}
                 </td>
-                <td className="px-6 py-4 text-night-200">{log.actor}</td>
-                <td className="px-6 py-4 text-night-200">{log.action}</td>
-                <td className="px-6 py-4 text-[11px] text-neon-500">{log.record_hash}</td>
-                <td className="px-6 py-4 text-[11px] text-night-400">{log.prev_hash}</td>
+                <td className="px-6 py-4 text-[var(--text)]">{log.actor}</td>
+                <td className="px-6 py-4 text-[var(--text)]">{log.action}</td>
+                <td className="px-6 py-4 text-[11px] text-[var(--accent)]">{log.record_hash}</td>
+                <td className="px-6 py-4 text-[11px] text-[rgba(20,20,20,0.55)]">{log.prev_hash}</td>
               </tr>
             ))}
           </tbody>
