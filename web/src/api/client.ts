@@ -1,29 +1,24 @@
 import axios, { AxiosError } from 'axios';
 
 // Determine API base URL based on current location or environment configuration.
-// The previous implementation always targeted port 8080 which breaks when the
-// frontend is served via HTTPS behind a reverse proxy (the browser refuses the
-// https->http downgrade and reports a "Network Error").  Allow overriding via
-// VITE_API_BASE_URL and only fall back to port 8080 when running through a Vite
-// dev/preview server or on localhost, while preserving same-origin calls for
-// production deployments.
+// Prefer staying on the current origin (which keeps HTTPS deployments secure and
+// allows the Vite dev server proxy to handle cross-origin requests) unless an
+// explicit override is provided via VITE_API_BASE_URL.
 let baseURL = import.meta.env?.VITE_API_BASE_URL ?? '';
 
 if (!baseURL && typeof window !== 'undefined') {
-  const { hostname, protocol } = window.location;
-  const port = window.location.port;
+  const { hostname, protocol, port } = window.location;
   const normalizedPort = port || (protocol === 'https:' ? '443' : protocol === 'http:' ? '80' : '');
+  const isDefaultPort = normalizedPort === '80' || normalizedPort === '443' || normalizedPort === '';
+  const isViteDevPort = normalizedPort === '5173' || normalizedPort === '4173';
 
-  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
-  const isViteDevServer = normalizedPort === '5173' || normalizedPort === '4173';
-
-  if (isLocalhost || isViteDevServer) {
-    const backendProtocol = protocol === 'https:' ? 'https:' : 'http:';
-    baseURL = `${backendProtocol}//${hostname}:8080`;
-  } else if (port && port !== '80' && port !== '443') {
-    baseURL = `${protocol}//${hostname}:${port}`;
-  } else {
+  if (isViteDevPort) {
+    // Let the Vite proxy rewrite requests to the backend.
+    baseURL = '';
+  } else if (isDefaultPort) {
     baseURL = `${protocol}//${hostname}`;
+  } else {
+    baseURL = `${protocol}//${hostname}:${port}`;
   }
 }
 
