@@ -4,11 +4,15 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/json"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io/fs"
 	mrand "math/rand"
 	"net"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -89,6 +93,190 @@ type LedgerStore struct {
 	userOrder  []string
 
 	history historyStack
+}
+
+// Snapshot captures all user data for export/import migration.
+type Snapshot struct {
+    Entries    map[LedgerType][]LedgerEntry `json:"entries"`
+    Workspaces []*Workspace                 `json:"workspaces"`
+    Allowlist  []*IPAllowlistEntry          `json:"allowlist"`
+    Audits     []*AuditLogEntry             `json:"audits"`
+    Users      []*User                      `json:"users"`
+}
+
+// ExportSnapshot returns a deep copy of the current state for migration.
+func (s *LedgerStore) ExportSnapshot() *Snapshot {
+    s.mu.RLock()
+    defer s.mu.RUnlock()
+    entries := make(map[LedgerType][]LedgerEntry, len(s.entries))
+    for typ, list := range s.entries {
+        entries[typ] = cloneEntrySlice(list)
+    }
+    workspaces := make([]*Workspace, 0, len(s.workspaces))
+    for _, ws := range s.workspaces {
+        workspaces = append(workspaces, ws.Clone())
+    }
+    allow := make([]*IPAllowlistEntry, 0, len(s.allow))
+    for _, v := range s.allow {
+        copy := *v
+        allow = append(allow, &copy)
+    }
+    audits := make([]*AuditLogEntry, len(s.audits))
+    for i, a := range s.audits {
+        copy := *a
+        audits[i] = &copy
+    }
+    users := make([]*User, 0, len(s.users))
+    for _, u := range s.users {
+        copy := *u
+        users = append(users, &copy)
+    }
+    return &Snapshot{Entries: entries, Workspaces: workspaces, Allowlist: allow, Audits: audits, Users: users}
+}
+
+// ImportSnapshot replaces current state with the provided snapshot.
+func (s *LedgerStore) ImportSnapshot(snapshot *Snapshot) error {
+    if snapshot == nil {
+        return errors.New("empty_snapshot")
+    }
+    s.mu.Lock()
+    defer s.mu.Unlock()
+    s.entries = make(map[LedgerType][]LedgerEntry)
+    for typ, list := range snapshot.Entries {
+        s.entries[typ] = cloneEntrySlice(list)
+    }
+    s.workspaces = make(map[string]*Workspace)
+    s.workspaceChildren = make(map[string][]string)
+    s.workspaceOrder = []string{}
+    for _, ws := range snapshot.Workspaces {
+        cloned := ws.Clone()
+        s.workspaces[cloned.ID] = cloned
+        s.workspaceOrder = append(s.workspaceOrder, cloned.ID)
+        if parent := strings.TrimSpace(cloned.ParentID); parent != "" {
+            s.workspaceChildren[parent] = append(s.workspaceChildren[parent], cloned.ID)
+        }
+    }
+    s.allow = make(map[string]*IPAllowlistEntry)
+    for _, v := range snapshot.Allowlist {
+        copy := *v
+        s.allow[copy.ID] = &copy
+    }
+    s.audits = []*AuditLogEntry{}
+    for _, a := range snapshot.Audits {
+        copy := *a
+        s.audits = append(s.audits, &copy)
+    }
+    s.users = make(map[string]*User)
+    s.userByName = make(map[string]*User)
+    s.userOrder = []string{}
+    for _, u := range snapshot.Users {
+        copy := *u
+        s.users[copy.ID] = &copy
+        s.userByName[normalizeUsername(copy.Username)] = &copy
+        s.userOrder = append(s.userOrder, copy.ID)
+    }
+    s.history.Reset(s.snapshotLocked())
+    return nil
+}
+
+// SaveTo persists the snapshot into dir as snapshot.json atomically.
+func (s *LedgerStore) SaveTo(dir string) error {
+    if strings.TrimSpace(dir) == "" {
+        return errors.New("empty_dir")
+    }
+    if err := os.MkdirAll(dir, 0o755); err != nil {
+        return err
+    }
+    snap := s.ExportSnapshot()
+    data, err := json.MarshalIndent(snap, "", "  ")
+    if err != nil {
+        return err
+    }
+    tmp := filepath.Join(dir, "snapshot.tmp")
+    file := filepath.Join(dir, "snapshot.json")
+    if err := os.WriteFile(tmp, data, fs.FileMode(0o644)); err != nil {
+        return err
+    }
+    return os.Rename(tmp, file)
+}
+
+// LoadFrom loads snapshot.json from dir if exists.
+func (s *LedgerStore) LoadFrom(dir string) error {
+    path := filepath.Join(dir, "snapshot.json")
+    data, err := os.ReadFile(path)
+    if err != nil {
+        if os.IsNotExist(err) {
+            return nil
+        }
+        return err
+    }
+    var snap Snapshot
+    if err := json.Unmarshal(data, &snap); err != nil {
+        return err
+    }
+    return s.ImportSnapshot(&snap)
+}
+
+// SaveToWithRetention saves snapshot.json and also a timestamped backup, keeping last retention files.
+func (s *LedgerStore) SaveToWithRetention(dir string, retention int) error {
+    if err := s.SaveTo(dir); err != nil {
+        return err
+    }
+    if retention <= 0 {
+        return nil
+    }
+    // write timestamped backup
+    ts := time.Now().UTC().Format("2006-01-02T15-04-05Z07-00")
+    backup := filepath.Join(dir, "snapshot-"+ts+".json")
+    snap := s.ExportSnapshot()
+    data, err := json.MarshalIndent(snap, "", "  ")
+    if err != nil {
+        return err
+    }
+    if err := os.WriteFile(backup, data, fs.FileMode(0o644)); err != nil {
+        return err
+    }
+    // prune old backups
+    entries, err := os.ReadDir(dir)
+    if err != nil {
+        return err
+    }
+    backups := make([]string, 0)
+    for _, e := range entries {
+        name := e.Name()
+        if strings.HasPrefix(name, "snapshot-") && strings.HasSuffix(name, ".json") {
+            backups = append(backups, filepath.Join(dir, name))
+        }
+    }
+    sort.Slice(backups, func(i, j int) bool { return backups[i] > backups[j] })
+    if len(backups) > retention {
+        for _, path := range backups[retention:] {
+            _ = os.Remove(path)
+        }
+    }
+    return nil
+}
+
+// WriteBinary stores bytes to assets directory under dir and returns relative path.
+func (s *LedgerStore) WriteBinary(dir, name string, data []byte) (string, error) {
+    if strings.TrimSpace(dir) == "" {
+        return "", errors.New("empty_dir")
+    }
+    if name == "" {
+        name = GenerateID("asset")
+    }
+    assetsDir := filepath.Join(dir, "assets")
+    if err := os.MkdirAll(assetsDir, 0o755); err != nil {
+        return "", err
+    }
+    ext := filepath.Ext(name)
+    base := strings.TrimSuffix(filepath.Base(name), ext)
+    filename := base + ext
+    path := filepath.Join(assetsDir, filename)
+    if err := os.WriteFile(path, data, fs.FileMode(0o644)); err != nil {
+        return "", err
+    }
+    return filepath.ToSlash(filepath.Join("assets", filename)), nil
 }
 
 // IdentityProfile stores metadata about a SDID identity that has interacted with the system.

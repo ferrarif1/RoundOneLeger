@@ -1104,3 +1104,51 @@ paths:
                 properties:
                   verified:
                     type: boolean
+  /api/v1/export/all:
+    get:
+      summary: Export all data snapshot
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Complete snapshot for migration
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/import/all:
+    post:
+      summary: Import all data snapshot (destructive replace)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Imported
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+  /api/v1/admin/save-snapshot:
+    post:
+      summary: Manually trigger snapshot save with rolling backup
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string

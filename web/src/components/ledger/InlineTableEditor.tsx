@@ -66,6 +66,8 @@ interface InlineTableEditorProps {
   onRemoveSelected: () => void;
   onToggleHighlight?: () => void;
   onExportSelected?: () => void;
+  onSaveFullscreen?: () => void;
+  dirty?: boolean;
   hasSelection: boolean;
   selectAllState: 'all' | 'some' | 'none';
   isSheet: boolean;
@@ -95,6 +97,8 @@ export const InlineTableEditor = ({
   onRemoveSelected,
   onToggleHighlight,
   onExportSelected,
+  onSaveFullscreen,
+  dirty,
   hasSelection,
   selectAllState,
   isSheet,
@@ -103,6 +107,7 @@ export const InlineTableEditor = ({
 }: InlineTableEditorProps) => {
   const selectAllRef = useRef<HTMLInputElement>(null);
   const [displayMode, setDisplayMode] = useState<'default' | 'wide' | 'fullscreen'>('default');
+  const autosaveRef = useRef<number | null>(null);
 
   const isWide = displayMode === 'wide';
   const isFullscreen = displayMode === 'fullscreen';
@@ -136,6 +141,18 @@ export const InlineTableEditor = ({
       document.body.style.overflow = previousOverflow;
     };
   }, [isFullscreen]);
+
+  useEffect(() => {
+    if (!isFullscreen || !onSaveFullscreen) return;
+    if (autosaveRef.current) window.clearInterval(autosaveRef.current);
+    autosaveRef.current = window.setInterval(() => {
+      if (dirty) onSaveFullscreen();
+    }, 8000);
+    return () => {
+      if (autosaveRef.current) window.clearInterval(autosaveRef.current);
+      autosaveRef.current = null;
+    };
+  }, [isFullscreen, onSaveFullscreen, dirty]);
 
   const handleResizeStart = (event: React.MouseEvent<HTMLSpanElement>, columnId: string) => {
     event.preventDefault();
@@ -408,6 +425,11 @@ export const InlineTableEditor = ({
             {fullscreenIcon}
             {fullscreenLabel}
           </button>
+          {isFullscreen && onSaveFullscreen && (
+            <button type="button" onClick={onSaveFullscreen} className={baseButtonClass}>
+              保存
+            </button>
+          )}
         </div>
       </div>
     );

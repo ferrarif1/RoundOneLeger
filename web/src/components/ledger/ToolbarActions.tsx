@@ -7,6 +7,8 @@ interface ToolbarActionsProps {
   onExcelImport: () => void;
   onPasteImport: () => void;
   onExport: () => void;
+  onExportAll?: () => void;
+  onImportAll?: () => void;
   disabledSheetActions?: boolean;
   busy?: boolean;
   dirty?: boolean;
@@ -43,6 +45,8 @@ export const ToolbarActions = ({
   onExcelImport,
   onPasteImport,
   onExport,
+  onExportAll,
+  onImportAll,
   disabledSheetActions = false,
   busy = false,
   dirty = false
@@ -52,6 +56,13 @@ export const ToolbarActions = ({
       <ActionButton icon={ArrowUpTrayIcon} label="Excel 导入" onClick={onExcelImport} disabled={disabledSheetActions} />
       <ActionButton icon={ClipboardDocumentListIcon} label="粘贴导入" onClick={onPasteImport} disabled={disabledSheetActions} />
       <ActionButton icon={ArrowDownTrayIcon} label="导出 Excel" onClick={onExport} disabled={disabledSheetActions} />
+      {onExportAll && <ActionButton icon={ArrowDownTrayIcon} label="导出全部数据" onClick={onExportAll} />}
+      {onImportAll && (
+        <button type="button" onClick={onImportAll} className="eidos-btn eidos-btn--ghost text-xs font-medium">
+          <ArrowUpTrayIcon className="h-4 w-4" />
+          <span>导入全部数据</span>
+        </button>
+      )}
       <button
         type="button"
         onClick={onSave}

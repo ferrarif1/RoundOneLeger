@@ -22,6 +22,8 @@ interface DocumentEditorProps {
   editable: boolean;
   onChange: (html: string) => void;
   onStatus: (message: string) => void;
+  onSave?: () => void;
+  dirty?: boolean;
 }
 
 type DocumentBlockValue = (typeof DOCUMENT_BLOCK_OPTIONS)[number]['value'];
@@ -49,13 +51,14 @@ const ToolbarButton = ({
   </button>
 );
 
-export const DocumentEditor = ({ value, editable, onChange, onStatus }: DocumentEditorProps) => {
+export const DocumentEditor = ({ value, editable, onChange, onStatus, onSave, dirty }: DocumentEditorProps) => {
   const documentRef = useRef<HTMLDivElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const audioInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedBlock, setSelectedBlock] = useState<DocumentBlockValue>('paragraph');
   const [displayMode, setDisplayMode] = useState<'default' | 'wide' | 'fullscreen'>('default');
+  const autosaveRef = useRef<number | null>(null);
 
   const isWide = displayMode === 'wide';
   const isFullscreen = displayMode === 'fullscreen';
@@ -80,6 +83,19 @@ export const DocumentEditor = ({ value, editable, onChange, onStatus }: Document
       document.body.style.overflow = previousOverflow;
     };
   }, [isFullscreen]);
+
+  // Autosave when fullscreen
+  useEffect(() => {
+    if (!isFullscreen || !onSave) return;
+    if (autosaveRef.current) window.clearInterval(autosaveRef.current);
+    autosaveRef.current = window.setInterval(() => {
+      if (dirty) onSave();
+    }, 8000);
+    return () => {
+      if (autosaveRef.current) window.clearInterval(autosaveRef.current);
+      autosaveRef.current = null;
+    };
+  }, [isFullscreen, onSave, dirty]);
 
   const execCommand = useCallback(
     (command: string, commandValue?: string) => {
@@ -259,6 +275,21 @@ export const DocumentEditor = ({ value, editable, onChange, onStatus }: Document
       <ToolbarButton label="VID" tooltip="插入视频" onClick={() => videoInputRef.current?.click()} disabled={!editable} />
       <ToolbarButton label="Find" tooltip="搜索并高亮" onClick={handleSearchHighlight} disabled={!editable} />
       <ToolbarButton label="CLR" tooltip="清除格式" onClick={clearFormatting} disabled={!editable} />
+      <input type="color" defaultValue="#000000" onChange={(e) => execCommand('foreColor', e.target.value)} disabled={!editable} title="字体颜色" />
+      <select
+        defaultValue="3"
+        onChange={(e) => execCommand('fontSize', e.target.value)}
+        disabled={!editable}
+        className="rounded-full border border-[var(--muted)]/30 bg-white/80 px-2 py-1 text-xs text-[var(--muted)]"
+      >
+        <option value="1">小</option>
+        <option value="2">较小</option>
+        <option value="3">正常</option>
+        <option value="4">较大</option>
+        <option value="5">大</option>
+        <option value="6">特大</option>
+        <option value="7">最大</option>
+      </select>
     </div>
   );
 
@@ -331,8 +362,7 @@ export const DocumentEditor = ({ value, editable, onChange, onStatus }: Document
           </div>
         </div>
         {isFullscreen ? (
-          <div className="rounded-3xl border border-dashed border-[var(--muted)]/40 bg-white/70 p-6 text-center text-sm text-[var(--muted)]">
-            正在全屏编辑文档，点击“退出全屏”返回当前视图。
+          <div className="rounded-3xl border border-dashed border-[var(--muted)]/40 bg-white/70 p-6 text-center text-sm text-[var(--muted)]">正在全屏编辑文档，系统会自动保存。
           </div>
         ) : (
           renderEditorContainer(false)
@@ -369,6 +399,15 @@ export const DocumentEditor = ({ value, editable, onChange, onStatus }: Document
                   {renderFormattingToolbar()}
                 </div>
                 <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
+                  {onSave && (
+                    <button
+                      type="button"
+                      onClick={onSave}
+                      className="flex items-center gap-1 rounded-full border border-emerald-500/50 bg-emerald-50 px-3 py-2 text-emerald-600 hover:bg-emerald-100"
+                    >
+                      保存
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={handleToggleFullscreen}

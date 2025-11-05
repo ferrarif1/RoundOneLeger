@@ -28,6 +28,8 @@ type Server struct {
 	Database *db.Database
 	Store    *models.LedgerStore
 	Sessions *auth.Manager
+    DataDir  string
+    SnapshotRetention int
 }
 
 // RegisterRoutes attaches handlers to the gin engine.
@@ -79,6 +81,9 @@ func (s *Server) RegisterRoutes(router *gin.Engine) {
 
         secured.GET("/audit", s.handleAuditList)
         secured.GET("/audit/verify", s.handleAuditVerify)
+		secured.GET("/export/all", s.handleExportAll)
+		secured.POST("/import/all", s.handleImportAll)
+		secured.POST("/admin/save-snapshot", s.handleManualSave)
 	}
 }
 
@@ -1211,6 +1216,36 @@ func (s *Server) handleAuditList(c *gin.Context) {
 func (s *Server) handleAuditVerify(c *gin.Context) {
 	ok := s.Store.VerifyAuditChain()
 	c.JSON(http.StatusOK, gin.H{"verified": ok})
+}
+
+func (s *Server) handleExportAll(c *gin.Context) {
+    snapshot := s.Store.ExportSnapshot()
+    c.JSON(http.StatusOK, snapshot)
+}
+
+func (s *Server) handleImportAll(c *gin.Context) {
+    var snapshot models.Snapshot
+    if err := c.ShouldBindJSON(&snapshot); err != nil {
+        c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+        return
+    }
+    if err := s.Store.ImportSnapshot(&snapshot); err != nil {
+        c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+    c.JSON(http.StatusOK, gin.H{"status": "imported"})
+}
+
+func (s *Server) handleManualSave(c *gin.Context) {
+    if strings.TrimSpace(s.DataDir) == "" {
+        c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "data_dir_not_configured"})
+        return
+    }
+    if err := s.Store.SaveToWithRetention(s.DataDir, s.SnapshotRetention); err != nil {
+        c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+    c.JSON(http.StatusOK, gin.H{"status": "saved"})
 }
 
 func parseLedgerType(value string) (models.LedgerType, bool) {

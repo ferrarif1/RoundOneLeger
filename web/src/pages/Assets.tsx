@@ -435,6 +435,7 @@ const Assets = () => {
   const [saving, setSaving] = useState(false);
   const [highlightedRowIds, setHighlightedRowIds] = useState<string[]>([]);
   const excelInputRef = useRef<HTMLInputElement>(null);
+  const importAllRef = useRef<HTMLInputElement>(null);
 
   const allNodes = useMemo(() => flattenWorkspaces(workspaceTree), [workspaceTree]);
   const workspaceMap = useMemo(() => {
@@ -1065,6 +1066,25 @@ const Assets = () => {
       onExcelImport={() => excelInputRef.current?.click()}
       onPasteImport={() => setShowPasteModal(true)}
       onExport={handleExport}
+      onExportAll={async () => {
+        try {
+          const { data } = await api.get('/api/v1/export/all', { responseType: 'json' });
+          const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `roundone_ledger_export_${Date.now()}.json`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+          setStatus('已导出全部数据。');
+        } catch (err) {
+          const axiosError = err as AxiosError<{ error?: string }>;
+          setError(axiosError.response?.data?.error || axiosError.message || '导出失败');
+        }
+      }}
+      onImportAll={() => importAllRef.current?.click()}
       disabledSheetActions={!isSheet}
       busy={saving}
       dirty={hasUnsavedChanges}
@@ -1105,6 +1125,8 @@ const Assets = () => {
               onRemoveSelected={handleRemoveSelectedRows}
               onToggleHighlight={toggleHighlightSelected}
               onExportSelected={exportSelectedExcel}
+              onSaveFullscreen={handleSave}
+              dirty={hasUnsavedChanges}
               hasSelection={hasSelection}
               selectAllState={selectAllState}
               isSheet={isSheet}
@@ -1118,6 +1140,8 @@ const Assets = () => {
               editable={isDocument}
               onChange={setDocumentContent}
               onStatus={setStatus}
+              onSave={handleSave}
+              dirty={hasUnsavedChanges}
             />
           )}
           {isFolder && (
@@ -1182,6 +1206,27 @@ const Assets = () => {
         accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         className="hidden"
         onChange={handleImportExcel}
+      />
+      <input
+        ref={importAllRef}
+        type="file"
+        accept="application/json"
+        className="hidden"
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (!file) return;
+          try {
+            const text = await file.text();
+            const payload = JSON.parse(text);
+            await api.post('/api/v1/import/all', payload);
+            setStatus('已导入全部数据。');
+            await refreshList();
+          } catch (err) {
+            const axiosError = err as AxiosError<{ error?: string }>;
+            setError(axiosError.response?.data?.error || axiosError.message || '导入失败');
+          }
+        }}
       />
 
       <BatchEditModal
