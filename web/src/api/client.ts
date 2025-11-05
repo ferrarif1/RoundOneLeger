@@ -1,15 +1,22 @@
 import axios, { AxiosError } from 'axios';
 
-// Determine API base URL based on current location
-let baseURL = '';
-if (typeof window !== 'undefined') {
-  const { hostname, protocol } = window.location;
-  // For localhost, API is on port 8080
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+// Determine API base URL based on current location or environment configuration.
+// The previous implementation always targeted port 8080 which breaks when the
+// frontend is served via HTTPS behind a reverse proxy (the browser refuses the
+// https->http downgrade and reports a "Network Error").  Allow overriding via
+// VITE_API_BASE_URL and only fall back to port 8080 for local development.
+let baseURL = import.meta.env?.VITE_API_BASE_URL ?? '';
+
+if (!baseURL && typeof window !== 'undefined') {
+  const { hostname, protocol, port } = window.location;
+  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+
+  if (isLocalhost) {
     baseURL = `${protocol}//${hostname}:8080`;
+  } else if (port && port !== '80' && port !== '443') {
+    baseURL = `${protocol}//${hostname}:${port}`;
   } else {
-    // For other hosts, API is on the same host but port 8080
-    baseURL = `${protocol}//${hostname}:8080`;
+    baseURL = `${protocol}//${hostname}`;
   }
 }
 
