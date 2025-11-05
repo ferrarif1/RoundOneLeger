@@ -49,11 +49,13 @@ interface InlineTableEditorProps {
   rows: WorkspaceRow[];
   filteredRows: WorkspaceRow[];
   selectedRowIds: string[];
+  highlightedRowIds?: string[];
   onToggleRowSelection: (id: string) => void;
   onToggleSelectAll: () => void;
   onUpdateColumnTitle: (columnId: string, title: string) => void;
   onRemoveColumn: (columnId: string) => void;
   onResizeColumn: (columnId: string, width: number) => void;
+  onReorderColumns?: (sourceId: string, targetId: string) => void;
   onUpdateCell: (rowId: string, columnId: string, value: string) => void;
   onRemoveRow: (rowId: string) => void;
   onAddRow: () => void;
@@ -62,6 +64,8 @@ interface InlineTableEditorProps {
   onSearchTermChange: (value: string) => void;
   onOpenBatchEdit: () => void;
   onRemoveSelected: () => void;
+  onToggleHighlight?: () => void;
+  onExportSelected?: () => void;
   hasSelection: boolean;
   selectAllState: 'all' | 'some' | 'none';
   isSheet: boolean;
@@ -74,11 +78,13 @@ export const InlineTableEditor = ({
   rows,
   filteredRows,
   selectedRowIds,
+  highlightedRowIds = [],
   onToggleRowSelection,
   onToggleSelectAll,
   onUpdateColumnTitle,
   onRemoveColumn,
   onResizeColumn,
+  onReorderColumns,
   onUpdateCell,
   onRemoveRow,
   onAddRow,
@@ -87,6 +93,8 @@ export const InlineTableEditor = ({
   onSearchTermChange,
   onOpenBatchEdit,
   onRemoveSelected,
+  onToggleHighlight,
+  onExportSelected,
   hasSelection,
   selectAllState,
   isSheet,
@@ -175,6 +183,26 @@ export const InlineTableEditor = ({
           <th
             key={column.id}
             className="relative px-3 py-2"
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData('text/column-id', column.id);
+              e.dataTransfer.effectAllowed = 'move';
+            }}
+            onDragOver={(e) => {
+              if (onReorderColumns) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+              }
+            }}
+            onDrop={(e) => {
+              if (!onReorderColumns) return;
+              e.preventDefault();
+              const sourceId = e.dataTransfer.getData('text/column-id');
+              const targetId = column.id;
+              if (sourceId && targetId && sourceId !== targetId) {
+                onReorderColumns(sourceId, targetId);
+              }
+            }}
             style={{ minWidth: `${Math.max(minColumnWidth, (column.width ?? defaultColumnWidth) - 32)}px` }}
           >
             <div className="flex items-center gap-2">
@@ -216,7 +244,7 @@ export const InlineTableEditor = ({
                 key={row.id}
                 className={`align-top border-t border-black/5 transition ${
                   rowSelected ? 'bg-[var(--accent)]/10' : 'bg-white/70 hover:bg-white'
-                }`}
+                } ${highlightedRowIds.includes(row.id) ? 'font-semibold' : ''}`}
               >
                 <td className="px-2 py-3 align-top">
                   <input
@@ -335,6 +363,22 @@ export const InlineTableEditor = ({
           >
             <PencilSquareIcon className="h-4 w-4" />
             批量编辑
+          </button>
+          <button
+            type="button"
+            onClick={onToggleHighlight}
+            className={baseButtonClass}
+            disabled={!hasSelection}
+          >
+            高亮/加粗
+          </button>
+          <button
+            type="button"
+            onClick={onExportSelected}
+            className={baseButtonClass}
+            disabled={!hasSelection}
+          >
+            导出选中 Excel
           </button>
           <button
             type="button"

@@ -433,6 +433,7 @@ const Assets = () => {
   const [listQuery, setListQuery] = useState('');
   const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [highlightedRowIds, setHighlightedRowIds] = useState<string[]>([]);
   const excelInputRef = useRef<HTMLInputElement>(null);
 
   const allNodes = useMemo(() => flattenWorkspaces(workspaceTree), [workspaceTree]);
@@ -624,6 +625,10 @@ const Assets = () => {
         setCurrentWorkspace({ ...workspace, kind, parentId: workspace.parentId ?? '' });
         setColumns(normalizedColumns);
         setRows(normalizedRows);
+        try {
+          const ids = (workspace.rows || []).filter((r: any) => r?.highlighted).map((r: any) => r.id);
+          setHighlightedRowIds(ids);
+        } catch {}
         setName(workspace.name || DEFAULT_TITLE);
         setDocumentContent(normalizedDocument);
         setStatus(null);
@@ -661,6 +666,19 @@ const Assets = () => {
     },
     [isSheet]
   );
+
+  const reorderColumns = useCallback((sourceId: string, targetId: string) => {
+    if (!isSheet) return;
+    setColumns((prev) => {
+      const sourceIndex = prev.findIndex((c) => c.id === sourceId);
+      const targetIndex = prev.findIndex((c) => c.id === targetId);
+      if (sourceIndex < 0 || targetIndex < 0) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(sourceIndex, 1);
+      next.splice(targetIndex, 0, moved);
+      return next;
+    });
+  }, [isSheet]);
 
   const removeColumn = useCallback(
     (id: string) => {
@@ -759,6 +777,53 @@ const Assets = () => {
     setSelectedRowIds([]);
   }, [selectedRowIds]);
 
+  const toggleHighlightSelected = useCallback(() => {
+    if (!selectedRowIds.length) return;
+    setHighlightedRowIds((prev) => {
+      const set = new Set(prev);
+      let adding = false;
+      for (const id of selectedRowIds) {
+        if (!set.has(id)) {
+          adding = true;
+          break;
+        }
+      }
+      if (adding) {
+        selectedRowIds.forEach((id) => set.add(id));
+      } else {
+        selectedRowIds.forEach((id) => set.delete(id));
+      }
+      return Array.from(set);
+    });
+  }, [selectedRowIds]);
+
+  const exportSelectedCSV = useCallback(() => {
+    if (!isSheet || !selectedRowIds.length) return;
+    const header = columns.map((c) => (c.title || '').replace(/"/g, '""'));
+    const selectedSet = new Set(selectedRowIds);
+    const dataRows = rows
+      .filter((r) => selectedSet.has(r.id))
+      .map((r) =>
+        columns
+          .map((c) => {
+            const raw = (r.cells[c.id] ?? '').replace(/\r?\n/g, ' ').replace(/"/g, '""');
+            return `"${raw}"`;
+          })
+          .join(',')
+      );
+    const csv = [header.map((h) => `"${h}"`).join(','), ...dataRows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(name || DEFAULT_TITLE).replace(/\s+/g, '_')}_selected.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    setStatus('已导出选中 CSV。');
+  }, [columns, isSheet, name, rows, selectedRowIds]);
+
   const resolveParentForCreation = useCallback(() => {
     if (!selectedNode) {
       return '';
@@ -824,7 +889,7 @@ const Assets = () => {
         title: column.title || `字段 ${index + 1}`,
         width: column.width ?? DEFAULT_COLUMN_WIDTH
       }));
-      payload.rows = rows.map((row) => ({ id: row.id, cells: row.cells }));
+      payload.rows = rows.map((row) => ({ id: row.id, cells: row.cells, highlighted: highlightedRowIds.includes(row.id) }));
     } else if (isDocument) {
       payload.document = documentContent;
     }
@@ -941,6 +1006,35 @@ const Assets = () => {
     }
   }, [currentWorkspace, isSheet]);
 
+  const exportSelectedExcel = useCallback(async () => {
+    if (!currentWorkspace || !isSheet || !selectedRowIds.length) {
+      return;
+    }
+    try {
+      const { data } = await api.post<ArrayBuffer>(
+        `/api/v1/workspaces/${currentWorkspace.id}/export/selected`,
+        { rowIds: selectedRowIds },
+        { responseType: 'arraybuffer' }
+      );
+      const blob = new Blob([data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${(currentWorkspace.name || DEFAULT_TITLE).replace(/\s+/g, '_')}_selected.xlsx`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      setStatus('已导出选中 Excel。');
+    } catch (err) {
+      console.error('导出选中失败', err);
+      const axiosError = err as AxiosError<{ error?: string }>; // eslint-disable-line @typescript-eslint/no-explicit-any
+      setError(axiosError.response?.data?.error || axiosError.message || '导出失败，请稍后再试。');
+    }
+  }, [currentWorkspace, isSheet, selectedRowIds]);
+
   const sidebar = (
     <LedgerListCard
       items={workspaceTree}
@@ -994,11 +1088,13 @@ const Assets = () => {
               rows={rows}
               filteredRows={filteredRows}
               selectedRowIds={selectedRowIds}
+              highlightedRowIds={highlightedRowIds}
               onToggleRowSelection={toggleRowSelection}
               onToggleSelectAll={toggleSelectAll}
               onUpdateColumnTitle={updateColumnTitle}
               onRemoveColumn={removeColumn}
               onResizeColumn={handleColumnResize}
+              onReorderColumns={reorderColumns}
               onUpdateCell={updateCell}
               onRemoveRow={removeRow}
               onAddRow={addRow}
@@ -1007,6 +1103,8 @@ const Assets = () => {
               onSearchTermChange={setTableSearch}
               onOpenBatchEdit={() => setShowBatchEditModal(true)}
               onRemoveSelected={handleRemoveSelectedRows}
+              onToggleHighlight={toggleHighlightSelected}
+              onExportSelected={exportSelectedExcel}
               hasSelection={hasSelection}
               selectAllState={selectAllState}
               isSheet={isSheet}

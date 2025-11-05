@@ -74,6 +74,8 @@ const (
 type WorkspaceRow struct {
 	ID        string            `json:"id"`
 	Cells     map[string]string `json:"cells"`
+    Styles    map[string]string `json:"styles,omitempty"`
+    Highlighted bool            `json:"highlighted,omitempty"`
 	CreatedAt time.Time         `json:"created_at"`
 	UpdatedAt time.Time         `json:"updated_at"`
 }
@@ -112,6 +114,12 @@ func (w *Workspace) Clone() *Workspace {
 					clonedRow.Cells[key] = value
 				}
 			}
+            if row.Styles != nil {
+                clonedRow.Styles = make(map[string]string, len(row.Styles))
+                for key, value := range row.Styles {
+                    clonedRow.Styles[key] = value
+                }
+            }
 			clone.Rows[i] = clonedRow
 		}
 	}

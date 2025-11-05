@@ -85,6 +85,12 @@ components:
           type: object
           additionalProperties:
             type: string
+        styles:
+          type: object
+          additionalProperties:
+            type: string
+        highlighted:
+          type: boolean
         createdAt:
           type: string
           format: date-time
@@ -288,14 +294,6 @@ components:
         expires_at:
           type: string
           format: date-time
-    NonceResponse:
-      type: object
-      properties:
-        nonce:
-          type: string
-        message:
-          type: string
-          description: Human-readable message that must be signed by the SDID wallet
     ErrorResponse:
       type: object
       required:
@@ -303,21 +301,22 @@ components:
       properties:
         error:
           type: string
-    LoginRequest:
-      type: object
-      required:
-        - nonce
-        - response
-      properties:
-        nonce:
-          type: string
-        response:
-          $ref: '#/components/schemas/SdidLoginResponse'
     PasswordLoginRequest:
       type: object
       required:
         - username
         - password
+    ChangePasswordRequest:
+      type: object
+      required:
+        - oldPassword
+        - newPassword
+      properties:
+        oldPassword:
+          type: string
+        newPassword:
+          type: string
+          minLength: 8
       properties:
         username:
           type: string
@@ -373,60 +372,7 @@ components:
           minLength: 8
         admin:
           type: boolean
-    SdidLoginResponse:
-      type: object
-      required:
-        - identity
-      properties:
-        challenge:
-          type: string
-        signature:
-          type: string
-          description: Base64-encoded DER ECDSA signature returned by the SDID extension
-        proof:
-          $ref: '#/components/schemas/SdidProof'
-        identity:
-          $ref: '#/components/schemas/SdidIdentity'
-        authentication:
-          $ref: '#/components/schemas/SdidAuthentication'
-        authorized:
-          type: boolean
-        remembered:
-          type: boolean
-    SdidProof:
-      type: object
-      properties:
-        signatureValue:
-          type: string
-          description: Alternate location for the login signature
-    SdidIdentity:
-      type: object
-      required:
-        - did
-        - publicKeyJwk
-      properties:
-        did:
-          type: string
-        label:
-          type: string
-        roles:
-          type: array
-          items:
-            type: string
-        publicKeyJwk:
-          type: object
-          additionalProperties: {}
-          description: JSON Web Key describing an ECDSA P-256 public key
-        authorized:
-          type: boolean
-    SdidAuthentication:
-      type: object
-      properties:
-        canonicalRequest:
-          type: string
-        payload:
-          type: object
-          additionalProperties: {}
+    
     HistoryStatus:
       type: object
       properties:
@@ -445,55 +391,56 @@ paths:
             application/json:
               schema:
                 type: object
-  /auth/request-nonce:
+  
+  /auth/password-login:
     post:
-      summary: Request login nonce
+      summary: Authenticate with username and password
+  /auth/logout:
+    post:
+      summary: Logout and revoke current session
       responses:
         '200':
-          description: Nonce issued
+          description: Logged out
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/NonceResponse'
-  /auth/login:
+                type: object
+                properties:
+                  status:
+                    type: string
+  /auth/change-password:
     post:
-      summary: Authenticate via SDID
+      summary: Change current user's password
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/LoginRequest'
+              $ref: '#/components/schemas/ChangePasswordRequest'
       responses:
         '200':
-          description: Session issued
+          description: Password changed
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Session'
+                type: object
+                properties:
+                  status:
+                    type: string
+        '400':
+          description: Invalid payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '401':
-          description: Signature validation failed
+          description: Invalid credentials
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-              examples:
-                signature_invalid:
-                  value:
-                    error: signature invalid
-        '403':
-          description: Identity lacks administrator approval
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              examples:
-                not_approved:
-                  value:
-                    error: identity_not_approved
-  /auth/password-login:
-    post:
-      summary: Authenticate with username and password
       requestBody:
         required: true
         content:
@@ -893,6 +840,36 @@ paths:
       responses:
         '200':
           description: Workspace Excel workbook
+  /api/v1/workspaces/{id}/export/selected:
+    post:
+      summary: Export selected workspace rows to Excel
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rowIds:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Workspace Excel workbook (selected rows)
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
           content:
             application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
               schema:

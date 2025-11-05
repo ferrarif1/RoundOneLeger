@@ -7,7 +7,6 @@ import Login from './pages/Login';
 import Assets from './pages/Assets';
 import IPAllowlist from './pages/IPAllowlist';
 import AuditLogs from './pages/AuditLogs';
-import Approvals from './pages/Approvals';
 import Users from './pages/Users';
 import { useSession } from './hooks/useSession';
 
@@ -96,23 +95,7 @@ const App = () => {
                   </ProtectedRoute>
                 }
               />
-              <Route
-                path="/approvals"
-                element={
-                  <ProtectedRoute>
-                    <motion.div
-                      key="approvals"
-                      initial={{ opacity: 0, y: 16 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -16 }}
-                      transition={{ duration: 0.3, ease: 'easeOut' }}
-                      className="mx-auto max-w-5xl"
-                    >
-                      <Approvals />
-                    </motion.div>
-                  </ProtectedRoute>
-                }
-              />
+              
               <Route
                 path="/users"
                 element={

@@ -1,24 +1,25 @@
 import { NavLink } from 'react-router-dom';
+import { useSession } from '../hooks/useSession';
 import {
   ChartPieIcon,
   DocumentTextIcon,
   ShieldCheckIcon,
   SparklesIcon,
   Squares2X2Icon,
-  ClipboardDocumentCheckIcon,
   UserGroupIcon
 } from '@heroicons/react/24/outline';
 
-const links = [
+const baseLinks = [
   { to: '/dashboard', label: '概览', icon: ChartPieIcon },
   { to: '/assets', label: '台账', icon: Squares2X2Icon },
   { to: '/ip-allowlist', label: 'IP 白名单', icon: ShieldCheckIcon },
-  { to: '/audit-logs', label: '审计日志', icon: DocumentTextIcon },
-  { to: '/approvals', label: '身份审批', icon: ClipboardDocumentCheckIcon },
-  { to: '/users', label: '用户中心', icon: UserGroupIcon }
+  { to: '/audit-logs', label: '审计日志', icon: DocumentTextIcon }
 ];
 
-const Sidebar = () => (
+const Sidebar = () => {
+  const { admin } = useSession();
+  const links = admin ? [...baseLinks, { to: '/users', label: '用户中心', icon: UserGroupIcon }] : baseLinks;
+  return (
   <aside className="hidden lg:flex w-72 xl:w-80 flex-col border-r border-[rgba(20,20,20,0.08)] bg-[var(--bg-subtle)]/80 backdrop-blur-md">
     <div className="px-6 py-8 border-b border-[rgba(20,20,20,0.08)]">
       <div className="flex items-center gap-3 text-[var(--text)]">
@@ -65,6 +66,7 @@ const Sidebar = () => (
       采用黑白线框与圆角面板，构建类似 ChatGPT 控制台的沉浸式空间感。
     </div>
   </aside>
-);
+  );
+};
 
 export default Sidebar;

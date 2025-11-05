@@ -51,6 +51,12 @@ const Users = () => {
   const [formAdmin, setFormAdmin] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [showChangePwd, setShowChangePwd] = useState(false);
+  const [oldPwd, setOldPwd] = useState('');
+  const [newPwd, setNewPwd] = useState('');
+  const [changing, setChanging] = useState(false);
+  const [changeErr, setChangeErr] = useState<string | null>(null);
+  const [changeOk, setChangeOk] = useState<string | null>(null);
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -127,6 +133,27 @@ const Users = () => {
       setError(axiosError.response?.data?.error || axiosError.message || '删除用户失败，请稍后再试。');
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const submitChangePwd = async () => {
+    setChangeErr(null);
+    setChangeOk(null);
+    if (!oldPwd || !newPwd) {
+      setChangeErr('请输入原密码与新密码');
+      return;
+    }
+    setChanging(true);
+    try {
+      await api.post('/auth/change-password', { oldPassword: oldPwd, newPassword: newPwd });
+      setChangeOk('密码已更新');
+      setOldPwd('');
+      setNewPwd('');
+    } catch (e: any) {
+      const msg = e?.response?.data?.error || e?.message || '修改失败';
+      setChangeErr(msg === 'invalid_credentials' ? '原密码错误' : msg);
+    } finally {
+      setChanging(false);
     }
   };
 
@@ -254,6 +281,33 @@ const Users = () => {
           </div>
         )}
       </section>
+      <div className="mt-4">
+        <button className="button-primary" onClick={() => setShowChangePwd(true)}>修改我的密码</button>
+      </div>
+
+      {showChangePwd && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-semibold text-[var(--text)]">修改密码</h3>
+            <div className="mt-4 space-y-4">
+              <label className="flex flex-col gap-2 text-sm">
+                <span className="text-xs text-[var(--muted)]">原密码</span>
+                <input type="password" value={oldPwd} onChange={(e) => setOldPwd(e.target.value)} className="rounded-[var(--radius-md)] border border-black/10 px-3 py-2" />
+              </label>
+              <label className="flex flex-col gap-2 text-sm">
+                <span className="text-xs text-[var(--muted)]">新密码</span>
+                <input type="password" value={newPwd} onChange={(e) => setNewPwd(e.target.value)} className="rounded-[var(--radius-md)] border border-black/10 px-3 py-2" />
+              </label>
+              {changeErr && <div className="text-sm text-red-600">{changeErr}</div>}
+              {changeOk && <div className="text-sm text-green-600">{changeOk}</div>}
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button className="rounded-full border px-4 py-2" onClick={() => setShowChangePwd(false)}>取消</button>
+              <button className="button-primary" disabled={changing} onClick={submitChangePwd}>{changing ? '保存中…' : '保存'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -9,6 +9,8 @@ export type WorkspaceColumn = {
 export type WorkspaceRow = {
   id: string;
   cells: Record<string, string>;
+  styles?: Record<string, string>;
+  highlighted?: boolean;
 };
 
 export type WorkspaceNode = {

@@ -382,6 +382,34 @@ func verifyPassword(hash, password string) bool {
 	return subtle.ConstantTimeCompare(sum[:], digest) == 1
 }
 
+// ChangePassword updates the password for the specified username after verifying the old password.
+func (s *LedgerStore) ChangePassword(username, oldPassword, newPassword, actor string) error {
+    normalized := normalizeUsername(username)
+    if normalized == "" {
+        return ErrInvalidCredentials
+    }
+    if err := validatePassword(newPassword); err != nil {
+        return err
+    }
+    s.mu.Lock()
+    defer s.mu.Unlock()
+    user, ok := s.userByName[normalized]
+    if !ok {
+        return ErrInvalidCredentials
+    }
+    if !verifyPassword(user.PasswordHash, oldPassword) {
+        return ErrInvalidCredentials
+    }
+    hash, err := hashPassword(newPassword)
+    if err != nil {
+        return err
+    }
+    user.PasswordHash = hash
+    user.UpdatedAt = time.Now().UTC()
+    s.appendAuditLocked(strings.TrimSpace(actor), "user_password_change", user.ID)
+    return nil
+}
+
 func cloneEntrySlice(entries []LedgerEntry) []LedgerEntry {
 	cloned := make([]LedgerEntry, len(entries))
 	for i, e := range entries {
