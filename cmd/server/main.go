@@ -21,13 +21,13 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-    // Flags override env
-    var (
-        flagDataDir      = flag.String("data-dir", "", "Directory to persist snapshots")
-        flagAutosaveSecs = flag.Int("autosave-secs", 0, "Autosave interval seconds (0 to disable)")
-        flagRetention    = flag.Int("retention", 0, "Number of rolling backups to retain")
-    )
-    flag.Parse()
+	// Flags override env
+	var (
+		flagDataDir      = flag.String("data-dir", "", "Directory to persist snapshots")
+		flagAutosaveSecs = flag.Int("autosave-secs", 0, "Autosave interval seconds (0 to disable)")
+		flagRetention    = flag.Int("retention", 0, "Number of rolling backups to retain")
+	)
+	flag.Parse()
 
 	database, err := db.ConnectFromEnv(ctx)
 	if err != nil {
@@ -71,7 +71,9 @@ func main() {
 				retention := *flagRetention
 				if retention <= 0 {
 					if v := os.Getenv("LEDGER_SNAPSHOT_RETENTION"); v != "" {
-						if n, err := time.ParseDuration("0s"); err == nil { _ = n }
+						if n, err := time.ParseDuration("0s"); err == nil {
+							_ = n
+						}
 					}
 					if v := os.Getenv("LEDGER_SNAPSHOT_RETENTION"); v != "" {
 						// simple parse int

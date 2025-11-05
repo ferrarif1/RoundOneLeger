@@ -50,19 +50,28 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
-// RequireSession ensures a valid session token is provided via the Authorization header.
+// RequireSession validates that a session token is present and valid.
 func RequireSession(manager *auth.Manager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		header := c.GetHeader("Authorization")
-		const prefix = "Bearer "
-		if !strings.HasPrefix(header, prefix) {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing_token"})
-			return
+		// First try to get token from Authorization header
+		token := c.GetHeader("Authorization")
+		if token != "" {
+			if strings.HasPrefix(token, "Bearer ") {
+				token = strings.TrimPrefix(token, "Bearer ")
+			}
+		} else {
+			// Fallback to cookie
+			cookie, err := c.Request.Cookie("ledger.session")
+			if err != nil || cookie == nil {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing_session"})
+				return
+			}
+			token = cookie.Value
 		}
-		token := strings.TrimSpace(strings.TrimPrefix(header, prefix))
+		
 		session, ok := manager.Validate(token)
 		if !ok {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid_token"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid_session"})
 			return
 		}
 		c.Set(ContextSessionKey, session)
@@ -70,24 +79,7 @@ func RequireSession(manager *auth.Manager) gin.HandlerFunc {
 	}
 }
 
-// OptionalSession attaches the session to the context if present but does not enforce authentication.
-func OptionalSession(manager *auth.Manager) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		header := c.GetHeader("Authorization")
-		const prefix = "Bearer "
-		if !strings.HasPrefix(header, prefix) {
-			c.Next()
-			return
-		}
-		token := strings.TrimSpace(strings.TrimPrefix(header, prefix))
-		if session, ok := manager.Validate(token); ok {
-			c.Set(ContextSessionKey, session)
-		}
-		c.Next()
-	}
-}
-
-// CORS enables cross-origin requests so the frontend can interact with the API when
+// CORS adds permissive CORS headers to all responses to support requests
 // served from a different origin. It mirrors the Origin header to support
 // credentialed requests and terminates preflight checks early.
 func CORS() gin.HandlerFunc {
@@ -95,8 +87,10 @@ func CORS() gin.HandlerFunc {
 		origin := c.GetHeader("Origin")
 		if origin != "" {
 			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
-			c.Writer.Header().Set("Vary", "Origin")
+		} else {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		}
+		c.Writer.Header().Set("Vary", "Origin")
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept, Origin, X-Requested-With")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")

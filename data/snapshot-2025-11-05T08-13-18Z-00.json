@@ -1,0 +1,34 @@
+{
+  "entries": {},
+  "workspaces": [],
+  "allowlist": [],
+  "audits": [
+    {
+      "id": "audit-3ACSWk2NRtoNS9Btdz",
+      "actor": "system",
+      "action": "user_seed",
+      "details": "user-36Du8kHAovgP63xDi5",
+      "hash": "iCtKuXTRx706baaTDECqUsCyqVkz/FawWKP+QhApGaQ",
+      "prev_hash": "",
+      "created_at": "2025-11-05T08:11:18.904828Z"
+    },
+    {
+      "id": "audit-Fg8LStOns2lqoyFMJ0",
+      "actor": "hzdsz_admin",
+      "action": "login",
+      "details": "",
+      "hash": "0AD9tvWkhIukAzRzRa0a2k1kYYAK+HsIjtMFgx6C8Ow",
+      "prev_hash": "iCtKuXTRx706baaTDECqUsCyqVkz/FawWKP+QhApGaQ",
+      "created_at": "2025-11-05T08:11:37.755615Z"
+    }
+  ],
+  "users": [
+    {
+      "id": "user-36Du8kHAovgP63xDi5",
+      "username": "hzdsz_admin",
+      "admin": true,
+      "created_at": "2025-11-05T08:11:18.904821Z",
+      "updated_at": "2025-11-05T08:11:18.904821Z"
+    }
+  ]
+}

@@ -1,52 +1,44 @@
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 
-const DEV_PORTS = new Set(['5173', '5174', '4173', '4174']);
-
-const resolveBaseURL = (): string => {
-  const explicit = import.meta.env.VITE_API_URL;
-  if (explicit && explicit.trim()) {
-    return explicit.trim();
+// Determine API base URL based on current location
+let baseURL = '';
+if (typeof window !== 'undefined') {
+  const { hostname, protocol } = window.location;
+  // For localhost, API is on port 8080
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    baseURL = `${protocol}//${hostname}:8080`;
+  } else {
+    // For other hosts, API is on the same host but port 8080
+    baseURL = `${protocol}//${hostname}:8080`;
   }
-
-  if (typeof window !== 'undefined') {
-    const { protocol, hostname, port } = window.location;
-
-    const isHttp = protocol === 'http:' || protocol === 'https:';
-
-    if (!isHttp || !hostname) {
-      return 'http://localhost:8080';
-    }
-
-    const effectivePort = port ?? '';
-    const origin = effectivePort
-      ? `${protocol}//${hostname}:${effectivePort}`
-      : `${protocol}//${hostname}`;
-
-    if (effectivePort && DEV_PORTS.has(effectivePort)) {
-      const isLoopback = hostname === 'localhost' || hostname === '127.0.0.1';
-      if (isLoopback) {
-        return `${protocol}//${hostname}:8080`;
-      }
-      return origin;
-    }
-
-    return origin;
-  }
-
-  return 'http://localhost:8080';
-};
+}
 
 const api = axios.create({
-  baseURL: resolveBaseURL(),
-  withCredentials: true
+  baseURL,
+  withCredentials: true,
 });
 
-api.interceptors.request.use((config) => {
-  const token = window.localStorage.getItem('ledger.session.token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+// Request interceptor to add auth token
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('ledger.token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
   }
-  return config;
-});
+);
+
+// Response interceptor to handle errors
+api.interceptors.response.use(
+  (response) => response,
+  (error: AxiosError) => {
+    // Return error for component to handle
+    return Promise.reject(error);
+  }
+);
 
 export default api;

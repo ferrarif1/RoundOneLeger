@@ -41,6 +41,10 @@ const Login = () => {
         username: username.trim(),
         password
       });
+      // 保存token到localStorage
+      localStorage.setItem('ledger.token', data.token);
+      localStorage.setItem('ledger.username', data.username);
+      localStorage.setItem('ledger.admin', data.admin ? 'true' : 'false');
       setToken(data.token, data.username, Boolean(data.admin));
       setStatus('登录成功，正在跳转…');
       setTimeout(() => navigate('/dashboard', { replace: true }), 400);
@@ -58,66 +62,91 @@ const Login = () => {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] px-4 py-12 text-[var(--text)]">
-      <div className="w-full max-w-lg rounded-[var(--radius-xl)] border border-black/5 bg-white/95 p-10 shadow-[var(--shadow-soft)]">
-        <div className="mb-8 flex items-center gap-3">
-          <div className="rounded-2xl border border-black/10 bg-black/90 p-3 text-white">
-            <LockClosedIcon className="h-6 w-6" />
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+      <div className="w-full max-w-md">
+        <div className="rounded-2xl bg-white/90 p-8 shadow-xl backdrop-blur-sm">
+          <div className="mb-8 text-center">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-indigo-100">
+              <LockClosedIcon className="h-6 w-6 text-indigo-600" />
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900">台账系统</h1>
+            <p className="mt-2 text-sm text-gray-600">登录以继续访问</p>
           </div>
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">RoundOneLeger 控制台</h1>
-            <p className="mt-1 text-sm text-[var(--muted)]">使用管理员账户登录以管理台账与用户。</p>
-          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {status && (
+              <div className="rounded-lg bg-green-50 p-4">
+                <div className="flex">
+                  <div className="flex-shrink-0">
+                    <CheckCircleIcon className="h-5 w-5 text-green-400" />
+                  </div>
+                  <div className="ml-3">
+                    <p className="text-sm text-green-700">{status}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {error && (
+              <div className="rounded-lg bg-red-50 p-4">
+                <div className="flex">
+                  <div className="flex-shrink-0">
+                    <ExclamationCircleIcon className="h-5 w-5 text-red-400" />
+                  </div>
+                  <div className="ml-3">
+                    <p className="text-sm text-red-700">{error}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label htmlFor="username" className="block text-sm font-medium text-gray-700">
+                用户名
+              </label>
+              <div className="mt-1">
+                <input
+                  id="username"
+                  name="username"
+                  type="text"
+                  autoComplete="username"
+                  required
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                密码
+              </label>
+              <div className="mt-1">
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm"
+                />
+              </div>
+            </div>
+
+            <div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex w-full justify-center rounded-md border border-transparent bg-indigo-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50"
+              >
+                {loading ? '登录中…' : '登录'}
+              </button>
+            </div>
+          </form>
         </div>
-
-        <div className="mb-6 rounded-[var(--radius-lg)] bg-[var(--bg-subtle)]/60 px-4 py-3 text-sm text-[var(--muted)]">
-          默认管理员账号：<strong className="font-semibold text-[var(--text)]">hzdsz_admin</strong>，密码：
-          <strong className="font-semibold text-[var(--text)]">Hzdsz@2025#</strong>。
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <label className="flex flex-col gap-2 text-sm">
-            <span className="text-xs text-[var(--muted)]">用户名</span>
-            <input
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              autoComplete="username"
-              className="rounded-[var(--radius-md)] border border-black/10 bg-white/90 px-4 py-2 text-sm text-[var(--text)] focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20"
-              placeholder="请输入用户名"
-            />
-          </label>
-          <label className="flex flex-col gap-2 text-sm">
-            <span className="text-xs text-[var(--muted)]">密码</span>
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete="current-password"
-              className="rounded-[var(--radius-md)] border border-black/10 bg-white/90 px-4 py-2 text-sm text-[var(--text)] focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20"
-              placeholder="请输入密码"
-            />
-          </label>
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-full bg-black px-5 py-2.5 text-sm font-semibold text-white shadow-[var(--shadow-soft)] transition hover:bg-black/90 disabled:cursor-not-allowed"
-          >
-            {loading ? '登录中…' : '登录'}
-          </button>
-        </form>
-
-        {error && (
-          <div className="mt-6 flex items-center gap-2 rounded-[var(--radius-lg)] bg-red-50 px-4 py-3 text-sm text-red-600">
-            <ExclamationCircleIcon className="h-5 w-5" />
-            <span>{error}</span>
-          </div>
-        )}
-        {status && !error && (
-          <div className="mt-6 flex items-center gap-2 rounded-[var(--radius-lg)] bg-green-50 px-4 py-3 text-sm text-green-600">
-            <CheckCircleIcon className="h-5 w-5" />
-            <span>{status}</span>
-          </div>
-        )}
       </div>
     </div>
   );
