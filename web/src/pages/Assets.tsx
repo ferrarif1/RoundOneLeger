@@ -31,6 +31,7 @@ import type {
   WorkspaceNode,
   WorkspaceRow
 } from '../components/ledger/types';
+import { inlineBlobSources } from '../utils/html';
 
 const DEFAULT_TITLE = '未命名台账';
 const MIN_COLUMN_WIDTH = 140;
@@ -883,8 +884,19 @@ const Assets = () => {
     setError(null);
     const trimmedName = name.trim() || DEFAULT_TITLE;
     const payload: Record<string, unknown> = { name: trimmedName };
+    let preparedDocument = documentContent;
+    if ((isSheet || isDocument) && preparedDocument && preparedDocument.includes('blob:')) {
+      try {
+        preparedDocument = await inlineBlobSources(preparedDocument);
+        if (preparedDocument !== documentContent) {
+          setDocumentContent(preparedDocument);
+        }
+      } catch (error) {
+        console.warn('转换文档中的图片资源失败', error);
+      }
+    }
     if (isSheet) {
-      payload.document = documentContent;
+      payload.document = preparedDocument;
       payload.columns = columns.map((column, index) => ({
         id: column.id || generateId(),
         title: column.title || `字段 ${index + 1}`,
@@ -892,7 +904,7 @@ const Assets = () => {
       }));
       payload.rows = rows.map((row) => ({ id: row.id, cells: row.cells, highlighted: highlightedRowIds.includes(row.id) }));
     } else if (isDocument) {
-      payload.document = documentContent;
+      payload.document = preparedDocument;
     }
     setSaving(true);
     try {
@@ -906,7 +918,17 @@ const Assets = () => {
     } finally {
       setSaving(false);
     }
-  }, [columns, currentWorkspace, documentContent, isDocument, isSheet, name, refreshList, rows]);
+  }, [
+    columns,
+    currentWorkspace,
+    documentContent,
+    highlightedRowIds,
+    isDocument,
+    isSheet,
+    name,
+    refreshList,
+    rows
+  ]);
 
   const handleDeleteWorkspace = useCallback(async () => {
     if (!currentWorkspace) {
