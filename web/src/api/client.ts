@@ -11,18 +11,20 @@ if (!baseURL && typeof window !== 'undefined') {
   const isViteDevPort = normalizedPort === '5173' || normalizedPort === '4173';
   const isLoopbackHost =
     hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+  const isIPv4Host = /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname);
 
   if (isViteDevPort) {
-    // Let the Vite proxy rewrite requests to the backend when running the dev server.
-    baseURL = '';
+    // When the UI is served from the Vite dev/preview servers, always talk to the
+    // Go backend on port 8080 so that other devices can log in via the host's IP.
+    baseURL = `${protocol}//${hostname}:8080`;
   } else if (!isDefaultPort) {
     baseURL = `${protocol}//${hostname}:${port}`;
-  } else if (isLoopbackHost) {
-    // Default to the Go server's port when developing on the same machine.
+  } else if (isLoopbackHost || isIPv4Host) {
+    // Loopback development and direct IP visits should default to the Go server's port.
     baseURL = `${protocol}//${hostname}:8080`;
   } else {
-    // For non-loopback hosts keep calls on the current origin so that reverse
-    // proxies (e.g. Nginx serving both frontend + backend) continue to work.
+    // For named hosts keep calls on the current origin so that reverse proxies
+    // (e.g. Nginx serving both frontend + backend) continue to work without extra config.
     baseURL = `${protocol}//${hostname}`;
   }
 }
