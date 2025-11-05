@@ -4,3 +4,4 @@ bin/
 web/node_modules/
 web/dist/
 web/package-lock.json
+data/snapshot-2025-11-05T08-12-28Z-00.json
