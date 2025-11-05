@@ -30,7 +30,7 @@ cd web
 npm install
 npm run dev       # 在 http://localhost:5173 启动 Vite 开发服务器
 ```
-前端默认请求当前主机的 `8080` 端口，若由反向代理或不同域名提供后端，可通过 `VITE_API_BASE_URL` 指定实际地址。
+当前端通过 IP 或域名访问系统时，会优先沿用现有来源地址，方便 Nginx 等反向代理统一对外暴露；在本机使用 `localhost` 开发时则自动转向 `8080` 端口。如需自定义，可设置 `VITE_API_BASE_URL`。
 
 ## Docker Compose
 使用一条命令启动后端与 PostgreSQL：

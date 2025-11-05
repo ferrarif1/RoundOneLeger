@@ -30,7 +30,7 @@ cd web
 npm install
 npm run dev       # Vite dev server on http://localhost:5173
 ```
-The frontend defaults to calling the API on the same host at port `8080`. Override with `VITE_API_BASE_URL` when proxying behind a different origin.
+The frontend keeps API calls on the current origin when you visit the site over an IP/hostname (ideal for Nginx or other reverse proxies). During local development on `localhost` it automatically targets port `8080`. Override everything with `VITE_API_BASE_URL` when needed.
 
 ## Docker compose
 Run everything (backend + PostgreSQL) with one command:

@@ -1,28 +1,29 @@
 import axios, { AxiosError } from 'axios';
 
-// Determine API base URL based on current location or environment configuration.
-// Prefer staying on the current origin when possible to keep HTTPS deployments
-// secure, but fall back to the typical Go API port (8080) when the frontend is
-// being accessed through an IP/hostname without an explicit port.
-let baseURL = import.meta.env?.VITE_API_BASE_URL ?? '';
+const envBaseURL = import.meta.env?.VITE_API_BASE_URL?.trim() ?? '';
+
+let baseURL = envBaseURL;
 
 if (!baseURL && typeof window !== 'undefined') {
   const { hostname, protocol, port } = window.location;
   const normalizedPort = port || (protocol === 'https:' ? '443' : protocol === 'http:' ? '80' : '');
   const isDefaultPort = normalizedPort === '80' || normalizedPort === '443' || normalizedPort === '';
   const isViteDevPort = normalizedPort === '5173' || normalizedPort === '4173';
+  const isLoopbackHost =
+    hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
 
   if (isViteDevPort) {
     // Let the Vite proxy rewrite requests to the backend when running the dev server.
     baseURL = '';
   } else if (!isDefaultPort) {
     baseURL = `${protocol}//${hostname}:${port}`;
-  } else if (import.meta.env.DEV) {
-    // Dev builds without an explicit port still need to talk to the Go server on 8080.
+  } else if (isLoopbackHost) {
+    // Default to the Go server's port when developing on the same machine.
     baseURL = `${protocol}//${hostname}:8080`;
   } else {
-    // Production deployments commonly front the API on the same origin.
-    baseURL = `${protocol}//${hostname}:8080`;
+    // For non-loopback hosts keep calls on the current origin so that reverse
+    // proxies (e.g. Nginx serving both frontend + backend) continue to work.
+    baseURL = `${protocol}//${hostname}`;
   }
 }
 
