@@ -1,9 +1,9 @@
 import axios, { AxiosError } from 'axios';
 
 // Determine API base URL based on current location or environment configuration.
-// Prefer staying on the current origin (which keeps HTTPS deployments secure and
-// allows the Vite dev server proxy to handle cross-origin requests) unless an
-// explicit override is provided via VITE_API_BASE_URL.
+// Prefer staying on the current origin when possible to keep HTTPS deployments
+// secure, but fall back to the typical Go API port (8080) when the frontend is
+// being accessed through an IP/hostname without an explicit port.
 let baseURL = import.meta.env?.VITE_API_BASE_URL ?? '';
 
 if (!baseURL && typeof window !== 'undefined') {
@@ -13,13 +13,22 @@ if (!baseURL && typeof window !== 'undefined') {
   const isViteDevPort = normalizedPort === '5173' || normalizedPort === '4173';
 
   if (isViteDevPort) {
-    // Let the Vite proxy rewrite requests to the backend.
+    // Let the Vite proxy rewrite requests to the backend when running the dev server.
     baseURL = '';
-  } else if (isDefaultPort) {
-    baseURL = `${protocol}//${hostname}`;
-  } else {
+  } else if (!isDefaultPort) {
     baseURL = `${protocol}//${hostname}:${port}`;
+  } else if (import.meta.env.DEV) {
+    // Dev builds without an explicit port still need to talk to the Go server on 8080.
+    baseURL = `${protocol}//${hostname}:8080`;
+  } else {
+    // Production deployments commonly front the API on the same origin.
+    baseURL = `${protocol}//${hostname}:8080`;
   }
+}
+
+// If the heuristics above still left baseURL empty (e.g. SSR), fall back to relative requests.
+if (!baseURL) {
+  baseURL = '';
 }
 
 const api = axios.create({
