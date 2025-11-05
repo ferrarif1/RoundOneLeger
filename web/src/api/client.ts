@@ -13,9 +13,10 @@ if (!baseURL && typeof window !== 'undefined') {
     hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
 
   if (isViteDevPort) {
-    // When the UI is served from the Vite dev/preview servers, always talk to the
-    // Go backend on port 8080 so that other devices can log in via the host's IP.
-    baseURL = `${protocol}//${hostname}:8080`;
+    // Let the Vite dev/preview servers proxy API traffic so that remote devices
+    // reuse the same origin (http://<host>:5173) instead of hitting the backend
+    // directly and tripping CORS or network restrictions.
+    baseURL = '';
   } else if (!isDefaultPort) {
     baseURL = `${protocol}//${hostname}:${port}`;
   } else if (isLoopbackHost) {
