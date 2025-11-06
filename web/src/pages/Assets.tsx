@@ -447,6 +447,38 @@ const Assets = () => {
     return map;
   }, [allNodes]);
 
+  const canMoveWorkspace = useCallback(
+    (sourceId: string, targetParentId: string | null) => {
+      if (!sourceId) {
+        return false;
+      }
+      const sourceNode = workspaceMap.get(sourceId);
+      if (!sourceNode) {
+        return false;
+      }
+      const currentParent = sourceNode.parentId ?? '';
+      const nextParent = targetParentId ?? '';
+      if (currentParent === nextParent) {
+        return false;
+      }
+      if (targetParentId) {
+        const targetNode = workspaceMap.get(targetParentId);
+        if (!targetNode || targetNode.kind !== 'folder') {
+          return false;
+        }
+        let cursor: string | null | undefined = targetNode.parentId ?? null;
+        while (cursor) {
+          if (cursor === sourceId) {
+            return false;
+          }
+          cursor = workspaceMap.get(cursor)?.parentId ?? null;
+        }
+      }
+      return true;
+    },
+    [workspaceMap]
+  );
+
   const selectedNode = selectedId ? workspaceMap.get(selectedId) : null;
   const selectedKind: WorkspaceKind = currentWorkspace?.kind ?? normalizeKind(selectedNode?.kind);
   const isSheet = selectedKind === 'sheet';
@@ -587,6 +619,33 @@ const Assets = () => {
       }
     },
     [selectedId]
+  );
+
+  const handleMoveWorkspace = useCallback(
+    async (workspaceId: string, targetParentId: string | null) => {
+      const node = workspaceMap.get(workspaceId);
+      if (!node) {
+        return;
+      }
+      const currentParent = node.parentId ?? '';
+      const nextParent = targetParentId ?? '';
+      if (currentParent === nextParent) {
+        return;
+      }
+      try {
+        setStatus('正在移动台账…');
+        setError(null);
+        await api.put(`/api/v1/workspaces/${workspaceId}`, { parentId: nextParent });
+        setStatus('已移动台账。');
+        await refreshList(workspaceId);
+      } catch (err) {
+        console.error('移动台账失败', err);
+        const axiosError = err as AxiosError<{ error?: string }>;
+        setError(axiosError.response?.data?.error || axiosError.message || '移动失败，请稍后再试。');
+        setStatus(null);
+      }
+    },
+    [refreshList, workspaceMap]
   );
 
   const loadWorkspace = useCallback(
@@ -1068,6 +1127,8 @@ const Assets = () => {
       onSearchChange={setListQuery}
       creationOptions={CREATION_OPTIONS}
       formatTimestamp={formatTimestamp}
+      onMove={handleMoveWorkspace}
+      canMove={canMoveWorkspace}
     />
   );
 

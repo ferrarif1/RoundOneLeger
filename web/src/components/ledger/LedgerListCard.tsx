@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { DragEvent } from 'react';
 import { MagnifyingGlassIcon, PlusIcon } from '@heroicons/react/24/outline';
 import type { ComponentType, SVGProps } from 'react';
 
@@ -21,6 +22,8 @@ type LedgerListCardProps = {
   onSearchChange: (value: string) => void;
   creationOptions: CreationOption[];
   formatTimestamp?: (value?: string) => string;
+  onMove?: (sourceId: string, targetParentId: string | null) => Promise<void> | void;
+  canMove?: (sourceId: string, targetParentId: string | null) => boolean;
 };
 
 const filterTree = (nodes: WorkspaceNode[], keyword: string): WorkspaceNode[] => {
@@ -29,16 +32,18 @@ const filterTree = (nodes: WorkspaceNode[], keyword: string): WorkspaceNode[] =>
   }
   const lower = keyword.trim().toLowerCase();
   const walk = (list: WorkspaceNode[]): WorkspaceNode[] => {
-    return list
-      .map((node) => {
-        const matches = (node.name || '').toLowerCase().includes(lower);
-        const children = node.children ? walk(node.children) : [];
-        if (matches || children.length) {
-          return { ...node, children };
-        }
-        return null;
-      })
-      .filter((node): node is WorkspaceNode => node !== null);
+    const result: WorkspaceNode[] = [];
+    list.forEach((node) => {
+      const matches = (node.name || '').toLowerCase().includes(lower);
+      const children = node.children ? walk(node.children) : [];
+      if (matches || children.length) {
+        result.push({
+          ...node,
+          children: children.length ? children : undefined
+        });
+      }
+    });
+    return result;
   };
   return walk(nodes);
 };
@@ -51,11 +56,16 @@ export const LedgerListCard = ({
   search,
   onSearchChange,
   creationOptions,
-  formatTimestamp
+  formatTimestamp,
+  onMove,
+  canMove
 }: LedgerListCardProps) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const [rootActive, setRootActive] = useState(false);
 
   useEffect(() => {
     const handleClick = (event: MouseEvent) => {
@@ -74,19 +84,173 @@ export const LedgerListCard = ({
 
   const filtered = useMemo(() => filterTree(items, search), [items, search]);
 
+  const resetDragState = useCallback(() => {
+    setDraggingId(null);
+    setDropTargetId(null);
+    setRootActive(false);
+  }, []);
+
+  const handleDragStart = useCallback(
+    (node: WorkspaceNode) => {
+      if (!onMove) {
+        return;
+      }
+      setDraggingId(node.id);
+      setDropTargetId(null);
+      setRootActive(false);
+    },
+    [onMove]
+  );
+
+  const handleDragEnd = useCallback(() => {
+    resetDragState();
+  }, [resetDragState]);
+
+  const handleDragOverNode = useCallback(
+    (event: DragEvent<HTMLButtonElement>, node: WorkspaceNode) => {
+      if (!draggingId || !onMove) {
+        return;
+      }
+      if (draggingId === node.id) {
+        return;
+      }
+      if (node.kind !== 'folder') {
+        return;
+      }
+      const allowed = canMove ? canMove(draggingId, node.id) : true;
+      if (!allowed) {
+        return;
+      }
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      if (dropTargetId !== node.id) {
+        setDropTargetId(node.id);
+      }
+      if (rootActive) {
+        setRootActive(false);
+      }
+    },
+    [canMove, draggingId, dropTargetId, onMove, rootActive]
+  );
+
+  const handleDragLeaveNode = useCallback(
+    (event: DragEvent<HTMLButtonElement>, node: WorkspaceNode) => {
+      if (!draggingId) {
+        return;
+      }
+      const nextTarget = event.relatedTarget as Node | null;
+      if (!nextTarget || !event.currentTarget.contains(nextTarget)) {
+        setDropTargetId((prev) => (prev === node.id ? null : prev));
+      }
+    },
+    [draggingId]
+  );
+
+  const handleDropOnNode = useCallback(
+    async (event: DragEvent<HTMLButtonElement>, node: WorkspaceNode) => {
+      if (!draggingId || !onMove) {
+        return;
+      }
+      if (draggingId === node.id) {
+        return;
+      }
+      if (node.kind !== 'folder') {
+        return;
+      }
+      const allowed = canMove ? canMove(draggingId, node.id) : true;
+      if (!allowed) {
+        return;
+      }
+      event.preventDefault();
+      resetDragState();
+      await onMove(draggingId, node.id);
+    },
+    [canMove, draggingId, onMove, resetDragState]
+  );
+
+  const handleDragOverRoot = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      if (!draggingId || !onMove) {
+        return;
+      }
+      const allowed = canMove ? canMove(draggingId, null) : true;
+      if (!allowed) {
+        if (rootActive) {
+          setRootActive(false);
+        }
+        return;
+      }
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      if (!rootActive) {
+        setRootActive(true);
+      }
+      if (dropTargetId !== null) {
+        setDropTargetId(null);
+      }
+    },
+    [canMove, draggingId, dropTargetId, onMove, rootActive]
+  );
+
+  const handleDropOnRoot = useCallback(
+    async (event: DragEvent<HTMLDivElement>) => {
+      if (!draggingId || !onMove) {
+        return;
+      }
+      const allowed = canMove ? canMove(draggingId, null) : true;
+      if (!allowed) {
+        return;
+      }
+      event.preventDefault();
+      resetDragState();
+      await onMove(draggingId, null);
+    },
+    [canMove, draggingId, onMove, resetDragState]
+  );
+
+  const handleRootDragLeave = useCallback(() => {
+    if (rootActive) {
+      setRootActive(false);
+    }
+  }, [rootActive]);
+
+  const showRootDrop = useMemo(() => {
+    if (!draggingId || !onMove) {
+      return false;
+    }
+    return canMove ? canMove(draggingId, null) : true;
+  }, [canMove, draggingId, onMove]);
+
   const renderNodes = (nodes: WorkspaceNode[], depth = 0) =>
-    nodes.map((node) => (
-      <div key={node.id}>
-        <LedgerItem
-          node={node}
-          depth={depth}
-          active={node.id === selectedId}
-          onSelect={onSelect}
-          formatTimestamp={formatTimestamp}
-        />
-        {node.children?.length ? <div>{renderNodes(node.children, depth + 1)}</div> : null}
-      </div>
-    ));
+    nodes.map((node) => {
+      const droppable = Boolean(
+        onMove &&
+          draggingId &&
+          node.kind === 'folder' &&
+          draggingId !== node.id &&
+          (canMove ? canMove(draggingId, node.id) : true)
+      );
+      return (
+        <div key={node.id}>
+          <LedgerItem
+            node={node}
+            depth={depth}
+            active={node.id === selectedId}
+            onSelect={onSelect}
+            formatTimestamp={formatTimestamp}
+            draggable={Boolean(onMove)}
+            isDragging={draggingId === node.id}
+            isDropTarget={dropTargetId === node.id}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            onDragOver={droppable ? handleDragOverNode : undefined}
+            onDragLeave={droppable ? handleDragLeaveNode : undefined}
+            onDrop={droppable ? handleDropOnNode : undefined}
+          />
+          {node.children?.length ? <div>{renderNodes(node.children, depth + 1)}</div> : null}
+        </div>
+      );
+    });
 
   return (
     <div className="ledger-list-card">
@@ -112,6 +276,20 @@ export const LedgerListCard = ({
           />
         </div>
       </div>
+      {showRootDrop ? (
+        <div
+          className={`mt-4 rounded-2xl border border-dashed px-4 py-3 text-sm transition ${
+            rootActive
+              ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)]'
+              : 'border-black/10 text-[var(--muted)]'
+          }`}
+          onDragOver={handleDragOverRoot}
+          onDragLeave={handleRootDragLeave}
+          onDrop={handleDropOnRoot}
+        >
+          拖放到此处移出文件夹
+        </div>
+      ) : null}
       {menuOpen && (
         <div
           ref={menuRef}
