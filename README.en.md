@@ -57,11 +57,10 @@ docker-compose up --build
 This brings up Postgres alongside the backend container. Adjust environment variables inside `docker-compose.yml` before running if you need custom credentials.
 
 ### Authentication
-- Click the “SDID one-click login” button on the web console to request a challenge from `/auth/request-nonce`; if that endpoint is unreachable (e.g., when serving the UI from a static file share), the page will mint a local challenge before calling the extension.
-- The browser extension (from [ferrarif1/SDID](https://github.com/ferrarif1/SDID)) calls `requestLogin` and returns the DID, an ECDSA P-256 public key JWK, and a canonical authentication payload with the signature embedded in either `signature` or `proof.signatureValue`.
-- Submit `{nonce, response}` to `/auth/login` where `response` is the untouched object from `requestLogin`; the Go backend rebuilds the canonical request, verifies the DER-encoded signature against the supplied JWK, and issues a session token. Identities with an administrator role are admitted immediately, while non-admin accounts must carry an administrator certification (e.g. `authorized: true` in the SDID payload) or the server will return `identity_not_approved`.
-- The login screen verifies signatures with WebCrypto when available and transparently falls back to a pure TypeScript P-256 implementation when the browser blocks `crypto.subtle` on HTTP-only intranet deployments. After a successful login the SDID button is replaced with “`${username} 已登陆`” and the returned payload is summarized alongside the raw JSON for auditing.
-- You can still manage IP allowlists from the console to restrict which networks may reach the authenticated APIs.
+- POST `/auth/password-login` with `{ "username": "…", "password": "…" }` to obtain a bearer token. The response echoes the username and an `admin` flag so the UI can tailor access.
+- Include the token in `Authorization: Bearer <token>` for all authenticated API calls. Sessions automatically expire based on the server TTL and the frontend clears stored credentials on logout.
+- A default administrator (`hzdsz_admin` / `Hzdsz@2025#`) is provisioned for initial access. After signing in, open the “用户中心” page to add or remove other operators. Only administrators may manage users, IP allowlists, or ledger schemas.
+- Operator passwords are salted and hashed with PBKDF2-HMAC-SHA256 (120k iterations) before storage. New passwords must be at least 10 characters long and include upper- and lower-case letters, a digit, and a symbol.
 
 ## Collaborative Workspaces
 

@@ -1,16 +1,21 @@
 package models
 
 import (
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	mrand "math/rand"
 	"net"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 var (
@@ -40,12 +45,34 @@ var (
 	ErrWorkspaceParentInvalid = errors.New("workspace_parent_invalid")
 	// ErrWorkspaceKindUnsupported indicates the requested operation is not allowed for the workspace kind.
 	ErrWorkspaceKindUnsupported = errors.New("workspace_kind_unsupported")
+	// ErrUserExists indicates the username is already registered.
+	ErrUserExists = errors.New("user_exists")
+	// ErrUserNotFound indicates the requested user cannot be located.
+	ErrUserNotFound = errors.New("user_not_found")
+	// ErrInvalidCredentials indicates username or password validation failed.
+	ErrInvalidCredentials = errors.New("invalid_credentials")
+	// ErrUserDeleteLastAdmin prevents removal of the final administrator account.
+	ErrUserDeleteLastAdmin = errors.New("cannot_delete_last_admin")
+	// ErrUsernameInvalid indicates the provided username is empty or malformed.
+	ErrUsernameInvalid = errors.New("username_invalid")
+	// ErrPasswordTooShort indicates the provided password is shorter than the minimum length.
+	ErrPasswordTooShort = errors.New("password_too_short")
+	// ErrPasswordTooWeak indicates the provided password lacks the required complexity.
+	ErrPasswordTooWeak = errors.New("password_too_weak")
 )
 
 var (
 	seededRand   = mrand.New(mrand.NewSource(time.Now().UnixNano()))
 	seededRandMu sync.Mutex
 	idAlphabet   = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+)
+
+const (
+	defaultAdminUsername = "hzdsz_admin"
+	defaultAdminPassword = "Hzdsz@2025#"
+	passwordSaltBytes    = 16
+	passwordKeyBytes     = 32
+	passwordIterations   = 120_000
 )
 
 // LedgerStore coordinates all mutable state for the in-memory implementation.
@@ -64,6 +91,10 @@ type LedgerStore struct {
 	approvalByApplicant map[string]*IdentityApproval
 
 	loginChallenges map[string]*LoginChallenge
+
+	users      map[string]*User
+	userByName map[string]*User
+	userOrder  []string
 
 	history historyStack
 }
@@ -136,10 +167,168 @@ func NewLedgerStore() *LedgerStore {
 		approvals:           make(map[string]*IdentityApproval),
 		approvalByApplicant: make(map[string]*IdentityApproval),
 		loginChallenges:     make(map[string]*LoginChallenge),
+		users:               make(map[string]*User),
+		userByName:          make(map[string]*User),
 	}
 	store.history.limit = 11
 	store.history.Reset(store.snapshotLocked())
+	if err := store.ensureDefaultAdmin(); err != nil {
+		panic(fmt.Sprintf("failed to seed default admin: %v", err))
+	}
 	return store
+}
+
+func (s *LedgerStore) ensureDefaultAdmin() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	normalized := normalizeUsername(defaultAdminUsername)
+	if normalized == "" {
+		return ErrUsernameInvalid
+	}
+	if _, exists := s.userByName[normalized]; exists {
+		return nil
+	}
+	if err := validatePassword(defaultAdminPassword); err != nil {
+		return err
+	}
+	hash, err := hashPassword(defaultAdminPassword)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	user := &User{
+		ID:           GenerateID("user"),
+		Username:     defaultAdminUsername,
+		Admin:        true,
+		PasswordHash: hash,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	s.users[user.ID] = user
+	s.userByName[normalized] = user
+	s.userOrder = append(s.userOrder, user.ID)
+	s.appendAuditLocked("system", "user_seed", user.ID)
+	return nil
+}
+
+// ListUsers returns all registered users in creation order.
+func (s *LedgerStore) ListUsers() []*User {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]*User, 0, len(s.userOrder))
+	for _, id := range s.userOrder {
+		if user, ok := s.users[id]; ok {
+			out = append(out, user.Clone())
+		}
+	}
+	return out
+}
+
+// CreateUser registers a new operator account.
+func (s *LedgerStore) CreateUser(username, password string, admin bool, actor string) (*User, error) {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return nil, ErrUsernameInvalid
+	}
+	normalized := normalizeUsername(username)
+	if normalized == "" {
+		return nil, ErrUsernameInvalid
+	}
+	if err := validatePassword(password); err != nil {
+		return nil, err
+	}
+	hash, err := hashPassword(password)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.userByName[normalized]; exists {
+		return nil, ErrUserExists
+	}
+	user := &User{
+		ID:           GenerateID("user"),
+		Username:     username,
+		Admin:        admin,
+		PasswordHash: hash,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	s.users[user.ID] = user
+	s.userByName[normalized] = user
+	s.userOrder = append(s.userOrder, user.ID)
+	s.appendAuditLocked(strings.TrimSpace(actor), "user_create", user.ID)
+	return user.Clone(), nil
+}
+
+// DeleteUser removes the specified user unless it would orphan the system without administrators.
+func (s *LedgerStore) DeleteUser(id string, actor string) error {
+	trimmed := strings.TrimSpace(id)
+	if trimmed == "" {
+		return ErrUserNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	user, ok := s.users[trimmed]
+	if !ok {
+		return ErrUserNotFound
+	}
+	if user.Admin {
+		adminCount := 0
+		for _, candidate := range s.users {
+			if candidate != nil && candidate.Admin {
+				adminCount++
+			}
+		}
+		if adminCount <= 1 {
+			return ErrUserDeleteLastAdmin
+		}
+	}
+	delete(s.userByName, normalizeUsername(user.Username))
+	delete(s.users, trimmed)
+	filtered := s.userOrder[:0]
+	for _, existing := range s.userOrder {
+		if existing != trimmed {
+			filtered = append(filtered, existing)
+		}
+	}
+	s.userOrder = filtered
+	s.appendAuditLocked(strings.TrimSpace(actor), "user_delete", trimmed)
+	return nil
+}
+
+// AuthenticateUser validates a username/password combination.
+func (s *LedgerStore) AuthenticateUser(username, password string) (*User, error) {
+	normalized := normalizeUsername(username)
+	if normalized == "" {
+		return nil, ErrInvalidCredentials
+	}
+	s.mu.RLock()
+	user, ok := s.userByName[normalized]
+	s.mu.RUnlock()
+	if !ok {
+		return nil, ErrInvalidCredentials
+	}
+	if !verifyPassword(user.PasswordHash, password) {
+		return nil, ErrInvalidCredentials
+	}
+	return user.Clone(), nil
+}
+
+// IsUserAdmin reports whether the provided username maps to an administrator.
+func (s *LedgerStore) IsUserAdmin(username string) bool {
+	normalized := normalizeUsername(username)
+	if normalized == "" {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	user, ok := s.userByName[normalized]
+	if !ok {
+		return false
+	}
+	return user.Admin
 }
 
 // GenerateID creates a pseudo-random identifier string.
@@ -155,6 +344,125 @@ func randomIDToken(length int) string {
 		b[i] = idAlphabet[seededRand.Intn(len(idAlphabet))]
 	}
 	return string(b)
+}
+
+func normalizeUsername(username string) string {
+	return strings.ToLower(strings.TrimSpace(username))
+}
+
+func validatePassword(password string) error {
+	if len(password) < 10 {
+		return ErrPasswordTooShort
+	}
+	if strings.TrimSpace(password) == "" {
+		return ErrPasswordTooShort
+	}
+	var hasUpper, hasLower, hasNumber, hasSymbol bool
+	for _, r := range password {
+		switch {
+		case unicode.IsUpper(r):
+			hasUpper = true
+		case unicode.IsLower(r):
+			hasLower = true
+		case unicode.IsDigit(r):
+			hasNumber = true
+		case unicode.IsPunct(r) || unicode.IsSymbol(r):
+			hasSymbol = true
+		}
+	}
+	if !hasUpper || !hasLower || !hasNumber || !hasSymbol {
+		return ErrPasswordTooWeak
+	}
+	return nil
+}
+
+func hashPassword(password string) (string, error) {
+	salt := make([]byte, passwordSaltBytes)
+	if _, err := rand.Read(salt); err != nil {
+		return "", err
+	}
+	derived := pbkdf2Key([]byte(password), salt, passwordIterations, passwordKeyBytes)
+	if len(derived) == 0 {
+		return "", errors.New("derive_failed")
+	}
+	return fmt.Sprintf(
+		"%d:%s:%s",
+		passwordIterations,
+		base64.RawStdEncoding.EncodeToString(salt),
+		base64.RawStdEncoding.EncodeToString(derived),
+	), nil
+}
+
+func verifyPassword(hash, password string) bool {
+	parts := strings.Split(hash, ":")
+	switch len(parts) {
+	case 3:
+		iterations, err := strconv.Atoi(parts[0])
+		if err != nil || iterations <= 0 {
+			return false
+		}
+		salt, err := base64.RawStdEncoding.DecodeString(parts[1])
+		if err != nil {
+			return false
+		}
+		digest, err := base64.RawStdEncoding.DecodeString(parts[2])
+		if err != nil {
+			return false
+		}
+		derived := pbkdf2Key([]byte(password), salt, iterations, len(digest))
+		if len(derived) != len(digest) {
+			return false
+		}
+		return subtle.ConstantTimeCompare(derived, digest) == 1
+	case 2:
+		// Backwards-compatibility for legacy SHA-256 salted hashes.
+		salt, err := base64.RawStdEncoding.DecodeString(parts[0])
+		if err != nil {
+			return false
+		}
+		digest, err := base64.RawStdEncoding.DecodeString(parts[1])
+		if err != nil {
+			return false
+		}
+		sum := sha256.Sum256(append(salt, []byte(password)...))
+		return subtle.ConstantTimeCompare(sum[:], digest) == 1
+	default:
+		return false
+	}
+}
+
+func pbkdf2Key(password, salt []byte, iterations, length int) []byte {
+	if iterations <= 0 || length <= 0 {
+		return nil
+	}
+	hashLen := sha256.Size
+	blocks := (length + hashLen - 1) / hashLen
+	derived := make([]byte, blocks*hashLen)
+	mac := hmac.New(sha256.New, password)
+	var counter [4]byte
+	for i := 1; i <= blocks; i++ {
+		mac.Reset()
+		mac.Write(salt)
+		counter[0] = byte(i >> 24)
+		counter[1] = byte(i >> 16)
+		counter[2] = byte(i >> 8)
+		counter[3] = byte(i)
+		mac.Write(counter[:])
+		u := mac.Sum(nil)
+		block := make([]byte, len(u))
+		copy(block, u)
+		for j := 1; j < iterations; j++ {
+			mac.Reset()
+			mac.Write(u)
+			u = mac.Sum(nil)
+			for k := 0; k < len(block); k++ {
+				block[k] ^= u[k]
+			}
+		}
+		offset := (i - 1) * hashLen
+		copy(derived[offset:], block)
+	}
+	return derived[:length]
 }
 
 func cloneEntrySlice(entries []LedgerEntry) []LedgerEntry {

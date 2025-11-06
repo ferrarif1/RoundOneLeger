@@ -2,46 +2,81 @@ import { useEffect, useState } from 'react';
 
 interface SessionState {
   token: string | null;
-  setToken: (token: string | null) => void;
+  username: string | null;
+  admin: boolean;
+  setToken: (token: string | null, username?: string | null, admin?: boolean) => void;
 }
 
-const sessionKey = 'ledger.session.token';
-let sessionToken: string | null = null;
-const listeners = new Set<(value: string | null) => void>();
+type SessionSnapshot = {
+  token: string | null;
+  username: string | null;
+  admin: boolean;
+};
+
+const tokenKey = 'ledger.session.token';
+const usernameKey = 'ledger.session.username';
+const adminKey = 'ledger.session.admin';
+
+let snapshot: SessionSnapshot = { token: null, username: null, admin: false };
+let hydrated = false;
+const listeners = new Set<(value: SessionSnapshot) => void>();
 
 const notify = () => {
+  const payload = { ...snapshot };
   for (const listener of listeners) {
-    listener(sessionToken);
+    listener(payload);
   }
 };
 
-const ensureTokenLoaded = () => {
-  if (sessionToken === null) {
-    sessionToken = window.localStorage.getItem(sessionKey);
+const loadSnapshot = () => {
+  if (hydrated || typeof window === 'undefined') {
+    return snapshot;
   }
-  return sessionToken;
+  snapshot = {
+    token: window.localStorage.getItem(tokenKey),
+    username: window.localStorage.getItem(usernameKey),
+    admin: window.localStorage.getItem(adminKey) === 'true'
+  };
+  hydrated = true;
+  return snapshot;
 };
 
 export const useSession = (): SessionState => {
-  const [token, setTokenState] = useState<string | null>(() => ensureTokenLoaded());
+  const [state, setState] = useState<SessionSnapshot>(() => ({ ...loadSnapshot() }));
 
   useEffect(() => {
-    const handler = (value: string | null) => setTokenState(value);
+    const handler = (value: SessionSnapshot) => setState({ ...value });
     listeners.add(handler);
     return () => {
       listeners.delete(handler);
     };
   }, []);
 
-  const setToken = (next: string | null) => {
-    sessionToken = next;
-    if (next) {
-      window.localStorage.setItem(sessionKey, next);
-    } else {
-      window.localStorage.removeItem(sessionKey);
+  const setToken = (token: string | null, username?: string | null, admin?: boolean) => {
+    const current = loadSnapshot();
+    const next: SessionSnapshot = {
+      token,
+      username: token ? username ?? current.username : null,
+      admin: token ? (admin ?? current.admin) : false
+    };
+    snapshot = next;
+    if (typeof window !== 'undefined') {
+      if (token) {
+        window.localStorage.setItem(tokenKey, token);
+        if (next.username) {
+          window.localStorage.setItem(usernameKey, next.username);
+        } else {
+          window.localStorage.removeItem(usernameKey);
+        }
+        window.localStorage.setItem(adminKey, next.admin ? 'true' : 'false');
+      } else {
+        window.localStorage.removeItem(tokenKey);
+        window.localStorage.removeItem(usernameKey);
+        window.localStorage.removeItem(adminKey);
+      }
     }
     notify();
   };
 
-  return { token, setToken };
+  return { ...state, setToken };
 };

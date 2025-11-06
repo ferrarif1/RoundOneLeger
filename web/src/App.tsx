@@ -8,6 +8,7 @@ import Assets from './pages/Assets';
 import IPAllowlist from './pages/IPAllowlist';
 import AuditLogs from './pages/AuditLogs';
 import Approvals from './pages/Approvals';
+import Users from './pages/Users';
 import { useSession } from './hooks/useSession';
 
 const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
@@ -19,14 +20,11 @@ const App = () => {
   const { token } = useSession();
 
   return (
-    <div
-      className="flex min-h-screen"
-      style={{ background: 'var(--bg)', color: 'var(--text)' }}
-    >
+    <div className="flex min-h-screen bg-[var(--bg)] text-[var(--text)]">
       {token && <Sidebar />}
       <div className="flex-1 flex flex-col">
         {token && <TopBar />}
-        <main className="flex-1 overflow-y-auto p-6 md:p-10">
+        <main className="flex-1 overflow-y-auto bg-[var(--bg-subtle)]/80 p-6 md:p-10">
           <AnimatePresence mode="wait">
             <Routes>
               <Route path="/login" element={<Login />} />
@@ -111,6 +109,23 @@ const App = () => {
                       className="mx-auto max-w-5xl"
                     >
                       <Approvals />
+                    </motion.div>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/users"
+                element={
+                  <ProtectedRoute>
+                    <motion.div
+                      key="users"
+                      initial={{ opacity: 0, y: 16 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -16 }}
+                      transition={{ duration: 0.3, ease: 'easeOut' }}
+                      className="mx-auto max-w-5xl"
+                    >
+                      <Users />
                     </motion.div>
                   </ProtectedRoute>
                 }

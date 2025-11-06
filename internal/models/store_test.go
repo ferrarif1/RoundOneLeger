@@ -175,3 +175,34 @@ func TestWorkspaceHierarchy(t *testing.T) {
 		t.Fatalf("expected invalid parent error when assigning self, got %v", err)
 	}
 }
+
+func TestValidatePasswordPolicy(t *testing.T) {
+	if err := validatePassword("Short1!"); !errors.Is(err, ErrPasswordTooShort) {
+		t.Fatalf("expected short password error, got %v", err)
+	}
+	if err := validatePassword("lowercaseonly1!"); !errors.Is(err, ErrPasswordTooWeak) {
+		t.Fatalf("expected weak password error, got %v", err)
+	}
+	if err := validatePassword("StrongPass1!"); err != nil {
+		t.Fatalf("expected password to satisfy policy, got %v", err)
+	}
+}
+
+func TestPasswordHashingAndCompatibility(t *testing.T) {
+	const password = "StrongPass1!"
+	hash, err := hashPassword(password)
+	if err != nil {
+		t.Fatalf("hashPassword failed: %v", err)
+	}
+	if !verifyPassword(hash, password) {
+		t.Fatalf("expected verifyPassword to accept freshly hashed password")
+	}
+	if verifyPassword(hash, "WrongPass1!") {
+		t.Fatalf("expected verifyPassword to reject mismatched password")
+	}
+
+	const legacyHash = "gLgPjUGkVuL1Pzwh5sM55w:cKnqW27kGVuQPr+sOHqC50e5TldcsLNFyaTTzAr+UnM"
+	if !verifyPassword(legacyHash, "Hzdsz@2025#") {
+		t.Fatalf("expected legacy hash format to remain supported")
+	}
+}

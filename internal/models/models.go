@@ -182,3 +182,23 @@ type LoginChallenge struct {
 	Message   string    `json:"message"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+// User represents an operator who can access the admin console.
+type User struct {
+	ID           string    `json:"id"`
+	Username     string    `json:"username"`
+	Admin        bool      `json:"admin"`
+	PasswordHash string    `json:"-"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// Clone returns a copy of the user omitting the password hash for safe sharing.
+func (u *User) Clone() *User {
+	if u == nil {
+		return nil
+	}
+	clone := *u
+	clone.PasswordHash = ""
+	return &clone
+}

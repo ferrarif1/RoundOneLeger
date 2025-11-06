@@ -172,7 +172,7 @@ const Approvals = () => {
     <div className="space-y-6">
       <div>
         <h2 className="section-title">身份审批</h2>
-        <p className="mt-1 text-sm text-night-300">
+        <p className="mt-1 text-sm text-[rgba(20,20,20,0.55)]">
           审核待处理的身份请求，使用 SDID 插件完成管理员签名，成功后用户即可通过登录。
         </p>
       </div>
@@ -182,27 +182,27 @@ const Approvals = () => {
       )}
 
       {loading ? (
-        <div className="glass-panel rounded-3xl p-6 text-center text-night-300">正在加载审批列表…</div>
+        <div className="glass-panel rounded-3xl p-6 text-center text-[rgba(20,20,20,0.55)]">正在加载审批列表…</div>
       ) : (
         <div className="space-y-6">
-          <section className="glass-panel rounded-3xl border border-ink-200/80 p-5">
-            <h3 className="text-lg font-semibold text-night-100">待审批</h3>
+          <section className="glass-panel rounded-3xl border border-[var(--line)] p-5">
+            <h3 className="text-lg font-semibold text-[var(--text)]">待审批</h3>
             {pending.length === 0 ? (
-              <p className="mt-3 text-sm text-night-400">暂无待审批请求。</p>
+              <p className="mt-3 text-sm text-[rgba(20,20,20,0.55)]">暂无待审批请求。</p>
             ) : (
               <div className="mt-4 space-y-3">
                 {pending.map((item) => (
-                  <div key={item.id} className="rounded-2xl border border-ink-200/80 bg-white/70 p-4">
+                  <div key={item.id} className="rounded-2xl border border-[var(--line)] bg-white p-4 shadow-sm">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
-                        <h4 className="text-base font-semibold text-night-100">
+                        <h4 className="text-base font-semibold text-[var(--text)]">
                           {item.applicantLabel || item.applicantDid || item.id}
                         </h4>
-                        <p className="text-xs text-night-400">{item.applicantDid}</p>
-                        <p className="mt-2 text-sm text-night-300">
+                        <p className="text-xs text-[rgba(20,20,20,0.55)]">{item.applicantDid}</p>
+                        <p className="mt-2 text-sm text-[rgba(20,20,20,0.55)]">
                           角色：{item.applicantRoles && item.applicantRoles.length ? item.applicantRoles.join(', ') : '—'}
                         </p>
-                        <p className="text-xs text-night-500">提交时间：{formatTimestamp(item.createdAt)}</p>
+                        <p className="text-xs text-[rgba(20,20,20,0.45)]">提交时间：{formatTimestamp(item.createdAt)}</p>
                       </div>
                       <button
                         type="button"
@@ -219,14 +219,14 @@ const Approvals = () => {
             )}
           </section>
 
-          <section className="glass-panel rounded-3xl border border-ink-200/80 p-5">
-            <h3 className="text-lg font-semibold text-night-100">已完成</h3>
+          <section className="glass-panel rounded-3xl border border-[var(--line)] p-5">
+            <h3 className="text-lg font-semibold text-[var(--text)]">已完成</h3>
             {completed.length === 0 ? (
-              <p className="mt-3 text-sm text-night-400">尚无历史审批记录。</p>
+              <p className="mt-3 text-sm text-[rgba(20,20,20,0.55)]">尚无历史审批记录。</p>
             ) : (
               <div className="mt-4 overflow-x-auto">
-                <table className="min-w-full divide-y divide-night-800/40 text-sm">
-                  <thead className="text-left text-xs uppercase tracking-wide text-night-500">
+                <table className="min-w-full divide-y divide-[rgba(20,20,20,0.12)] text-sm">
+                  <thead className="text-left text-xs uppercase tracking-wide text-[rgba(20,20,20,0.45)]">
                     <tr>
                       <th className="px-3 py-2">身份</th>
                       <th className="px-3 py-2">角色</th>
@@ -235,7 +235,7 @@ const Approvals = () => {
                       <th className="px-3 py-2">审批人</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-night-800/30 text-night-200">
+                  <tbody className="divide-y divide-[rgba(20,20,20,0.12)] text-[rgba(20,20,20,0.7)]">
                     {completed.map((item) => (
                       <tr key={item.id}>
                         <td className="px-3 py-2">{item.applicantLabel || item.applicantDid || item.id}</td>

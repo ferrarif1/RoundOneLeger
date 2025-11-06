@@ -34,24 +34,27 @@ const IPAllowlist = () => {
       <div className="flex items-center justify-between">
         <h2 className="section-title">IP 白名单</h2>
       </div>
-      <form onSubmit={handleCreate} className="grid gap-4 rounded-3xl border border-ink-200 bg-white p-6 shadow-glow md:grid-cols-[2fr,2fr,auto]">
+      <form
+        onSubmit={handleCreate}
+        className="grid gap-4 rounded-2xl border border-[var(--line)] bg-white p-6 shadow-[0_20px_36px_rgba(0,0,0,0.08)] md:grid-cols-[2fr,2fr,auto]"
+      >
         <div>
-          <label className="text-xs uppercase tracking-wider text-night-300">CIDR</label>
+          <label className="text-xs uppercase tracking-wider text-[rgba(20,20,20,0.45)]">CIDR</label>
           <input
             value={cidr}
             onChange={(e) => setCidr(e.target.value)}
             placeholder="192.168.1.0/24"
             required
-            className="mt-2 w-full rounded-2xl border border-ink-200 bg-white px-4 py-3 text-sm focus:border-neon-500 focus:ring-neon-500/30"
+            className="mt-2 w-full border border-[var(--line)] bg-white px-4 py-3 text-sm"
           />
         </div>
         <div>
-          <label className="text-xs uppercase tracking-wider text-night-300">备注</label>
+          <label className="text-xs uppercase tracking-wider text-[rgba(20,20,20,0.45)]">备注</label>
           <input
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="总部办公室"
-            className="mt-2 w-full rounded-2xl border border-ink-200 bg-white px-4 py-3 text-sm focus:border-neon-500 focus:ring-neon-500/30"
+            className="mt-2 w-full border border-[var(--line)] bg-white px-4 py-3 text-sm"
           />
         </div>
         <button type="submit" className="button-primary self-end">
@@ -61,15 +64,20 @@ const IPAllowlist = () => {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {rules.map((rule) => (
-          <div key={rule.id} className="rounded-3xl border border-white bg-white/90 p-5 shadow-glow">
+          <div
+            key={rule.id}
+            className="rounded-2xl border border-[var(--line)] bg-white p-5 shadow-[0_20px_36px_rgba(0,0,0,0.08)]"
+          >
             <div className="flex items-center gap-3">
-              <ShieldCheckIcon className="h-6 w-6 text-neon-500" />
+              <div className="rounded-xl border border-[rgba(20,20,20,0.12)] bg-[var(--bg-subtle)] p-2">
+                <ShieldCheckIcon className="h-6 w-6 text-[var(--accent)]" />
+              </div>
               <div>
-                <p className="text-sm font-semibold text-night-100">{rule.cidr}</p>
-                <p className="text-xs text-night-300">{rule.description || '无描述'}</p>
+                <p className="text-sm font-semibold text-[var(--text)]">{rule.cidr}</p>
+                <p className="text-xs text-[rgba(20,20,20,0.55)]">{rule.description || '无描述'}</p>
               </div>
             </div>
-            <p className="mt-4 text-xs text-night-400">
+            <p className="mt-4 text-xs text-[rgba(20,20,20,0.45)]">
               添加于 {new Date(rule.created_at).toLocaleString()}
             </p>
           </div>
