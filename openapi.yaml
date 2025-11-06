@@ -254,6 +254,32 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AllowlistEntry'
+    OverviewSummary:
+      type: object
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+        systems:
+          type: integer
+        personnel:
+          type: integer
+        ip_assets:
+          type: integer
+        workspaces:
+          type: integer
+        sheets:
+          type: integer
+        documents:
+          type: integer
+        folders:
+          type: integer
+        users:
+          type: integer
+        allowlist:
+          type: integer
+        logins_last_24h:
+          type: integer
     AuditEntry:
       type: object
       properties:
@@ -661,6 +687,21 @@ paths:
                       type: array
                       items:
                         type: string
+  /api/v1/overview:
+    get:
+      summary: Retrieve aggregated dashboard metrics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Overview summary including ledger counts and recent activity
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  overview:
+                    $ref: '#/components/schemas/OverviewSummary'
   /api/v1/workspaces:
     get:
       summary: List collaborative workspaces
