@@ -1289,6 +1289,45 @@ func (s *LedgerStore) ListAllowlist() []*IPAllowlistEntry {
 	return out
 }
 
+// OverviewSummary aggregates high-level usage metrics at the current time.
+func (s *LedgerStore) OverviewSummary(now time.Time) OverviewSummary {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	summary := OverviewSummary{GeneratedAt: now.UTC()}
+
+	summary.IPAssets = len(s.entries[LedgerTypeIP])
+	summary.Personnel = len(s.entries[LedgerTypePersonnel])
+	summary.Systems = len(s.entries[LedgerTypeSystem])
+
+	summary.Users = len(s.users)
+	summary.Allowlist = len(s.allow)
+
+	summary.Workspaces = len(s.workspaces)
+	for _, workspace := range s.workspaces {
+		switch NormalizeWorkspaceKind(workspace.Kind) {
+		case WorkspaceKindSheet:
+			summary.Sheets++
+		case WorkspaceKindDocument:
+			summary.Documents++
+		case WorkspaceKindFolder:
+			summary.Folders++
+		}
+	}
+
+	cutoff := now.Add(-24 * time.Hour)
+	for _, audit := range s.audits {
+		if audit == nil {
+			continue
+		}
+		if audit.Action == "login" && audit.CreatedAt.After(cutoff) {
+			summary.LoginsLast24h++
+		}
+	}
+
+	return summary
+}
+
 // IsIPAllowed checks whether ipStr is within the allowlist. Empty allowlist permits all.
 func (s *LedgerStore) IsIPAllowed(ipStr string) bool {
 	s.mu.RLock()
