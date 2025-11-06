@@ -175,3 +175,32 @@ func TestWorkspaceHierarchy(t *testing.T) {
 		t.Fatalf("expected invalid parent error when assigning self, got %v", err)
 	}
 }
+
+func TestAllowlistWildcardAndUpdate(t *testing.T) {
+	store := NewLedgerStore()
+
+	wildcard, err := store.AppendAllowlist(&IPAllowlistEntry{CIDR: "0.0.0.0/24", Description: "全部"}, "tester")
+	if err != nil {
+		t.Fatalf("append wildcard: %v", err)
+	}
+	if wildcard.CreatedAt.IsZero() {
+		t.Fatalf("expected created at to be populated")
+	}
+	if !store.IsIPAllowed("203.0.113.42") {
+		t.Fatalf("expected wildcard to allow arbitrary ipv4")
+	}
+
+	updated, err := store.AppendAllowlist(&IPAllowlistEntry{ID: wildcard.ID, CIDR: "192.168.10.0/24", Description: "办公室"}, "tester")
+	if err != nil {
+		t.Fatalf("update allowlist: %v", err)
+	}
+	if !updated.CreatedAt.Equal(wildcard.CreatedAt) {
+		t.Fatalf("expected created time preserved, got %v vs %v", updated.CreatedAt, wildcard.CreatedAt)
+	}
+	if store.IsIPAllowed("203.0.113.42") {
+		t.Fatalf("expected arbitrary ip to be blocked after update")
+	}
+	if !store.IsIPAllowed("192.168.10.8") {
+		t.Fatalf("expected lan ip to be allowed")
+	}
+}

@@ -31,6 +31,7 @@ import type {
   WorkspaceNode,
   WorkspaceRow
 } from '../components/ledger/types';
+import { inlineBlobSources } from '../utils/html';
 
 const DEFAULT_TITLE = '未命名台账';
 const MIN_COLUMN_WIDTH = 140;
@@ -446,6 +447,38 @@ const Assets = () => {
     return map;
   }, [allNodes]);
 
+  const canMoveWorkspace = useCallback(
+    (sourceId: string, targetParentId: string | null) => {
+      if (!sourceId) {
+        return false;
+      }
+      const sourceNode = workspaceMap.get(sourceId);
+      if (!sourceNode) {
+        return false;
+      }
+      const currentParent = sourceNode.parentId ?? '';
+      const nextParent = targetParentId ?? '';
+      if (currentParent === nextParent) {
+        return false;
+      }
+      if (targetParentId) {
+        const targetNode = workspaceMap.get(targetParentId);
+        if (!targetNode || targetNode.kind !== 'folder') {
+          return false;
+        }
+        let cursor: string | null | undefined = targetNode.parentId ?? null;
+        while (cursor) {
+          if (cursor === sourceId) {
+            return false;
+          }
+          cursor = workspaceMap.get(cursor)?.parentId ?? null;
+        }
+      }
+      return true;
+    },
+    [workspaceMap]
+  );
+
   const selectedNode = selectedId ? workspaceMap.get(selectedId) : null;
   const selectedKind: WorkspaceKind = currentWorkspace?.kind ?? normalizeKind(selectedNode?.kind);
   const isSheet = selectedKind === 'sheet';
@@ -586,6 +619,33 @@ const Assets = () => {
       }
     },
     [selectedId]
+  );
+
+  const handleMoveWorkspace = useCallback(
+    async (workspaceId: string, targetParentId: string | null) => {
+      const node = workspaceMap.get(workspaceId);
+      if (!node) {
+        return;
+      }
+      const currentParent = node.parentId ?? '';
+      const nextParent = targetParentId ?? '';
+      if (currentParent === nextParent) {
+        return;
+      }
+      try {
+        setStatus('正在移动台账…');
+        setError(null);
+        await api.put(`/api/v1/workspaces/${workspaceId}`, { parentId: nextParent });
+        setStatus('已移动台账。');
+        await refreshList(workspaceId);
+      } catch (err) {
+        console.error('移动台账失败', err);
+        const axiosError = err as AxiosError<{ error?: string }>;
+        setError(axiosError.response?.data?.error || axiosError.message || '移动失败，请稍后再试。');
+        setStatus(null);
+      }
+    },
+    [refreshList, workspaceMap]
   );
 
   const loadWorkspace = useCallback(
@@ -883,8 +943,19 @@ const Assets = () => {
     setError(null);
     const trimmedName = name.trim() || DEFAULT_TITLE;
     const payload: Record<string, unknown> = { name: trimmedName };
+    let preparedDocument = documentContent;
+    if ((isSheet || isDocument) && preparedDocument && preparedDocument.includes('blob:')) {
+      try {
+        preparedDocument = await inlineBlobSources(preparedDocument);
+        if (preparedDocument !== documentContent) {
+          setDocumentContent(preparedDocument);
+        }
+      } catch (error) {
+        console.warn('转换文档中的图片资源失败', error);
+      }
+    }
     if (isSheet) {
-      payload.document = documentContent;
+      payload.document = preparedDocument;
       payload.columns = columns.map((column, index) => ({
         id: column.id || generateId(),
         title: column.title || `字段 ${index + 1}`,
@@ -892,7 +963,7 @@ const Assets = () => {
       }));
       payload.rows = rows.map((row) => ({ id: row.id, cells: row.cells, highlighted: highlightedRowIds.includes(row.id) }));
     } else if (isDocument) {
-      payload.document = documentContent;
+      payload.document = preparedDocument;
     }
     setSaving(true);
     try {
@@ -906,7 +977,17 @@ const Assets = () => {
     } finally {
       setSaving(false);
     }
-  }, [columns, currentWorkspace, documentContent, isDocument, isSheet, name, refreshList, rows]);
+  }, [
+    columns,
+    currentWorkspace,
+    documentContent,
+    highlightedRowIds,
+    isDocument,
+    isSheet,
+    name,
+    refreshList,
+    rows
+  ]);
 
   const handleDeleteWorkspace = useCallback(async () => {
     if (!currentWorkspace) {
@@ -1046,6 +1127,8 @@ const Assets = () => {
       onSearchChange={setListQuery}
       creationOptions={CREATION_OPTIONS}
       formatTimestamp={formatTimestamp}
+      onMove={handleMoveWorkspace}
+      canMove={canMoveWorkspace}
     />
   );
 
@@ -1068,17 +1151,17 @@ const Assets = () => {
       onExport={handleExport}
       onExportAll={async () => {
         try {
-          const { data } = await api.get('/api/v1/export/all', { responseType: 'json' });
-          const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+          const { data } = await api.get('/api/v1/export/all', { responseType: 'blob' });
+          const blob = new Blob([data], { type: 'application/zip' });
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = `roundone_ledger_export_${Date.now()}.json`;
+          a.download = `roundone_ledger_export_${Date.now()}.zip`;
           document.body.appendChild(a);
           a.click();
           a.remove();
           URL.revokeObjectURL(url);
-          setStatus('已导出全部数据。');
+          setStatus('已导出全部数据与资源。');
         } catch (err) {
           const axiosError = err as AxiosError<{ error?: string }>;
           setError(axiosError.response?.data?.error || axiosError.message || '导出失败');
@@ -1210,21 +1293,32 @@ const Assets = () => {
       <input
         ref={importAllRef}
         type="file"
-        accept="application/json"
+        accept=".json,.zip,application/json,application/zip"
         className="hidden"
         onChange={async (e) => {
           const file = e.target.files?.[0];
           e.target.value = '';
           if (!file) return;
           try {
-            const text = await file.text();
-            const payload = JSON.parse(text);
-            await api.post('/api/v1/import/all', payload);
+            const lowerName = file.name.toLowerCase();
+            if (lowerName.endsWith('.zip') || file.type === 'application/zip') {
+              const formData = new FormData();
+              formData.append('archive', file);
+              await api.post('/api/v1/import/archive', formData);
+            } else {
+              const text = await file.text();
+              const payload = JSON.parse(text);
+              await api.post('/api/v1/import/all', payload);
+            }
             setStatus('已导入全部数据。');
             await refreshList();
           } catch (err) {
             const axiosError = err as AxiosError<{ error?: string }>;
-            setError(axiosError.response?.data?.error || axiosError.message || '导入失败');
+            const message =
+              axiosError.response?.data?.error ||
+              axiosError.message ||
+              (err instanceof Error ? err.message : '导入失败');
+            setError(message);
           }
         }}
       />
