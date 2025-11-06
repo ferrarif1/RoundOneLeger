@@ -1,13 +1,18 @@
 package api
 
 import (
+	"archive/zip"
+	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -84,6 +89,7 @@ func (s *Server) RegisterRoutes(router *gin.Engine) {
 		secured.GET("/audit/verify", s.handleAuditVerify)
 		secured.GET("/export/all", s.handleExportAll)
 		secured.POST("/import/all", s.handleImportAll)
+		secured.POST("/import/archive", s.handleImportArchive)
 		secured.POST("/admin/save-snapshot", s.handleManualSave)
 	}
 }
@@ -1241,7 +1247,69 @@ func (s *Server) handleAuditVerify(c *gin.Context) {
 
 func (s *Server) handleExportAll(c *gin.Context) {
 	snapshot := s.Store.ExportSnapshot()
-	c.JSON(http.StatusOK, snapshot)
+	if snapshot == nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "snapshot_unavailable"})
+		return
+	}
+
+	resources := models.CollectSnapshotResources(snapshot)
+
+	buffer := &bytes.Buffer{}
+	writer := zip.NewWriter(buffer)
+
+	snapshotFile, err := writer.Create("snapshot.json")
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	encoder := json.NewEncoder(snapshotFile)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(snapshot); err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if len(resources) > 0 {
+		manifestEntries := make([]models.SnapshotResource, 0, len(resources))
+		for _, resource := range resources {
+			entry, err := writer.Create(fmt.Sprintf("resources/%s", resource.Filename))
+			if err != nil {
+				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			if _, err := entry.Write(resource.Data); err != nil {
+				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			manifestEntries = append(manifestEntries, models.SnapshotResource{
+				Filename: resource.Filename,
+				Mime:     resource.Mime,
+				Hash:     resource.Hash,
+			})
+		}
+		manifestFile, err := writer.Create("resources/manifest.json")
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		manifestEncoder := json.NewEncoder(manifestFile)
+		manifestEncoder.SetIndent("", "  ")
+		if err := manifestEncoder.Encode(manifestEntries); err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
+	if err := writer.Close(); err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	filename := fmt.Sprintf("roundone_ledger_export_%d.zip", time.Now().Unix())
+	c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	c.Writer.Header().Set("Content-Type", "application/zip")
+	c.Status(http.StatusOK)
+	_, _ = c.Writer.Write(buffer.Bytes())
 }
 
 func (s *Server) handleImportAll(c *gin.Context) {
@@ -1250,6 +1318,128 @@ func (s *Server) handleImportAll(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
 		return
 	}
+	if err := s.Store.ImportSnapshot(&snapshot); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "imported"})
+}
+
+func (s *Server) handleImportArchive(c *gin.Context) {
+	if c.Request == nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "archive_file_required"})
+		return
+	}
+	file, _, err := c.Request.FormFile("archive")
+	if err != nil {
+		file, _, err = c.Request.FormFile("file")
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "archive_file_required"})
+			return
+		}
+	}
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	defer file.Close()
+
+	buf := &bytes.Buffer{}
+	if _, err := io.Copy(buf, file); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	reader, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var snapshot models.Snapshot
+	snapshotFound := false
+	assetsData := make(map[string][]byte)
+	manifestEntries := make(map[string]models.SnapshotResource)
+
+	for _, zipFile := range reader.File {
+		if zipFile.FileInfo().IsDir() {
+			continue
+		}
+		name := zipFile.Name
+		base := filepath.Base(name)
+		lowerName := strings.ToLower(name)
+
+		rc, err := zipFile.Open()
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		switch {
+		case strings.EqualFold(base, "snapshot.json"):
+			payload, readErr := io.ReadAll(rc)
+			rc.Close()
+			if readErr != nil {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": readErr.Error()})
+				return
+			}
+			if err := json.Unmarshal(payload, &snapshot); err != nil {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			snapshotFound = true
+		case strings.HasPrefix(lowerName, "resources/") && strings.EqualFold(base, "manifest.json"):
+			payload, readErr := io.ReadAll(rc)
+			rc.Close()
+			if readErr != nil {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": readErr.Error()})
+				return
+			}
+			var manifest []models.SnapshotResource
+			if err := json.Unmarshal(payload, &manifest); err != nil {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			for _, entry := range manifest {
+				manifestEntries[entry.Filename] = entry
+			}
+		case strings.HasPrefix(lowerName, "resources/"):
+			payload, readErr := io.ReadAll(rc)
+			rc.Close()
+			if readErr != nil {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": readErr.Error()})
+				return
+			}
+			assetsData[base] = payload
+		default:
+			rc.Close()
+		}
+	}
+
+	if !snapshotFound {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "snapshot_missing"})
+		return
+	}
+
+	assets := make([]models.SnapshotResource, 0, len(assetsData))
+	for filename, data := range assetsData {
+		entry, ok := manifestEntries[filename]
+		if !ok {
+			entry = models.SnapshotResource{Filename: filename}
+		}
+		if strings.TrimSpace(entry.Mime) == "" {
+			entry.Mime = http.DetectContentType(data)
+		}
+		if entry.Hash == "" {
+			hash := sha256.Sum256(data)
+			entry.Hash = hex.EncodeToString(hash[:])
+		}
+		entry.Data = data
+		assets = append(assets, entry)
+	}
+
+	models.EmbedSnapshotResources(&snapshot, assets)
+
 	if err := s.Store.ImportSnapshot(&snapshot); err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

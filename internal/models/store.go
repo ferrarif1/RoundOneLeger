@@ -1245,6 +1245,15 @@ func (s *LedgerStore) AppendAllowlist(entry *IPAllowlistEntry, actor string) (*I
 	if entry == nil {
 		return nil, errors.New("allowlist entry cannot be nil")
 	}
+
+	entry.CIDR = strings.TrimSpace(entry.CIDR)
+	entry.Label = strings.TrimSpace(entry.Label)
+	entry.Description = strings.TrimSpace(entry.Description)
+
+	if entry.CIDR == "" {
+		return nil, errors.New("cidr required")
+	}
+
 	if _, _, err := net.ParseCIDR(entry.CIDR); err != nil {
 		if ip := net.ParseIP(entry.CIDR); ip == nil {
 			return nil, fmt.Errorf("invalid CIDR or IP: %w", err)
@@ -1255,6 +1264,12 @@ func (s *LedgerStore) AppendAllowlist(entry *IPAllowlistEntry, actor string) (*I
 	now := time.Now().UTC()
 	if entry.ID == "" {
 		entry.ID = GenerateID("allow")
+		entry.CreatedAt = now
+	} else if existing, ok := s.allow[entry.ID]; ok {
+		if entry.CreatedAt.IsZero() {
+			entry.CreatedAt = existing.CreatedAt
+		}
+	} else if entry.CreatedAt.IsZero() {
 		entry.CreatedAt = now
 	}
 	entry.UpdatedAt = now
@@ -1335,18 +1350,26 @@ func (s *LedgerStore) IsIPAllowed(ipStr string) bool {
 	if len(s.allow) == 0 {
 		return true
 	}
-	ip := net.ParseIP(ipStr)
+	ip := net.ParseIP(strings.TrimSpace(ipStr))
 	if ip == nil {
 		return false
 	}
 	for _, entry := range s.allow {
-		if _, network, err := net.ParseCIDR(entry.CIDR); err == nil {
-			if network.Contains(ip) {
+		cidr := strings.TrimSpace(entry.CIDR)
+		if cidr == "" {
+			continue
+		}
+		if _, network, err := net.ParseCIDR(cidr); err == nil {
+			if network.IP.IsUnspecified() || network.Contains(ip) {
 				return true
 			}
 			continue
 		}
-		if ip.Equal(net.ParseIP(entry.CIDR)) {
+		candidate := net.ParseIP(cidr)
+		if candidate == nil {
+			continue
+		}
+		if candidate.IsUnspecified() || ip.Equal(candidate) {
 			return true
 		}
 	}

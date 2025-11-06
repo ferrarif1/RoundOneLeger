@@ -1090,17 +1090,17 @@ const Assets = () => {
       onExport={handleExport}
       onExportAll={async () => {
         try {
-          const { data } = await api.get('/api/v1/export/all', { responseType: 'json' });
-          const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+          const { data } = await api.get('/api/v1/export/all', { responseType: 'blob' });
+          const blob = new Blob([data], { type: 'application/zip' });
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = `roundone_ledger_export_${Date.now()}.json`;
+          a.download = `roundone_ledger_export_${Date.now()}.zip`;
           document.body.appendChild(a);
           a.click();
           a.remove();
           URL.revokeObjectURL(url);
-          setStatus('已导出全部数据。');
+          setStatus('已导出全部数据与资源。');
         } catch (err) {
           const axiosError = err as AxiosError<{ error?: string }>;
           setError(axiosError.response?.data?.error || axiosError.message || '导出失败');
@@ -1232,21 +1232,32 @@ const Assets = () => {
       <input
         ref={importAllRef}
         type="file"
-        accept="application/json"
+        accept=".json,.zip,application/json,application/zip"
         className="hidden"
         onChange={async (e) => {
           const file = e.target.files?.[0];
           e.target.value = '';
           if (!file) return;
           try {
-            const text = await file.text();
-            const payload = JSON.parse(text);
-            await api.post('/api/v1/import/all', payload);
+            const lowerName = file.name.toLowerCase();
+            if (lowerName.endsWith('.zip') || file.type === 'application/zip') {
+              const formData = new FormData();
+              formData.append('archive', file);
+              await api.post('/api/v1/import/archive', formData);
+            } else {
+              const text = await file.text();
+              const payload = JSON.parse(text);
+              await api.post('/api/v1/import/all', payload);
+            }
             setStatus('已导入全部数据。');
             await refreshList();
           } catch (err) {
             const axiosError = err as AxiosError<{ error?: string }>;
-            setError(axiosError.response?.data?.error || axiosError.message || '导入失败');
+            const message =
+              axiosError.response?.data?.error ||
+              axiosError.message ||
+              (err instanceof Error ? err.message : '导入失败');
+            setError(message);
           }
         }}
       />

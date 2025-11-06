@@ -1152,11 +1152,12 @@ paths:
         - bearerAuth: []
       responses:
         '200':
-          description: Complete snapshot for migration
+          description: Snapshot archive containing snapshot.json and embedded resources
           content:
-            application/json:
+            application/zip:
               schema:
-                type: object
+                type: string
+                format: binary
   /api/v1/import/all:
     post:
       summary: Import all data snapshot (destructive replace)
@@ -1168,6 +1169,31 @@ paths:
           application/json:
             schema:
               type: object
+      responses:
+        '200':
+          description: Imported
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+  /api/v1/import/archive:
+    post:
+      summary: Import snapshot archive with embedded resources (destructive replace)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                archive:
+                  type: string
+                  format: binary
       responses:
         '200':
           description: Imported
