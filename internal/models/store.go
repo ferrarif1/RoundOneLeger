@@ -1,22 +1,21 @@
 package models
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	mrand "math/rand"
 	"net"
-	"os"
-	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 var (
@@ -56,8 +55,10 @@ var (
 	ErrUserDeleteLastAdmin = errors.New("cannot_delete_last_admin")
 	// ErrUsernameInvalid indicates the provided username is empty or malformed.
 	ErrUsernameInvalid = errors.New("username_invalid")
-	// ErrPasswordTooShort indicates the provided password does not meet complexity requirements.
+	// ErrPasswordTooShort indicates the provided password is shorter than the minimum length.
 	ErrPasswordTooShort = errors.New("password_too_short")
+	// ErrPasswordTooWeak indicates the provided password lacks the required complexity.
+	ErrPasswordTooWeak = errors.New("password_too_weak")
 )
 
 var (
@@ -69,6 +70,9 @@ var (
 const (
 	defaultAdminUsername = "hzdsz_admin"
 	defaultAdminPassword = "Hzdsz@2025#"
+	passwordSaltBytes    = 16
+	passwordKeyBytes     = 32
+	passwordIterations   = 120_000
 )
 
 // LedgerStore coordinates all mutable state for the in-memory implementation.
@@ -93,190 +97,6 @@ type LedgerStore struct {
 	userOrder  []string
 
 	history historyStack
-}
-
-// Snapshot captures all user data for export/import migration.
-type Snapshot struct {
-	Entries    map[LedgerType][]LedgerEntry `json:"entries"`
-	Workspaces []*Workspace                 `json:"workspaces"`
-	Allowlist  []*IPAllowlistEntry          `json:"allowlist"`
-	Audits     []*AuditLogEntry             `json:"audits"`
-	Users      []*User                      `json:"users"`
-}
-
-// ExportSnapshot returns a deep copy of the current state for migration.
-func (s *LedgerStore) ExportSnapshot() *Snapshot {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	entries := make(map[LedgerType][]LedgerEntry, len(s.entries))
-	for typ, list := range s.entries {
-		entries[typ] = cloneEntrySlice(list)
-	}
-	workspaces := make([]*Workspace, 0, len(s.workspaces))
-	for _, ws := range s.workspaces {
-		workspaces = append(workspaces, ws.Clone())
-	}
-	allow := make([]*IPAllowlistEntry, 0, len(s.allow))
-	for _, v := range s.allow {
-		copy := *v
-		allow = append(allow, &copy)
-	}
-	audits := make([]*AuditLogEntry, len(s.audits))
-	for i, a := range s.audits {
-		copy := *a
-		audits[i] = &copy
-	}
-	users := make([]*User, 0, len(s.users))
-	for _, u := range s.users {
-		copy := *u
-		users = append(users, &copy)
-	}
-	return &Snapshot{Entries: entries, Workspaces: workspaces, Allowlist: allow, Audits: audits, Users: users}
-}
-
-// ImportSnapshot replaces current state with the provided snapshot.
-func (s *LedgerStore) ImportSnapshot(snapshot *Snapshot) error {
-	if snapshot == nil {
-		return errors.New("empty_snapshot")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.entries = make(map[LedgerType][]LedgerEntry)
-	for typ, list := range snapshot.Entries {
-		s.entries[typ] = cloneEntrySlice(list)
-	}
-	s.workspaces = make(map[string]*Workspace)
-	s.workspaceChildren = make(map[string][]string)
-	s.workspaceOrder = []string{}
-	for _, ws := range snapshot.Workspaces {
-		cloned := ws.Clone()
-		s.workspaces[cloned.ID] = cloned
-		s.workspaceOrder = append(s.workspaceOrder, cloned.ID)
-		if parent := strings.TrimSpace(cloned.ParentID); parent != "" {
-			s.workspaceChildren[parent] = append(s.workspaceChildren[parent], cloned.ID)
-		}
-	}
-	s.allow = make(map[string]*IPAllowlistEntry)
-	for _, v := range snapshot.Allowlist {
-		copy := *v
-		s.allow[copy.ID] = &copy
-	}
-	s.audits = []*AuditLogEntry{}
-	for _, a := range snapshot.Audits {
-		copy := *a
-		s.audits = append(s.audits, &copy)
-	}
-	s.users = make(map[string]*User)
-	s.userByName = make(map[string]*User)
-	s.userOrder = []string{}
-	for _, u := range snapshot.Users {
-		copy := *u
-		s.users[copy.ID] = &copy
-		s.userByName[normalizeUsername(copy.Username)] = &copy
-		s.userOrder = append(s.userOrder, copy.ID)
-	}
-	s.history.Reset(s.snapshotLocked())
-	return nil
-}
-
-// SaveTo persists the snapshot into dir as snapshot.json atomically.
-func (s *LedgerStore) SaveTo(dir string) error {
-	if strings.TrimSpace(dir) == "" {
-		return errors.New("empty_dir")
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	snap := s.ExportSnapshot()
-	data, err := json.MarshalIndent(snap, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := filepath.Join(dir, "snapshot.tmp")
-	file := filepath.Join(dir, "snapshot.json")
-	if err := os.WriteFile(tmp, data, fs.FileMode(0o644)); err != nil {
-		return err
-	}
-	return os.Rename(tmp, file)
-}
-
-// LoadFrom loads snapshot.json from dir if exists.
-func (s *LedgerStore) LoadFrom(dir string) error {
-	path := filepath.Join(dir, "snapshot.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	var snap Snapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
-		return err
-	}
-	return s.ImportSnapshot(&snap)
-}
-
-// SaveToWithRetention saves snapshot.json and also a timestamped backup, keeping last retention files.
-func (s *LedgerStore) SaveToWithRetention(dir string, retention int) error {
-	if err := s.SaveTo(dir); err != nil {
-		return err
-	}
-	if retention <= 0 {
-		return nil
-	}
-	// write timestamped backup
-	ts := time.Now().UTC().Format("2006-01-02T15-04-05Z07-00")
-	backup := filepath.Join(dir, "snapshot-"+ts+".json")
-	snap := s.ExportSnapshot()
-	data, err := json.MarshalIndent(snap, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(backup, data, fs.FileMode(0o644)); err != nil {
-		return err
-	}
-	// prune old backups
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-	backups := make([]string, 0)
-	for _, e := range entries {
-		name := e.Name()
-		if strings.HasPrefix(name, "snapshot-") && strings.HasSuffix(name, ".json") {
-			backups = append(backups, filepath.Join(dir, name))
-		}
-	}
-	sort.Slice(backups, func(i, j int) bool { return backups[i] > backups[j] })
-	if len(backups) > retention {
-		for _, path := range backups[retention:] {
-			_ = os.Remove(path)
-		}
-	}
-	return nil
-}
-
-// WriteBinary stores bytes to assets directory under dir and returns relative path.
-func (s *LedgerStore) WriteBinary(dir, name string, data []byte) (string, error) {
-	if strings.TrimSpace(dir) == "" {
-		return "", errors.New("empty_dir")
-	}
-	if name == "" {
-		name = GenerateID("asset")
-	}
-	assetsDir := filepath.Join(dir, "assets")
-	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
-		return "", err
-	}
-	ext := filepath.Ext(name)
-	base := strings.TrimSuffix(filepath.Base(name), ext)
-	filename := base + ext
-	path := filepath.Join(assetsDir, filename)
-	if err := os.WriteFile(path, data, fs.FileMode(0o644)); err != nil {
-		return "", err
-	}
-	return filepath.ToSlash(filepath.Join("assets", filename)), nil
 }
 
 // IdentityProfile stores metadata about a SDID identity that has interacted with the system.
@@ -531,71 +351,118 @@ func normalizeUsername(username string) string {
 }
 
 func validatePassword(password string) error {
-	if len(password) < 8 {
+	if len(password) < 10 {
 		return ErrPasswordTooShort
 	}
 	if strings.TrimSpace(password) == "" {
 		return ErrPasswordTooShort
 	}
+	var hasUpper, hasLower, hasNumber, hasSymbol bool
+	for _, r := range password {
+		switch {
+		case unicode.IsUpper(r):
+			hasUpper = true
+		case unicode.IsLower(r):
+			hasLower = true
+		case unicode.IsDigit(r):
+			hasNumber = true
+		case unicode.IsPunct(r) || unicode.IsSymbol(r):
+			hasSymbol = true
+		}
+	}
+	if !hasUpper || !hasLower || !hasNumber || !hasSymbol {
+		return ErrPasswordTooWeak
+	}
 	return nil
 }
 
 func hashPassword(password string) (string, error) {
-	salt := make([]byte, 16)
+	salt := make([]byte, passwordSaltBytes)
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256(append(salt, []byte(password)...))
+	derived := pbkdf2Key([]byte(password), salt, passwordIterations, passwordKeyBytes)
+	if len(derived) == 0 {
+		return "", errors.New("derive_failed")
+	}
 	return fmt.Sprintf(
-		"%s:%s",
+		"%d:%s:%s",
+		passwordIterations,
 		base64.RawStdEncoding.EncodeToString(salt),
-		base64.RawStdEncoding.EncodeToString(sum[:]),
+		base64.RawStdEncoding.EncodeToString(derived),
 	), nil
 }
 
 func verifyPassword(hash, password string) bool {
 	parts := strings.Split(hash, ":")
-	if len(parts) != 2 {
+	switch len(parts) {
+	case 3:
+		iterations, err := strconv.Atoi(parts[0])
+		if err != nil || iterations <= 0 {
+			return false
+		}
+		salt, err := base64.RawStdEncoding.DecodeString(parts[1])
+		if err != nil {
+			return false
+		}
+		digest, err := base64.RawStdEncoding.DecodeString(parts[2])
+		if err != nil {
+			return false
+		}
+		derived := pbkdf2Key([]byte(password), salt, iterations, len(digest))
+		if len(derived) != len(digest) {
+			return false
+		}
+		return subtle.ConstantTimeCompare(derived, digest) == 1
+	case 2:
+		// Backwards-compatibility for legacy SHA-256 salted hashes.
+		salt, err := base64.RawStdEncoding.DecodeString(parts[0])
+		if err != nil {
+			return false
+		}
+		digest, err := base64.RawStdEncoding.DecodeString(parts[1])
+		if err != nil {
+			return false
+		}
+		sum := sha256.Sum256(append(salt, []byte(password)...))
+		return subtle.ConstantTimeCompare(sum[:], digest) == 1
+	default:
 		return false
 	}
-	salt, err := base64.RawStdEncoding.DecodeString(parts[0])
-	if err != nil {
-		return false
-	}
-	digest, err := base64.RawStdEncoding.DecodeString(parts[1])
-	if err != nil {
-		return false
-	}
-	sum := sha256.Sum256(append(salt, []byte(password)...))
-	return subtle.ConstantTimeCompare(sum[:], digest) == 1
 }
 
-// ChangePassword updates the password for the specified username after verifying the old password.
-func (s *LedgerStore) ChangePassword(username, oldPassword, newPassword, actor string) error {
-	normalized := normalizeUsername(username)
-	if normalized == "" {
-		return ErrInvalidCredentials
+func pbkdf2Key(password, salt []byte, iterations, length int) []byte {
+	if iterations <= 0 || length <= 0 {
+		return nil
 	}
-	if err := validatePassword(newPassword); err != nil {
-		return err
+	hashLen := sha256.Size
+	blocks := (length + hashLen - 1) / hashLen
+	derived := make([]byte, blocks*hashLen)
+	mac := hmac.New(sha256.New, password)
+	var counter [4]byte
+	for i := 1; i <= blocks; i++ {
+		mac.Reset()
+		mac.Write(salt)
+		counter[0] = byte(i >> 24)
+		counter[1] = byte(i >> 16)
+		counter[2] = byte(i >> 8)
+		counter[3] = byte(i)
+		mac.Write(counter[:])
+		u := mac.Sum(nil)
+		block := make([]byte, len(u))
+		copy(block, u)
+		for j := 1; j < iterations; j++ {
+			mac.Reset()
+			mac.Write(u)
+			u = mac.Sum(nil)
+			for k := 0; k < len(block); k++ {
+				block[k] ^= u[k]
+			}
+		}
+		offset := (i - 1) * hashLen
+		copy(derived[offset:], block)
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	user, ok := s.userByName[normalized]
-	if !ok {
-		return ErrInvalidCredentials
-	}
-	if !verifyPassword(user.PasswordHash, oldPassword) {
-		return ErrInvalidCredentials
-	}
-	hash, err := hashPassword(newPassword)
-	if err != nil {
-		return err
-	}
-	user.PasswordHash = hash
-	user.UpdatedAt = time.Now().UTC()
-	s.appendAuditLocked(strings.TrimSpace(actor), "user_password_change", user.ID)
-	return nil
+	return derived[:length]
 }
 
 func cloneEntrySlice(entries []LedgerEntry) []LedgerEntry {
@@ -1245,15 +1112,6 @@ func (s *LedgerStore) AppendAllowlist(entry *IPAllowlistEntry, actor string) (*I
 	if entry == nil {
 		return nil, errors.New("allowlist entry cannot be nil")
 	}
-
-	entry.CIDR = strings.TrimSpace(entry.CIDR)
-	entry.Label = strings.TrimSpace(entry.Label)
-	entry.Description = strings.TrimSpace(entry.Description)
-
-	if entry.CIDR == "" {
-		return nil, errors.New("cidr required")
-	}
-
 	if _, _, err := net.ParseCIDR(entry.CIDR); err != nil {
 		if ip := net.ParseIP(entry.CIDR); ip == nil {
 			return nil, fmt.Errorf("invalid CIDR or IP: %w", err)
@@ -1264,12 +1122,6 @@ func (s *LedgerStore) AppendAllowlist(entry *IPAllowlistEntry, actor string) (*I
 	now := time.Now().UTC()
 	if entry.ID == "" {
 		entry.ID = GenerateID("allow")
-		entry.CreatedAt = now
-	} else if existing, ok := s.allow[entry.ID]; ok {
-		if entry.CreatedAt.IsZero() {
-			entry.CreatedAt = existing.CreatedAt
-		}
-	} else if entry.CreatedAt.IsZero() {
 		entry.CreatedAt = now
 	}
 	entry.UpdatedAt = now
@@ -1304,45 +1156,6 @@ func (s *LedgerStore) ListAllowlist() []*IPAllowlistEntry {
 	return out
 }
 
-// OverviewSummary aggregates high-level usage metrics at the current time.
-func (s *LedgerStore) OverviewSummary(now time.Time) OverviewSummary {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	summary := OverviewSummary{GeneratedAt: now.UTC()}
-
-	summary.IPAssets = len(s.entries[LedgerTypeIP])
-	summary.Personnel = len(s.entries[LedgerTypePersonnel])
-	summary.Systems = len(s.entries[LedgerTypeSystem])
-
-	summary.Users = len(s.users)
-	summary.Allowlist = len(s.allow)
-
-	summary.Workspaces = len(s.workspaces)
-	for _, workspace := range s.workspaces {
-		switch NormalizeWorkspaceKind(workspace.Kind) {
-		case WorkspaceKindSheet:
-			summary.Sheets++
-		case WorkspaceKindDocument:
-			summary.Documents++
-		case WorkspaceKindFolder:
-			summary.Folders++
-		}
-	}
-
-	cutoff := now.Add(-24 * time.Hour)
-	for _, audit := range s.audits {
-		if audit == nil {
-			continue
-		}
-		if audit.Action == "login" && audit.CreatedAt.After(cutoff) {
-			summary.LoginsLast24h++
-		}
-	}
-
-	return summary
-}
-
 // IsIPAllowed checks whether ipStr is within the allowlist. Empty allowlist permits all.
 func (s *LedgerStore) IsIPAllowed(ipStr string) bool {
 	s.mu.RLock()
@@ -1350,26 +1163,18 @@ func (s *LedgerStore) IsIPAllowed(ipStr string) bool {
 	if len(s.allow) == 0 {
 		return true
 	}
-	ip := net.ParseIP(strings.TrimSpace(ipStr))
+	ip := net.ParseIP(ipStr)
 	if ip == nil {
 		return false
 	}
 	for _, entry := range s.allow {
-		cidr := strings.TrimSpace(entry.CIDR)
-		if cidr == "" {
-			continue
-		}
-		if _, network, err := net.ParseCIDR(cidr); err == nil {
-			if network.IP.IsUnspecified() || network.Contains(ip) {
+		if _, network, err := net.ParseCIDR(entry.CIDR); err == nil {
+			if network.Contains(ip) {
 				return true
 			}
 			continue
 		}
-		candidate := net.ParseIP(cidr)
-		if candidate == nil {
-			continue
-		}
-		if candidate.IsUnspecified() || ip.Equal(candidate) {
+		if ip.Equal(net.ParseIP(entry.CIDR)) {
 			return true
 		}
 	}

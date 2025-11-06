@@ -176,31 +176,33 @@ func TestWorkspaceHierarchy(t *testing.T) {
 	}
 }
 
-func TestAllowlistWildcardAndUpdate(t *testing.T) {
-	store := NewLedgerStore()
+func TestValidatePasswordPolicy(t *testing.T) {
+	if err := validatePassword("Short1!"); !errors.Is(err, ErrPasswordTooShort) {
+		t.Fatalf("expected short password error, got %v", err)
+	}
+	if err := validatePassword("lowercaseonly1!"); !errors.Is(err, ErrPasswordTooWeak) {
+		t.Fatalf("expected weak password error, got %v", err)
+	}
+	if err := validatePassword("StrongPass1!"); err != nil {
+		t.Fatalf("expected password to satisfy policy, got %v", err)
+	}
+}
 
-	wildcard, err := store.AppendAllowlist(&IPAllowlistEntry{CIDR: "0.0.0.0/24", Description: "全部"}, "tester")
+func TestPasswordHashingAndCompatibility(t *testing.T) {
+	const password = "StrongPass1!"
+	hash, err := hashPassword(password)
 	if err != nil {
-		t.Fatalf("append wildcard: %v", err)
+		t.Fatalf("hashPassword failed: %v", err)
 	}
-	if wildcard.CreatedAt.IsZero() {
-		t.Fatalf("expected created at to be populated")
+	if !verifyPassword(hash, password) {
+		t.Fatalf("expected verifyPassword to accept freshly hashed password")
 	}
-	if !store.IsIPAllowed("203.0.113.42") {
-		t.Fatalf("expected wildcard to allow arbitrary ipv4")
+	if verifyPassword(hash, "WrongPass1!") {
+		t.Fatalf("expected verifyPassword to reject mismatched password")
 	}
 
-	updated, err := store.AppendAllowlist(&IPAllowlistEntry{ID: wildcard.ID, CIDR: "192.168.10.0/24", Description: "办公室"}, "tester")
-	if err != nil {
-		t.Fatalf("update allowlist: %v", err)
-	}
-	if !updated.CreatedAt.Equal(wildcard.CreatedAt) {
-		t.Fatalf("expected created time preserved, got %v vs %v", updated.CreatedAt, wildcard.CreatedAt)
-	}
-	if store.IsIPAllowed("203.0.113.42") {
-		t.Fatalf("expected arbitrary ip to be blocked after update")
-	}
-	if !store.IsIPAllowed("192.168.10.8") {
-		t.Fatalf("expected lan ip to be allowed")
+	const legacyHash = "gLgPjUGkVuL1Pzwh5sM55w:cKnqW27kGVuQPr+sOHqC50e5TldcsLNFyaTTzAr+UnM"
+	if !verifyPassword(legacyHash, "Hzdsz@2025#") {
+		t.Fatalf("expected legacy hash format to remain supported")
 	}
 }

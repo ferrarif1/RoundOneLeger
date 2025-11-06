@@ -38,7 +38,18 @@ const formatTimestamp = (value?: string) => {
   }).format(date);
 };
 
-const MIN_PASSWORD_LENGTH = 8;
+const MIN_PASSWORD_LENGTH = 10;
+
+const isPasswordStrong = (value: string) => {
+  if (!value || value.length < MIN_PASSWORD_LENGTH) {
+    return false;
+  }
+  const hasUppercase = /[A-Z]/.test(value);
+  const hasLowercase = /[a-z]/.test(value);
+  const hasDigit = /\d/.test(value);
+  const hasSymbol = /[^A-Za-z0-9]/.test(value);
+  return hasUppercase && hasLowercase && hasDigit && hasSymbol;
+};
 
 const Users = () => {
   const { username: currentUsername } = useSession();
@@ -51,12 +62,6 @@ const Users = () => {
   const [formAdmin, setFormAdmin] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [showChangePwd, setShowChangePwd] = useState(false);
-  const [oldPwd, setOldPwd] = useState('');
-  const [newPwd, setNewPwd] = useState('');
-  const [changing, setChanging] = useState(false);
-  const [changeErr, setChangeErr] = useState<string | null>(null);
-  const [changeOk, setChangeOk] = useState<string | null>(null);
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -90,8 +95,8 @@ const Users = () => {
       setError('请输入用户名。');
       return;
     }
-    if (!formPassword || formPassword.length < MIN_PASSWORD_LENGTH) {
-      setError(`请输入至少 ${MIN_PASSWORD_LENGTH} 位的登录密码。`);
+    if (!isPasswordStrong(formPassword)) {
+      setError(`密码需至少 ${MIN_PASSWORD_LENGTH} 位，并包含大写字母、小写字母、数字与特殊字符。`);
       return;
     }
     setSubmitting(true);
@@ -111,7 +116,12 @@ const Users = () => {
       resetForm();
     } catch (err) {
       const axiosError = err as AxiosError<{ error?: string }>;
-      setError(axiosError.response?.data?.error || axiosError.message || '新增用户失败，请稍后重试。');
+      const code = axiosError.response?.data?.error;
+      if (code === 'password_too_short' || code === 'password_too_weak') {
+        setError(`密码需至少 ${MIN_PASSWORD_LENGTH} 位，并包含大写字母、小写字母、数字与特殊字符。`);
+        return;
+      }
+      setError(code || axiosError.message || '新增用户失败，请稍后重试。');
     } finally {
       setSubmitting(false);
     }
@@ -136,27 +146,6 @@ const Users = () => {
     }
   };
 
-  const submitChangePwd = async () => {
-    setChangeErr(null);
-    setChangeOk(null);
-    if (!oldPwd || !newPwd) {
-      setChangeErr('请输入原密码与新密码');
-      return;
-    }
-    setChanging(true);
-    try {
-      await api.post('/auth/change-password', { oldPassword: oldPwd, newPassword: newPwd });
-      setChangeOk('密码已更新');
-      setOldPwd('');
-      setNewPwd('');
-    } catch (e: any) {
-      const msg = e?.response?.data?.error || e?.message || '修改失败';
-      setChangeErr(msg === 'invalid_credentials' ? '原密码错误' : msg);
-    } finally {
-      setChanging(false);
-    }
-  };
-
   const sortedUsers = useMemo(() => {
     return [...users].sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
   }, [users]);
@@ -168,7 +157,7 @@ const Users = () => {
           <div>
             <h2 className="text-lg font-semibold text-[var(--text)]">新增用户</h2>
             <p className="mt-1 text-xs text-[var(--muted)]">
-              仅管理员可创建用户，默认密码需不少于 {MIN_PASSWORD_LENGTH} 位。
+              仅管理员可创建用户，密码需至少 {MIN_PASSWORD_LENGTH} 位，并同时包含大写字母、小写字母、数字与特殊字符。
             </p>
           </div>
         </header>
@@ -188,7 +177,7 @@ const Users = () => {
               type="password"
               value={formPassword}
               onChange={(event) => setFormPassword(event.target.value)}
-              placeholder="请输入至少 8 位密码"
+              placeholder="需包含大小写字母、数字与特殊字符"
               className="rounded-[var(--radius-md)] border border-black/10 bg-white/90 px-3 py-2 text-sm text-[var(--text)] focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20"
             />
           </label>
@@ -281,33 +270,6 @@ const Users = () => {
           </div>
         )}
       </section>
-      <div className="mt-4">
-        <button className="button-primary" onClick={() => setShowChangePwd(true)}>修改我的密码</button>
-      </div>
-
-      {showChangePwd && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-            <h3 className="text-lg font-semibold text-[var(--text)]">修改密码</h3>
-            <div className="mt-4 space-y-4">
-              <label className="flex flex-col gap-2 text-sm">
-                <span className="text-xs text-[var(--muted)]">原密码</span>
-                <input type="password" value={oldPwd} onChange={(e) => setOldPwd(e.target.value)} className="rounded-[var(--radius-md)] border border-black/10 px-3 py-2" />
-              </label>
-              <label className="flex flex-col gap-2 text-sm">
-                <span className="text-xs text-[var(--muted)]">新密码</span>
-                <input type="password" value={newPwd} onChange={(e) => setNewPwd(e.target.value)} className="rounded-[var(--radius-md)] border border-black/10 px-3 py-2" />
-              </label>
-              {changeErr && <div className="text-sm text-red-600">{changeErr}</div>}
-              {changeOk && <div className="text-sm text-green-600">{changeOk}</div>}
-            </div>
-            <div className="mt-6 flex justify-end gap-3">
-              <button className="rounded-full border px-4 py-2" onClick={() => setShowChangePwd(false)}>取消</button>
-              <button className="button-primary" disabled={changing} onClick={submitChangePwd}>{changing ? '保存中…' : '保存'}</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

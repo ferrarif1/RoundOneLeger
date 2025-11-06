@@ -73,7 +73,7 @@ Once both containers are healthy, the API is reachable at <http://localhost:8080
 1. **Password login** – POST `/auth/password-login` with `{ "username": "…", "password": "…" }`. The server validates the credentials, issues a bearer token, and returns the username together with an `admin` flag.
 2. **Session usage** – Attach `Authorization: Bearer <token>` to every `/api/v1/**` request. Sessions expire automatically after the configured TTL; the frontend stores the token in `localStorage` and clears it on logout.
 
-A default administrator (`hzdsz_admin` / `Hzdsz@2025#`) is provisioned for first-time access. 登录后可在“用户中心”页面增删其他操作员帐号。只有管理员才能管理用户、IP 白名单以及台账结构，普通用户会被限制为只读视图。详见 `openapi.yaml` 获取完整的请求/响应示例和错误码。
+A default administrator (`hzdsz_admin` / `Hzdsz@2025#`) is provisioned for first-time access. 登录后可在“用户中心”页面增删其他操作员帐号。只有管理员才能管理用户、IP 白名单以及台账结构，普通用户会被限制为只读视图。所有新密码需至少 10 位，同时包含大写字母、小写字母、数字与特殊字符；系统会使用 PBKDF2-HMAC-SHA256（120,000 次迭代）加盐哈希后再持久化。详见 `openapi.yaml` 获取完整的请求/响应示例和错误码。
 
 ## Ledgers & Excel Import/Export
 
@@ -114,7 +114,7 @@ The tests exercise the ledger store, authentication flow, XLSX codec, and matrix
 
 ## Migrations
 
-The `migrations/0001_init.sql` script creates PostgreSQL tables for users, allowlists, and audit logs, and seeds the `hzdsz_admin` account with the default password. Apply it with your preferred migration tool before switching the store implementation to a database-backed version.
+The `migrations/0001_init.sql` script creates PostgreSQL tables for users, allowlists, and audit logs, and seeds the `hzdsz_admin` account with the default password (already stored as a PBKDF2-HMAC-SHA256 hash with 120k iterations). Apply it with your preferred migration tool before switching the store implementation to a database-backed version.
 
 ## API Reference
 

@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 );
 
 INSERT INTO users (username, password_hash, is_admin)
-    VALUES ('hzdsz_admin', 'gLgPjUGkVuL1Pzwh5sM55w:cKnqW27kGVuQPr+sOHqC50e5TldcsLNFyaTTzAr+UnM', TRUE)
+    VALUES ('hzdsz_admin', '120000:yJIaw3VgQ+Mop2i+oiCl4w:wd1JIMInNs+yz96EYgEq93xagByH7lT+8RFDOdji1GE', TRUE)
     ON CONFLICT (username) DO UPDATE
         SET password_hash = EXCLUDED.password_hash,
             is_admin = EXCLUDED.is_admin,

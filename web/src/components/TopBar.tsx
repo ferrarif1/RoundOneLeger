@@ -1,13 +1,13 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useSession } from '../hooks/useSession';
 import { BellIcon, PowerIcon, UserCircleIcon } from '@heroicons/react/24/outline';
-import api from '../api/client';
 
 const titles: Record<string, string> = {
   '/dashboard': '实时概览',
   '/assets': '台账编排',
   '/ip-allowlist': 'IP 白名单',
   '/audit-logs': '审计追踪',
+  '/approvals': '身份审批',
   '/users': '用户中心'
 };
 
@@ -17,16 +17,8 @@ const TopBar = () => {
   const { setToken, username, admin } = useSession();
 
   const handleLogout = () => {
-    fetchLogout().finally(() => {
-      setToken(null);
-      navigate('/login', { replace: true });
-    });
-  };
-
-  const fetchLogout = async () => {
-    try {
-      await api.post('/auth/logout');
-    } catch {}
+    setToken(null);
+    navigate('/login', { replace: true });
   };
 
   return (
