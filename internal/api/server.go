@@ -79,8 +79,8 @@ func (s *Server) RegisterRoutes(router *gin.Engine) {
 		secured.POST("/history/redo", s.handleRedo)
 		secured.GET("/history", s.handleHistoryStatus)
 
-		secured.GET("/audit", s.handleAuditList)
-		secured.GET("/audit/verify", s.handleAuditVerify)
+		secured.GET("/audit-logs", s.handleAuditLogs)
+		secured.GET("/audit-logs/verify", s.handleAuditLogsVerify)
 		secured.GET("/export/all", s.handleExportAll)
 		secured.POST("/import/all", s.handleImportAll)
 		secured.POST("/admin/save-snapshot", s.handleManualSave)
@@ -1211,12 +1211,12 @@ func (s *Server) handleHistoryStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"undo": s.Store.CanUndo(), "redo": s.Store.CanRedo()})
 }
 
-func (s *Server) handleAuditList(c *gin.Context) {
+func (s *Server) handleAuditLogs(c *gin.Context) {
 	audits := s.Store.ListAudits()
 	c.JSON(http.StatusOK, gin.H{"items": audits})
 }
 
-func (s *Server) handleAuditVerify(c *gin.Context) {
+func (s *Server) handleAuditLogsVerify(c *gin.Context) {
 	ok := s.Store.VerifyAuditChain()
 	c.JSON(http.StatusOK, gin.H{"verified": ok})
 }
