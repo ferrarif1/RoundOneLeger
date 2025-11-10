@@ -175,3 +175,36 @@ func TestWorkspaceHierarchy(t *testing.T) {
 		t.Fatalf("expected invalid parent error when assigning self, got %v", err)
 	}
 }
+
+func TestChangePassword(t *testing.T) {
+	store := NewLedgerStore()
+
+	const firstNewPassword = "StrongerPwd1!"
+	if err := store.ChangePassword(defaultAdminUsername, defaultAdminPassword, firstNewPassword, defaultAdminUsername); err != nil {
+		t.Fatalf("change password failed: %v", err)
+	}
+
+	if _, err := store.AuthenticateUser(defaultAdminUsername, defaultAdminPassword); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("expected old password to be rejected, got %v", err)
+	}
+
+	if _, err := store.AuthenticateUser(defaultAdminUsername, firstNewPassword); err != nil {
+		t.Fatalf("expected new password to succeed, got %v", err)
+	}
+
+	if err := store.ChangePassword(defaultAdminUsername, "WrongPassword1!", "AnotherPwd2@", defaultAdminUsername); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("expected invalid credentials error for wrong old password, got %v", err)
+	}
+
+	if err := store.ChangePassword(defaultAdminUsername, firstNewPassword, "short", defaultAdminUsername); !errors.Is(err, ErrPasswordTooShort) {
+		t.Fatalf("expected password length validation error, got %v", err)
+	}
+
+	if err := store.ChangePassword(defaultAdminUsername, firstNewPassword, "FinalPwd3#", defaultAdminUsername); err != nil {
+		t.Fatalf("change password to final value failed: %v", err)
+	}
+
+	if _, err := store.AuthenticateUser(defaultAdminUsername, "FinalPwd3#"); err != nil {
+		t.Fatalf("expected final password to succeed, got %v", err)
+	}
+}

@@ -4,27 +4,30 @@ import { ShieldCheckIcon } from '@heroicons/react/24/outline';
 
 interface AllowRule {
   id: string;
+  label?: string;
   cidr: string;
-  description: string;
+  description?: string;
   created_at: string;
 }
 
 const IPAllowlist = () => {
   const [rules, setRules] = useState<AllowRule[]>([]);
+  const [label, setLabel] = useState('');
   const [cidr, setCidr] = useState('');
   const [description, setDescription] = useState('');
 
   useEffect(() => {
     (async () => {
-      const { data } = await api.get('/ip-allowlists');
-      setRules(data);
+      const { data } = await api.get('/api/v1/ip-allowlist');
+      setRules(Array.isArray(data.items) ? data.items : []);
     })();
   }, []);
 
   const handleCreate = async (event: FormEvent) => {
     event.preventDefault();
-    const { data } = await api.post('/ip-allowlists', { cidr, description });
+    const { data } = await api.post('/api/v1/ip-allowlist', { label, cidr, description });
     setRules((prev) => [data, ...prev]);
+    setLabel('');
     setCidr('');
     setDescription('');
   };
@@ -36,8 +39,17 @@ const IPAllowlist = () => {
       </div>
       <form
         onSubmit={handleCreate}
-        className="grid gap-4 rounded-2xl border border-[var(--line)] bg-white p-6 shadow-[0_20px_36px_rgba(0,0,0,0.08)] md:grid-cols-[2fr,2fr,auto]"
+        className="grid gap-4 rounded-2xl border border-[var(--line)] bg-white p-6 shadow-[0_20px_36px_rgba(0,0,0,0.08)] md:grid-cols-[1.5fr,1.5fr,1.5fr,auto]"
       >
+        <div>
+          <label className="text-xs uppercase tracking-wider text-[rgba(20,20,20,0.45)]">名称</label>
+          <input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="办公网段"
+            className="mt-2 w-full border border-[var(--line)] bg-white px-4 py-3 text-sm"
+          />
+        </div>
         <div>
           <label className="text-xs uppercase tracking-wider text-[rgba(20,20,20,0.45)]">CIDR</label>
           <input
@@ -73,13 +85,12 @@ const IPAllowlist = () => {
                 <ShieldCheckIcon className="h-6 w-6 text-[var(--accent)]" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-[var(--text)]">{rule.cidr}</p>
-                <p className="text-xs text-[rgba(20,20,20,0.55)]">{rule.description || '无描述'}</p>
+                <p className="text-sm font-semibold text-[var(--text)]">{rule.label || rule.cidr}</p>
+                <p className="text-xs text-[rgba(20,20,20,0.55)]">{rule.cidr}</p>
               </div>
             </div>
-            <p className="mt-4 text-xs text-[rgba(20,20,20,0.45)]">
-              添加于 {new Date(rule.created_at).toLocaleString()}
-            </p>
+            <p className="mt-4 text-xs text-[rgba(20,20,20,0.45)]">{rule.description || '无描述'}</p>
+            <p className="mt-2 text-xs text-[rgba(20,20,20,0.45)]">添加于 {new Date(rule.created_at).toLocaleString()}</p>
           </div>
         ))}
       </div>

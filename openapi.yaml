@@ -1077,7 +1077,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HistoryStatus'
-  /api/v1/audit:
+  /api/v1/audit-logs:
     get:
       summary: List audit logs
       security:
@@ -1089,7 +1089,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuditListResponse'
-  /api/v1/audit/verify:
+  /api/v1/audit-logs/verify:
     get:
       summary: Verify audit chain
       security:
