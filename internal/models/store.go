@@ -6,10 +6,14 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	mrand "math/rand"
 	"net"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -97,6 +101,365 @@ type LedgerStore struct {
 	userOrder  []string
 
 	history historyStack
+}
+
+// SnapshotVersion represents the current serialization format for persisted snapshots.
+const SnapshotVersion = 2
+
+// Snapshot captures all persisted state required to rebuild the in-memory store.
+type Snapshot struct {
+	Version        int                          `json:"version"`
+	Entries        map[LedgerType][]LedgerEntry `json:"entries"`
+	Workspaces     []*Workspace                 `json:"workspaces"`
+	WorkspaceOrder []string                     `json:"workspace_order,omitempty"`
+	Allowlist      []*IPAllowlistEntry          `json:"allowlist"`
+	Audits         []*AuditLogEntry             `json:"audits"`
+	Users          []*User                      `json:"users"`
+	UserOrder      []string                     `json:"user_order,omitempty"`
+	Profiles       []IdentityProfile            `json:"profiles,omitempty"`
+	Approvals      []*IdentityApproval          `json:"approvals,omitempty"`
+}
+
+// ExportSnapshot returns a deep copy of the current store suitable for persistence.
+func (s *LedgerStore) ExportSnapshot() *Snapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	snapshot := &Snapshot{
+		Version: SnapshotVersion,
+		Entries: make(map[LedgerType][]LedgerEntry, len(s.entries)),
+	}
+
+	for typ, list := range s.entries {
+		snapshot.Entries[typ] = cloneEntrySlice(list)
+	}
+
+	snapshot.WorkspaceOrder = append([]string{}, s.workspaceOrder...)
+	snapshot.Workspaces = make([]*Workspace, 0, len(s.workspaces))
+	seen := make(map[string]struct{}, len(s.workspaces))
+	for _, id := range s.workspaceOrder {
+		if workspace, ok := s.workspaces[id]; ok {
+			snapshot.Workspaces = append(snapshot.Workspaces, workspace.Clone())
+			seen[id] = struct{}{}
+		}
+	}
+	for id, workspace := range s.workspaces {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		snapshot.Workspaces = append(snapshot.Workspaces, workspace.Clone())
+	}
+
+	snapshot.Allowlist = make([]*IPAllowlistEntry, 0, len(s.allow))
+	for _, entry := range s.allow {
+		copy := *entry
+		snapshot.Allowlist = append(snapshot.Allowlist, &copy)
+	}
+	sort.Slice(snapshot.Allowlist, func(i, j int) bool {
+		return snapshot.Allowlist[i].CreatedAt.Before(snapshot.Allowlist[j].CreatedAt)
+	})
+
+	snapshot.Audits = make([]*AuditLogEntry, len(s.audits))
+	for i, audit := range s.audits {
+		if audit == nil {
+			continue
+		}
+		copy := *audit
+		snapshot.Audits[i] = &copy
+	}
+
+	snapshot.UserOrder = append([]string{}, s.userOrder...)
+	snapshot.Users = make([]*User, 0, len(s.userOrder))
+	for _, id := range s.userOrder {
+		if user, ok := s.users[id]; ok {
+			copy := *user
+			snapshot.Users = append(snapshot.Users, &copy)
+		}
+	}
+	if len(snapshot.Users) < len(s.users) {
+		seen := make(map[string]struct{}, len(snapshot.UserOrder))
+		for _, id := range snapshot.UserOrder {
+			seen[id] = struct{}{}
+		}
+		for id, user := range s.users {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			copy := *user
+			snapshot.Users = append(snapshot.Users, &copy)
+			snapshot.UserOrder = append(snapshot.UserOrder, id)
+		}
+	}
+
+	snapshot.Profiles = make([]IdentityProfile, 0, len(s.profiles))
+	for _, profile := range s.profiles {
+		copy := profile
+		copy.Roles = append([]string{}, profile.Roles...)
+		snapshot.Profiles = append(snapshot.Profiles, copy)
+	}
+	sort.Slice(snapshot.Profiles, func(i, j int) bool { return snapshot.Profiles[i].DID < snapshot.Profiles[j].DID })
+
+	snapshot.Approvals = make([]*IdentityApproval, 0, len(s.approvalOrder))
+	for _, approval := range s.approvalOrder {
+		snapshot.Approvals = append(snapshot.Approvals, approval.Clone())
+	}
+
+	return snapshot
+}
+
+// ImportSnapshot replaces the in-memory state using the provided snapshot payload.
+func (s *LedgerStore) ImportSnapshot(snapshot *Snapshot) error {
+	if snapshot == nil {
+		return errors.New("empty_snapshot")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.entries = make(map[LedgerType][]LedgerEntry, len(snapshot.Entries))
+	for typ, list := range snapshot.Entries {
+		s.entries[typ] = cloneEntrySlice(list)
+	}
+
+	s.workspaces = make(map[string]*Workspace)
+	s.workspaceChildren = make(map[string][]string)
+
+	workspaceSource := make(map[string]*Workspace, len(snapshot.Workspaces))
+	for _, ws := range snapshot.Workspaces {
+		if ws == nil || strings.TrimSpace(ws.ID) == "" {
+			continue
+		}
+		workspaceSource[ws.ID] = ws
+	}
+
+	order := snapshot.WorkspaceOrder
+	if len(order) == 0 {
+		order = make([]string, 0, len(workspaceSource))
+		for id := range workspaceSource {
+			order = append(order, id)
+		}
+		sort.Strings(order)
+	}
+	s.workspaceOrder = make([]string, 0, len(order))
+	seen := make(map[string]struct{}, len(order))
+	for _, id := range order {
+		ws, ok := workspaceSource[id]
+		if !ok {
+			continue
+		}
+		clone := ws.Clone()
+		s.workspaces[clone.ID] = clone
+		s.workspaceOrder = append(s.workspaceOrder, clone.ID)
+		if parent := strings.TrimSpace(clone.ParentID); parent != "" {
+			s.workspaceChildren[parent] = append(s.workspaceChildren[parent], clone.ID)
+		}
+		seen[id] = struct{}{}
+	}
+	for id, ws := range workspaceSource {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		clone := ws.Clone()
+		s.workspaces[clone.ID] = clone
+		s.workspaceOrder = append(s.workspaceOrder, clone.ID)
+		if parent := strings.TrimSpace(clone.ParentID); parent != "" {
+			s.workspaceChildren[parent] = append(s.workspaceChildren[parent], clone.ID)
+		}
+	}
+
+	s.allow = make(map[string]*IPAllowlistEntry, len(snapshot.Allowlist))
+	for _, entry := range snapshot.Allowlist {
+		if entry == nil || strings.TrimSpace(entry.ID) == "" {
+			continue
+		}
+		copy := *entry
+		s.allow[copy.ID] = &copy
+	}
+
+	s.audits = make([]*AuditLogEntry, 0, len(snapshot.Audits))
+	for _, audit := range snapshot.Audits {
+		if audit == nil {
+			continue
+		}
+		copy := *audit
+		s.audits = append(s.audits, &copy)
+	}
+
+	s.users = make(map[string]*User)
+	s.userByName = make(map[string]*User)
+
+	userSource := make(map[string]*User, len(snapshot.Users))
+	for _, user := range snapshot.Users {
+		if user == nil || strings.TrimSpace(user.ID) == "" {
+			continue
+		}
+		copy := *user
+		userSource[copy.ID] = &copy
+	}
+
+	userOrder := snapshot.UserOrder
+	if len(userOrder) == 0 {
+		userOrder = make([]string, 0, len(userSource))
+		for id := range userSource {
+			userOrder = append(userOrder, id)
+		}
+		sort.Strings(userOrder)
+	}
+
+	s.userOrder = make([]string, 0, len(userOrder))
+	for _, id := range userOrder {
+		user, ok := userSource[id]
+		if !ok {
+			continue
+		}
+		s.users[id] = user
+		s.userOrder = append(s.userOrder, id)
+		s.userByName[normalizeUsername(user.Username)] = user
+		delete(userSource, id)
+	}
+	for id, user := range userSource {
+		s.users[id] = user
+		s.userOrder = append(s.userOrder, id)
+		s.userByName[normalizeUsername(user.Username)] = user
+	}
+
+	s.profiles = make(map[string]IdentityProfile, len(snapshot.Profiles))
+	for _, profile := range snapshot.Profiles {
+		trimmed := strings.TrimSpace(profile.DID)
+		if trimmed == "" {
+			continue
+		}
+		copy := profile
+		copy.DID = trimmed
+		copy.Roles = append([]string{}, profile.Roles...)
+		s.profiles[trimmed] = copy
+	}
+
+	s.approvals = make(map[string]*IdentityApproval)
+	s.approvalByApplicant = make(map[string]*IdentityApproval)
+	s.approvalOrder = make([]*IdentityApproval, 0, len(snapshot.Approvals))
+	for _, approval := range snapshot.Approvals {
+		if approval == nil || strings.TrimSpace(approval.ID) == "" {
+			continue
+		}
+		clone := approval.Clone()
+		s.approvals[clone.ID] = clone
+		s.approvalOrder = append(s.approvalOrder, clone)
+		if did := strings.TrimSpace(clone.ApplicantDid); did != "" {
+			s.approvalByApplicant[did] = clone
+		}
+	}
+
+	s.loginChallenges = make(map[string]*LoginChallenge)
+
+	s.history.Reset(s.snapshotLocked())
+	return nil
+}
+
+// SaveTo persists a snapshot.json file atomically in dir.
+func (s *LedgerStore) SaveTo(dir string) error {
+	if strings.TrimSpace(dir) == "" {
+		return errors.New("empty_dir")
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	snap := s.ExportSnapshot()
+	data, err := json.MarshalIndent(snap, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := filepath.Join(dir, "snapshot.tmp")
+	file := filepath.Join(dir, "snapshot.json")
+	if err := os.WriteFile(tmp, data, fs.FileMode(0o644)); err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(tmp) }()
+	if err := os.Rename(tmp, file); err != nil {
+		if removeErr := os.Remove(file); removeErr != nil && !os.IsNotExist(removeErr) {
+			return err
+		}
+		if retryErr := os.Rename(tmp, file); retryErr != nil {
+			return retryErr
+		}
+	}
+	return nil
+}
+
+// LoadFrom restores store state from snapshot.json in dir when present.
+func (s *LedgerStore) LoadFrom(dir string) error {
+	path := filepath.Join(dir, "snapshot.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	var snap Snapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return err
+	}
+	return s.ImportSnapshot(&snap)
+}
+
+// SaveToWithRetention persists the current state and a timestamped backup, pruning old files.
+func (s *LedgerStore) SaveToWithRetention(dir string, retention int) error {
+	if err := s.SaveTo(dir); err != nil {
+		return err
+	}
+	if retention <= 0 {
+		return nil
+	}
+	ts := time.Now().UTC().Format("2006-01-02T15-04-05Z07-00")
+	backup := filepath.Join(dir, "snapshot-"+ts+".json")
+	data, err := json.MarshalIndent(s.ExportSnapshot(), "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(backup, data, fs.FileMode(0o644)); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	backups := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasPrefix(name, "snapshot-") && strings.HasSuffix(name, ".json") {
+			backups = append(backups, filepath.Join(dir, name))
+		}
+	}
+	sort.Slice(backups, func(i, j int) bool { return backups[i] > backups[j] })
+	if len(backups) > retention {
+		for _, stale := range backups[retention:] {
+			_ = os.Remove(stale)
+		}
+	}
+	return nil
+}
+
+// WriteBinary persists arbitrary data inside an assets directory under dir.
+func (s *LedgerStore) WriteBinary(dir, name string, data []byte) (string, error) {
+	if strings.TrimSpace(dir) == "" {
+		return "", errors.New("empty_dir")
+	}
+	if name == "" {
+		name = GenerateID("asset")
+	}
+	assetsDir := filepath.Join(dir, "assets")
+	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
+		return "", err
+	}
+	ext := filepath.Ext(name)
+	base := strings.TrimSuffix(filepath.Base(name), ext)
+	filename := base + ext
+	target := filepath.Join(assetsDir, filename)
+	if err := os.WriteFile(target, data, fs.FileMode(0o644)); err != nil {
+		return "", err
+	}
+	return filepath.ToSlash(filepath.Join("assets", filename)), nil
 }
 
 // IdentityProfile stores metadata about a SDID identity that has interacted with the system.
