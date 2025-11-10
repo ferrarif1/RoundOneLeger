@@ -29,9 +29,11 @@ import (
 
 // Server wires handlers to the in-memory store and session manager.
 type Server struct {
-	Database *db.Database
-	Store    *models.LedgerStore
-	Sessions *auth.Manager
+	Database          *db.Database
+	Store             *models.LedgerStore
+	Sessions          *auth.Manager
+	DataDir           string
+	SnapshotRetention int
 }
 
 // RegisterRoutes attaches handlers to the gin engine.
