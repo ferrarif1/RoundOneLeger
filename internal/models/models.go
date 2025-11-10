@@ -72,12 +72,12 @@ const (
 
 // WorkspaceRow stores user-entered cell values keyed by column ID.
 type WorkspaceRow struct {
-	ID          string            `json:"id"`
-	Cells       map[string]string `json:"cells"`
-	Styles      map[string]string `json:"styles,omitempty"`
-	Highlighted bool              `json:"highlighted,omitempty"`
-	CreatedAt   time.Time         `json:"created_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
+	ID        string            `json:"id"`
+	Cells     map[string]string `json:"cells"`
+    Styles    map[string]string `json:"styles,omitempty"`
+    Highlighted bool            `json:"highlighted,omitempty"`
+	CreatedAt time.Time         `json:"created_at"`
+	UpdatedAt time.Time         `json:"updated_at"`
 }
 
 // Workspace represents a flexible workspace that can behave as a sheet, document, or folder.
@@ -114,12 +114,12 @@ func (w *Workspace) Clone() *Workspace {
 					clonedRow.Cells[key] = value
 				}
 			}
-			if row.Styles != nil {
-				clonedRow.Styles = make(map[string]string, len(row.Styles))
-				for key, value := range row.Styles {
-					clonedRow.Styles[key] = value
-				}
-			}
+            if row.Styles != nil {
+                clonedRow.Styles = make(map[string]string, len(row.Styles))
+                for key, value := range row.Styles {
+                    clonedRow.Styles[key] = value
+                }
+            }
 			clone.Rows[i] = clonedRow
 		}
 	}
@@ -171,21 +171,6 @@ type IPAllowlistEntry struct {
 	Description string    `json:"description,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
-}
-
-// OverviewSummary aggregates headline metrics for the admin dashboard.
-type OverviewSummary struct {
-	GeneratedAt   time.Time `json:"generated_at"`
-	Systems       int       `json:"systems"`
-	Personnel     int       `json:"personnel"`
-	IPAssets      int       `json:"ip_assets"`
-	Workspaces    int       `json:"workspaces"`
-	Sheets        int       `json:"sheets"`
-	Documents     int       `json:"documents"`
-	Folders       int       `json:"folders"`
-	Users         int       `json:"users"`
-	Allowlist     int       `json:"allowlist"`
-	LoginsLast24h int       `json:"logins_last_24h"`
 }
 
 // AuditLogEntry represents a tamper evident log item.

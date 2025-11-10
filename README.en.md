@@ -60,7 +60,6 @@ This brings up Postgres alongside the backend container. Adjust environment vari
 - POST `/auth/password-login` with `{ "username": "…", "password": "…" }` to obtain a bearer token. The response echoes the username and an `admin` flag so the UI can tailor access.
 - Include the token in `Authorization: Bearer <token>` for all authenticated API calls. Sessions automatically expire based on the server TTL and the frontend clears stored credentials on logout.
 - A default administrator (`hzdsz_admin` / `Hzdsz@2025#`) is provisioned for initial access. After signing in, open the “用户中心” page to add or remove other operators. Only administrators may manage users, IP allowlists, or ledger schemas.
-- Operator passwords are salted and hashed with PBKDF2-HMAC-SHA256 (120k iterations) before storage. New passwords must be at least 10 characters long and include upper- and lower-case letters, a digit, and a symbol.
 
 ## Collaborative Workspaces
 
