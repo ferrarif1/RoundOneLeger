@@ -119,3 +119,96 @@ The `migrations/0001_init.sql` script creates PostgreSQL tables for users, allow
 ## API Reference
 
 Browse `openapi.yaml` or load it into Swagger UI/Postman to explore all routes, schemas, and example payloads.
+
+## Offline Deployment Workflow
+
+The repository ships with a repeatable workflow for preparing and operating the application in fully offline Windows environments. Use the following procedure whenever you need to refresh dependencies or set up a new air-gapped workstation.
+
+### 1. Collect artifacts on an internet-connected machine
+
+1. Clone this repository and switch to the desired tag/commit.
+2. Populate Go dependencies and compile the Windows binary:
+   ```powershell
+   go env -w GOPROXY=https://proxy.golang.org,direct
+   go mod tidy
+   go mod vendor
+   go build -o dist/server.exe ./cmd/server
+   ```
+3. Download frontend assets and produce the static build:
+   ```powershell
+   pushd web
+   npm install
+   npm run build
+   popd
+   ```
+4. Capture the resulting directories/files and npm cache:
+   - `vendor/`
+   - `dist/server.exe`
+   - `web/node_modules/`
+   - `web/package-lock.json`
+   - `web/build/`
+   - npm cache directory (obtain with `npm config get cache`)
+5. Place the captured content inside a folder named `offline-artifacts/` using the structure below (archives such as `.zip` are also supported by the setup script):
+
+   ```text
+   offline-artifacts/
+   ├── vendor/                  # from go mod vendor
+   ├── server.exe               # from go build -o dist/server.exe …
+   ├── node_modules/            # from web/node_modules
+   ├── build/                   # from web/build
+   ├── npm-cache/               # npm cache directory
+   ├── web-package-lock.json    # optional backup copy
+   ├── docker-images/           # will store docker save outputs (see below)
+   └── installers/              # optional subfolder for MSI/EXE packages
+   ```
+
+6. Download Windows installers and place them under `offline-artifacts/installers/`:
+   - Go 1.22 MSI (`go1.22.windows-amd64.msi`)
+   - Node.js 18 LTS MSI (`node-v18.x64.msi`)
+   - PostgreSQL 15+ (`postgresql-15.4-1-windows-x64.exe` or similar)
+   - Docker Desktop (`DockerDesktopInstaller.exe`)
+
+7. Export Docker images that you plan to use offline and store them under `offline-artifacts/docker-images/`:
+   ```powershell
+   docker pull postgres:15-alpine
+   docker pull golang:1.22-alpine      # or any base images you rely on
+   docker save postgres:15-alpine -o offline-artifacts/docker-images/postgres-15-alpine.tar
+   docker save golang:1.22-alpine -o offline-artifacts/docker-images/golang-1.22-alpine.tar
+   ```
+
+8. Copy the complete repository (including `offline-artifacts/`) to removable media.
+
+### 2. Prepare the offline workstation
+
+1. Copy the repository to the offline machine.
+2. Open PowerShell (Run as Administrator is recommended for installer execution).
+3. Execute the setup script:
+   ```powershell
+   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+   pwsh -File scripts/offline-setup.ps1 -InitializeDatabase -UseDocker
+   ```
+   - Omit `-UseDocker` to initialize PostgreSQL via `psql` instead of Docker Compose.
+   - Append `-FrontendOnly` or `-BackendOnly` to limit which services start automatically.
+   - Use `-OfflineRoot C:\path\to\artifacts` when your artifacts are stored outside the repository tree.
+4. The script checks for Go, Node.js/npm, PostgreSQL, and Docker Desktop. Missing components are installed silently when matching installers exist in `offline-artifacts/installers/`. Otherwise, the script reports the missing dependency so you can install it manually.
+5. After the tooling check completes, the script configures `GOPATH`, restores the npm cache, copies `vendor/`, `node_modules/`, and the frontend build, and places `dist/server.exe` in the correct location.
+
+### 3. Optional database initialization
+
+- With PostgreSQL available locally, the script applies all SQL files in `migrations/` using `psql`.
+- With `-UseDocker`, the script runs `docker load` for every archive in `offline-artifacts/docker-images/` and calls `docker compose up -d` to launch the stack defined in `docker-compose.yml`.
+
+### 4. Launching the application
+
+- Backend: `dist/server.exe` is started automatically (listens on `http://localhost:8080`).
+- Frontend: `npx serve build --listen 0.0.0.0:3000` is launched inside `web/`. Adjust the command to integrate with IIS/NGINX if required.
+
+### 5. Verifying the deployment
+
+- Visit `http://localhost:8080/health` to confirm backend readiness.
+- Visit `http://localhost:3000/` (or your web server host) to reach the login page.
+- Use the default administrator credentials noted earlier in this document for the first sign-in.
+
+### 6. Refreshing offline artifacts
+
+When dependencies change, revisit the internet-connected workstation and repeat the collection process (Steps 1–8 above). Replace the contents of `offline-artifacts/` on your offline media, then rerun the PowerShell script to update the offline environment with the new artifacts.
