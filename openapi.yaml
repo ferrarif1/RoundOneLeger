@@ -254,32 +254,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AllowlistEntry'
-    OverviewSummary:
-      type: object
-      properties:
-        generated_at:
-          type: string
-          format: date-time
-        systems:
-          type: integer
-        personnel:
-          type: integer
-        ip_assets:
-          type: integer
-        workspaces:
-          type: integer
-        sheets:
-          type: integer
-        documents:
-          type: integer
-        folders:
-          type: integer
-        users:
-          type: integer
-        allowlist:
-          type: integer
-        logins_last_24h:
-          type: integer
     AuditEntry:
       type: object
       properties:
@@ -687,21 +661,6 @@ paths:
                       type: array
                       items:
                         type: string
-  /api/v1/overview:
-    get:
-      summary: Retrieve aggregated dashboard metrics
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: Overview summary including ledger counts and recent activity
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  overview:
-                    $ref: '#/components/schemas/OverviewSummary'
   /api/v1/workspaces:
     get:
       summary: List collaborative workspaces
@@ -1152,12 +1111,11 @@ paths:
         - bearerAuth: []
       responses:
         '200':
-          description: Snapshot archive containing snapshot.json and embedded resources
+          description: Complete snapshot for migration
           content:
-            application/zip:
+            application/json:
               schema:
-                type: string
-                format: binary
+                type: object
   /api/v1/import/all:
     post:
       summary: Import all data snapshot (destructive replace)
@@ -1169,31 +1127,6 @@ paths:
           application/json:
             schema:
               type: object
-      responses:
-        '200':
-          description: Imported
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-  /api/v1/import/archive:
-    post:
-      summary: Import snapshot archive with embedded resources (destructive replace)
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              properties:
-                archive:
-                  type: string
-                  format: binary
       responses:
         '200':
           description: Imported

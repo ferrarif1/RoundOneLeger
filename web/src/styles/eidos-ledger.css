@@ -18,7 +18,7 @@
 .eidos-ledger-root {
   min-height: 100vh;
   background: var(--bg-page);
-  padding: 12px 24px 44px;
+  padding: 32px 28px 44px;
   font-family: 'Inter', 'Noto Sans SC', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   color: var(--text);
   -webkit-font-smoothing: antialiased;
@@ -28,9 +28,8 @@
   display: flex;
   flex-direction: column;
   gap: 18px;
-  width: 100%;
-  max-width: none;
-  margin: 0;
+  max-width: 1440px;
+  margin: 0 auto;
 }
 
 .eidos-ledger-mobile-toggle {

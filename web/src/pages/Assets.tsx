@@ -31,7 +31,6 @@ import type {
   WorkspaceNode,
   WorkspaceRow
 } from '../components/ledger/types';
-import { inlineBlobSources } from '../utils/html';
 
 const DEFAULT_TITLE = '未命名台账';
 const MIN_COLUMN_WIDTH = 140;
@@ -884,19 +883,8 @@ const Assets = () => {
     setError(null);
     const trimmedName = name.trim() || DEFAULT_TITLE;
     const payload: Record<string, unknown> = { name: trimmedName };
-    let preparedDocument = documentContent;
-    if ((isSheet || isDocument) && preparedDocument && preparedDocument.includes('blob:')) {
-      try {
-        preparedDocument = await inlineBlobSources(preparedDocument);
-        if (preparedDocument !== documentContent) {
-          setDocumentContent(preparedDocument);
-        }
-      } catch (error) {
-        console.warn('转换文档中的图片资源失败', error);
-      }
-    }
     if (isSheet) {
-      payload.document = preparedDocument;
+      payload.document = documentContent;
       payload.columns = columns.map((column, index) => ({
         id: column.id || generateId(),
         title: column.title || `字段 ${index + 1}`,
@@ -904,7 +892,7 @@ const Assets = () => {
       }));
       payload.rows = rows.map((row) => ({ id: row.id, cells: row.cells, highlighted: highlightedRowIds.includes(row.id) }));
     } else if (isDocument) {
-      payload.document = preparedDocument;
+      payload.document = documentContent;
     }
     setSaving(true);
     try {
@@ -918,17 +906,7 @@ const Assets = () => {
     } finally {
       setSaving(false);
     }
-  }, [
-    columns,
-    currentWorkspace,
-    documentContent,
-    highlightedRowIds,
-    isDocument,
-    isSheet,
-    name,
-    refreshList,
-    rows
-  ]);
+  }, [columns, currentWorkspace, documentContent, isDocument, isSheet, name, refreshList, rows]);
 
   const handleDeleteWorkspace = useCallback(async () => {
     if (!currentWorkspace) {
@@ -1090,17 +1068,17 @@ const Assets = () => {
       onExport={handleExport}
       onExportAll={async () => {
         try {
-          const { data } = await api.get('/api/v1/export/all', { responseType: 'blob' });
-          const blob = new Blob([data], { type: 'application/zip' });
+          const { data } = await api.get('/api/v1/export/all', { responseType: 'json' });
+          const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = `roundone_ledger_export_${Date.now()}.zip`;
+          a.download = `roundone_ledger_export_${Date.now()}.json`;
           document.body.appendChild(a);
           a.click();
           a.remove();
           URL.revokeObjectURL(url);
-          setStatus('已导出全部数据与资源。');
+          setStatus('已导出全部数据。');
         } catch (err) {
           const axiosError = err as AxiosError<{ error?: string }>;
           setError(axiosError.response?.data?.error || axiosError.message || '导出失败');
@@ -1232,32 +1210,21 @@ const Assets = () => {
       <input
         ref={importAllRef}
         type="file"
-        accept=".json,.zip,application/json,application/zip"
+        accept="application/json"
         className="hidden"
         onChange={async (e) => {
           const file = e.target.files?.[0];
           e.target.value = '';
           if (!file) return;
           try {
-            const lowerName = file.name.toLowerCase();
-            if (lowerName.endsWith('.zip') || file.type === 'application/zip') {
-              const formData = new FormData();
-              formData.append('archive', file);
-              await api.post('/api/v1/import/archive', formData);
-            } else {
-              const text = await file.text();
-              const payload = JSON.parse(text);
-              await api.post('/api/v1/import/all', payload);
-            }
+            const text = await file.text();
+            const payload = JSON.parse(text);
+            await api.post('/api/v1/import/all', payload);
             setStatus('已导入全部数据。');
             await refreshList();
           } catch (err) {
             const axiosError = err as AxiosError<{ error?: string }>;
-            const message =
-              axiosError.response?.data?.error ||
-              axiosError.message ||
-              (err instanceof Error ? err.message : '导入失败');
-            setError(message);
+            setError(axiosError.response?.data?.error || axiosError.message || '导入失败');
           }
         }}
       />

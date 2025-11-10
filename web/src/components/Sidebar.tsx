@@ -62,6 +62,9 @@ const Sidebar = () => {
         </NavLink>
       ))}
     </nav>
+    <div className="px-6 pb-8 text-xs leading-relaxed text-[rgba(20,20,20,0.55)]">
+      采用黑白线框与圆角面板，构建类似 ChatGPT 控制台的沉浸式空间感。
+    </div>
   </aside>
   );
 };

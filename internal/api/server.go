@@ -1,40 +1,35 @@
 package api
 
 import (
-	"archive/zip"
-	"bytes"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/hex"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
-	"net"
-	"net/http"
-	"path/filepath"
-	"regexp"
-	"sort"
-	"strconv"
-	"strings"
-	"time"
+    "encoding/base64"
+    "encoding/json"
+    "errors"
+    "fmt"
+    "io"
+    "net"
+    "net/http"
+    "regexp"
+    "sort"
+    "strconv"
+    "strings"
+    "time"
 
-	"github.com/gin-gonic/gin"
+    "github.com/gin-gonic/gin"
 
-	"ledger/internal/auth"
-	"ledger/internal/db"
-	"ledger/internal/middleware"
-	"ledger/internal/models"
-	"ledger/internal/xlsx"
+    "ledger/internal/auth"
+    "ledger/internal/db"
+    "ledger/internal/middleware"
+    "ledger/internal/models"
+    "ledger/internal/xlsx"
 )
 
 // Server wires handlers to the in-memory store and session manager.
 type Server struct {
-	Database          *db.Database
-	Store             *models.LedgerStore
-	Sessions          *auth.Manager
-	DataDir           string
-	SnapshotRetention int
+	Database *db.Database
+	Store    *models.LedgerStore
+	Sessions *auth.Manager
+    DataDir  string
+    SnapshotRetention int
 }
 
 // RegisterRoutes attaches handlers to the gin engine.
@@ -44,8 +39,8 @@ func (s *Server) RegisterRoutes(router *gin.Engine) {
 	authGroup := router.Group("/auth")
 	{
 		authGroup.POST("/password-login", s.handlePasswordLogin)
-		authGroup.POST("/logout", s.handleLogout)
-		authGroup.POST("/change-password", s.handleChangePassword)
+        authGroup.POST("/logout", s.handleLogout)
+        authGroup.POST("/change-password", s.handleChangePassword)
 	}
 
 	secured := router.Group("/api/v1")
@@ -60,7 +55,6 @@ func (s *Server) RegisterRoutes(router *gin.Engine) {
 		secured.GET("/ledgers/export", s.handleExportLedger)
 		secured.POST("/ledgers/import", s.handleImportWorkbook)
 		secured.GET("/ledger-cartesian", s.handleLedgerMatrix)
-		secured.GET("/overview", s.handleOverview)
 
 		secured.GET("/workspaces", s.handleListWorkspaces)
 		secured.POST("/workspaces", s.handleCreateWorkspace)
@@ -85,11 +79,10 @@ func (s *Server) RegisterRoutes(router *gin.Engine) {
 		secured.POST("/history/redo", s.handleRedo)
 		secured.GET("/history", s.handleHistoryStatus)
 
-		secured.GET("/audit", s.handleAuditList)
-		secured.GET("/audit/verify", s.handleAuditVerify)
+        secured.GET("/audit", s.handleAuditList)
+        secured.GET("/audit/verify", s.handleAuditVerify)
 		secured.GET("/export/all", s.handleExportAll)
 		secured.POST("/import/all", s.handleImportAll)
-		secured.POST("/import/archive", s.handleImportArchive)
 		secured.POST("/admin/save-snapshot", s.handleManualSave)
 	}
 }
@@ -116,8 +109,8 @@ type passwordLoginRequest struct {
 }
 
 type changePasswordRequest struct {
-	OldPassword string `json:"oldPassword"`
-	NewPassword string `json:"newPassword"`
+    OldPassword string `json:"oldPassword"`
+    NewPassword string `json:"newPassword"`
 }
 
 // SDID login handler removed
@@ -153,35 +146,35 @@ func (s *Server) handlePasswordLogin(c *gin.Context) {
 }
 
 func (s *Server) handleLogout(c *gin.Context) {
-	header := c.GetHeader("Authorization")
-	const prefix = "Bearer "
-	if strings.HasPrefix(header, prefix) {
-		token := strings.TrimSpace(strings.TrimPrefix(header, prefix))
-		s.Sessions.Revoke(token)
-	}
-	c.JSON(http.StatusOK, gin.H{"status": "logged_out"})
+    header := c.GetHeader("Authorization")
+    const prefix = "Bearer "
+    if strings.HasPrefix(header, prefix) {
+        token := strings.TrimSpace(strings.TrimPrefix(header, prefix))
+        s.Sessions.Revoke(token)
+    }
+    c.JSON(http.StatusOK, gin.H{"status": "logged_out"})
 }
 
 func (s *Server) handleChangePassword(c *gin.Context) {
-	session := currentSession(c, s.Sessions)
-	if strings.TrimSpace(session) == "" || session == "system" {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-		return
-	}
-	var req changePasswordRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
-		return
-	}
-	if err := s.Store.ChangePassword(session, strings.TrimSpace(req.OldPassword), strings.TrimSpace(req.NewPassword), session); err != nil {
-		status := http.StatusUnauthorized
-		if errors.Is(err, models.ErrPasswordTooShort) {
-			status = http.StatusBadRequest
-		}
-		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"status": "password_changed"})
+    session := currentSession(c, s.Sessions)
+    if strings.TrimSpace(session) == "" || session == "system" {
+        c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+        return
+    }
+    var req changePasswordRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+        return
+    }
+    if err := s.Store.ChangePassword(session, strings.TrimSpace(req.OldPassword), strings.TrimSpace(req.NewPassword), session); err != nil {
+        status := http.StatusUnauthorized
+        if errors.Is(err, models.ErrPasswordTooShort) {
+            status = http.StatusBadRequest
+        }
+        c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
+        return
+    }
+    c.JSON(http.StatusOK, gin.H{"status": "password_changed"})
 }
 
 // Challenge resolution removed
@@ -303,12 +296,12 @@ type workspaceColumnPayload struct {
 }
 
 type workspaceRowPayload struct {
-	ID          string            `json:"id"`
-	Cells       map[string]string `json:"cells"`
-	Styles      map[string]string `json:"styles,omitempty"`
-	Highlighted bool              `json:"highlighted,omitempty"`
-	CreatedAt   time.Time         `json:"createdAt,omitempty"`
-	UpdatedAt   time.Time         `json:"updatedAt,omitempty"`
+	ID        string            `json:"id"`
+	Cells     map[string]string `json:"cells"`
+    Styles    map[string]string `json:"styles,omitempty"`
+    Highlighted bool            `json:"highlighted,omitempty"`
+	CreatedAt time.Time         `json:"createdAt,omitempty"`
+	UpdatedAt time.Time         `json:"updatedAt,omitempty"`
 }
 
 type workspaceResponse struct {
@@ -635,11 +628,6 @@ func (s *Server) handleLedgerMatrix(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"rows": matrix})
 }
 
-func (s *Server) handleOverview(c *gin.Context) {
-	summary := s.Store.OverviewSummary(time.Now().UTC())
-	c.JSON(http.StatusOK, gin.H{"overview": summary})
-}
-
 func (s *Server) handleListWorkspaces(c *gin.Context) {
 	items := s.Store.ListWorkspaces()
 	buckets := make(map[string][]workspaceTreeItem)
@@ -882,66 +870,66 @@ func (s *Server) handleExportWorkspace(c *gin.Context) {
 }
 
 type exportSelectedRequest struct {
-	RowIDs []string `json:"rowIds"`
+    RowIDs []string `json:"rowIds"`
 }
 
 func (s *Server) handleExportWorkspaceSelected(c *gin.Context) {
-	workspace, err := s.Store.GetWorkspace(c.Param("id"))
-	if err != nil {
-		status := http.StatusInternalServerError
-		if errors.Is(err, models.ErrWorkspaceNotFound) {
-			status = http.StatusNotFound
-		}
-		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
-		return
-	}
-	if !models.WorkspaceKindSupportsTable(workspace.Kind) {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": models.ErrWorkspaceKindUnsupported.Error()})
-		return
-	}
-	var req exportSelectedRequest
-	if err := c.ShouldBindJSON(&req); err != nil || len(req.RowIDs) == 0 {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
-		return
-	}
-	allow := make(map[string]struct{}, len(req.RowIDs))
-	for _, id := range req.RowIDs {
-		id = strings.TrimSpace(id)
-		if id != "" {
-			allow[id] = struct{}{}
-		}
-	}
-	rows := make([][]string, 0, len(workspace.Rows)+1)
-	if len(workspace.Columns) > 0 {
-		header := make([]string, len(workspace.Columns))
-		for i, column := range workspace.Columns {
-			header[i] = column.Title
-		}
-		rows = append(rows, header)
-	}
-	for _, row := range workspace.Rows {
-		if _, ok := allow[row.ID]; !ok {
-			continue
-		}
-		record := make([]string, len(workspace.Columns))
-		for i, column := range workspace.Columns {
-			record[i] = row.Cells[column.ID]
-		}
-		rows = append(rows, record)
-	}
-	sheetName := workspace.Name
-	if strings.TrimSpace(sheetName) == "" {
-		sheetName = "workspace"
-	}
-	workbook := xlsx.Workbook{Sheets: []xlsx.Sheet{{Name: sheetName, Rows: rows}}}
-	encoded, err := xlsx.Encode(workbook)
-	if err != nil {
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "encode_failed"})
-		return
-	}
-	c.Writer.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-	c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s_selected.xlsx\"", "workspace"))
-	c.Writer.Write(encoded)
+    workspace, err := s.Store.GetWorkspace(c.Param("id"))
+    if err != nil {
+        status := http.StatusInternalServerError
+        if errors.Is(err, models.ErrWorkspaceNotFound) {
+            status = http.StatusNotFound
+        }
+        c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
+        return
+    }
+    if !models.WorkspaceKindSupportsTable(workspace.Kind) {
+        c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": models.ErrWorkspaceKindUnsupported.Error()})
+        return
+    }
+    var req exportSelectedRequest
+    if err := c.ShouldBindJSON(&req); err != nil || len(req.RowIDs) == 0 {
+        c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+        return
+    }
+    allow := make(map[string]struct{}, len(req.RowIDs))
+    for _, id := range req.RowIDs {
+        id = strings.TrimSpace(id)
+        if id != "" {
+            allow[id] = struct{}{}
+        }
+    }
+    rows := make([][]string, 0, len(workspace.Rows)+1)
+    if len(workspace.Columns) > 0 {
+        header := make([]string, len(workspace.Columns))
+        for i, column := range workspace.Columns {
+            header[i] = column.Title
+        }
+        rows = append(rows, header)
+    }
+    for _, row := range workspace.Rows {
+        if _, ok := allow[row.ID]; !ok {
+            continue
+        }
+        record := make([]string, len(workspace.Columns))
+        for i, column := range workspace.Columns {
+            record[i] = row.Cells[column.ID]
+        }
+        rows = append(rows, record)
+    }
+    sheetName := workspace.Name
+    if strings.TrimSpace(sheetName) == "" {
+        sheetName = "workspace"
+    }
+    workbook := xlsx.Workbook{Sheets: []xlsx.Sheet{{Name: sheetName, Rows: rows}}}
+    encoded, err := xlsx.Encode(workbook)
+    if err != nil {
+        c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "encode_failed"})
+        return
+    }
+    c.Writer.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s_selected.xlsx\"", "workspace"))
+    c.Writer.Write(encoded)
 }
 
 func (s *Server) handleListUsers(c *gin.Context) {
@@ -1012,20 +1000,20 @@ func workspaceToResponse(workspace *models.Workspace) workspaceResponse {
 	for i, column := range workspace.Columns {
 		columns[i] = workspaceColumnPayload{ID: column.ID, Title: column.Title, Width: column.Width}
 	}
-	rows := make([]workspaceRowPayload, len(workspace.Rows))
-	for i, row := range workspace.Rows {
-		cells := make(map[string]string, len(row.Cells))
-		for key, value := range row.Cells {
-			cells[key] = value
-		}
-		styles := map[string]string{}
-		if row.Styles != nil {
-			for k, v := range row.Styles {
-				styles[k] = v
-			}
-		}
-		rows[i] = workspaceRowPayload{ID: row.ID, Cells: cells, Styles: styles, Highlighted: row.Highlighted, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
-	}
+    rows := make([]workspaceRowPayload, len(workspace.Rows))
+    for i, row := range workspace.Rows {
+        cells := make(map[string]string, len(row.Cells))
+        for key, value := range row.Cells {
+            cells[key] = value
+        }
+        styles := map[string]string{}
+        if row.Styles != nil {
+            for k, v := range row.Styles {
+                styles[k] = v
+            }
+        }
+        rows[i] = workspaceRowPayload{ID: row.ID, Cells: cells, Styles: styles, Highlighted: row.Highlighted, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
+    }
 	return workspaceResponse{
 		ID:        workspace.ID,
 		Name:      workspace.Name,
@@ -1082,18 +1070,18 @@ func payloadRowsToModel(rows []workspaceRowPayload) []models.WorkspaceRow {
 		return nil
 	}
 	out := make([]models.WorkspaceRow, 0, len(rows))
-	for _, row := range rows {
+    for _, row := range rows {
 		cells := make(map[string]string, len(row.Cells))
 		for key, value := range row.Cells {
 			cells[key] = value
 		}
-		styles := map[string]string{}
-		if row.Styles != nil {
-			for k, v := range row.Styles {
-				styles[k] = v
-			}
-		}
-		out = append(out, models.WorkspaceRow{ID: strings.TrimSpace(row.ID), Cells: cells, Styles: styles, Highlighted: row.Highlighted, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt})
+        styles := map[string]string{}
+        if row.Styles != nil {
+            for k, v := range row.Styles {
+                styles[k] = v
+            }
+        }
+        out = append(out, models.WorkspaceRow{ID: strings.TrimSpace(row.ID), Cells: cells, Styles: styles, Highlighted: row.Highlighted, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt})
 	}
 	return out
 }
@@ -1164,17 +1152,12 @@ type allowRequest struct {
 }
 
 func (s *Server) handleCreateAllowlist(c *gin.Context) {
-	session := currentSession(c, s.Sessions)
-	if !s.Store.IsUserAdmin(session) {
-		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "admin_required"})
-		return
-	}
 	var req allowRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
 		return
 	}
-	entry, err := s.Store.AppendAllowlist(&models.IPAllowlistEntry{Label: req.Label, CIDR: req.CIDR, Description: req.Description}, session)
+	entry, err := s.Store.AppendAllowlist(&models.IPAllowlistEntry{Label: req.Label, CIDR: req.CIDR, Description: req.Description}, currentSession(c, s.Sessions))
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -1183,18 +1166,13 @@ func (s *Server) handleCreateAllowlist(c *gin.Context) {
 }
 
 func (s *Server) handleUpdateAllowlist(c *gin.Context) {
-	session := currentSession(c, s.Sessions)
-	if !s.Store.IsUserAdmin(session) {
-		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "admin_required"})
-		return
-	}
 	var req allowRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
 		return
 	}
 	entry := &models.IPAllowlistEntry{ID: c.Param("id"), Label: req.Label, CIDR: req.CIDR, Description: req.Description}
-	updated, err := s.Store.AppendAllowlist(entry, session)
+	updated, err := s.Store.AppendAllowlist(entry, currentSession(c, s.Sessions))
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -1203,12 +1181,7 @@ func (s *Server) handleUpdateAllowlist(c *gin.Context) {
 }
 
 func (s *Server) handleDeleteAllowlist(c *gin.Context) {
-	session := currentSession(c, s.Sessions)
-	if !s.Store.IsUserAdmin(session) {
-		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "admin_required"})
-		return
-	}
-	if !s.Store.RemoveAllowlist(c.Param("id"), session) {
+	if !s.Store.RemoveAllowlist(c.Param("id"), currentSession(c, s.Sessions)) {
 		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "not_found"})
 		return
 	}
@@ -1246,217 +1219,33 @@ func (s *Server) handleAuditVerify(c *gin.Context) {
 }
 
 func (s *Server) handleExportAll(c *gin.Context) {
-	snapshot := s.Store.ExportSnapshot()
-	if snapshot == nil {
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "snapshot_unavailable"})
-		return
-	}
-
-	resources := models.CollectSnapshotResources(snapshot)
-
-	buffer := &bytes.Buffer{}
-	writer := zip.NewWriter(buffer)
-
-	snapshotFile, err := writer.Create("snapshot.json")
-	if err != nil {
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	encoder := json.NewEncoder(snapshotFile)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(snapshot); err != nil {
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	if len(resources) > 0 {
-		manifestEntries := make([]models.SnapshotResource, 0, len(resources))
-		for _, resource := range resources {
-			entry, err := writer.Create(fmt.Sprintf("resources/%s", resource.Filename))
-			if err != nil {
-				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
-			}
-			if _, err := entry.Write(resource.Data); err != nil {
-				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
-			}
-			manifestEntries = append(manifestEntries, models.SnapshotResource{
-				Filename: resource.Filename,
-				Mime:     resource.Mime,
-				Hash:     resource.Hash,
-			})
-		}
-		manifestFile, err := writer.Create("resources/manifest.json")
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		manifestEncoder := json.NewEncoder(manifestFile)
-		manifestEncoder.SetIndent("", "  ")
-		if err := manifestEncoder.Encode(manifestEntries); err != nil {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-	}
-
-	if err := writer.Close(); err != nil {
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	filename := fmt.Sprintf("roundone_ledger_export_%d.zip", time.Now().Unix())
-	c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
-	c.Writer.Header().Set("Content-Type", "application/zip")
-	c.Status(http.StatusOK)
-	_, _ = c.Writer.Write(buffer.Bytes())
+    snapshot := s.Store.ExportSnapshot()
+    c.JSON(http.StatusOK, snapshot)
 }
 
 func (s *Server) handleImportAll(c *gin.Context) {
-	var snapshot models.Snapshot
-	if err := c.ShouldBindJSON(&snapshot); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
-		return
-	}
-	if err := s.Store.ImportSnapshot(&snapshot); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"status": "imported"})
-}
-
-func (s *Server) handleImportArchive(c *gin.Context) {
-	if c.Request == nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "archive_file_required"})
-		return
-	}
-	file, _, err := c.Request.FormFile("archive")
-	if err != nil {
-		file, _, err = c.Request.FormFile("file")
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "archive_file_required"})
-			return
-		}
-	}
-	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	defer file.Close()
-
-	buf := &bytes.Buffer{}
-	if _, err := io.Copy(buf, file); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	reader, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
-	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	var snapshot models.Snapshot
-	snapshotFound := false
-	assetsData := make(map[string][]byte)
-	manifestEntries := make(map[string]models.SnapshotResource)
-
-	for _, zipFile := range reader.File {
-		if zipFile.FileInfo().IsDir() {
-			continue
-		}
-		name := zipFile.Name
-		base := filepath.Base(name)
-		lowerName := strings.ToLower(name)
-
-		rc, err := zipFile.Open()
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-
-		switch {
-		case strings.EqualFold(base, "snapshot.json"):
-			payload, readErr := io.ReadAll(rc)
-			rc.Close()
-			if readErr != nil {
-				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": readErr.Error()})
-				return
-			}
-			if err := json.Unmarshal(payload, &snapshot); err != nil {
-				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-				return
-			}
-			snapshotFound = true
-		case strings.HasPrefix(lowerName, "resources/") && strings.EqualFold(base, "manifest.json"):
-			payload, readErr := io.ReadAll(rc)
-			rc.Close()
-			if readErr != nil {
-				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": readErr.Error()})
-				return
-			}
-			var manifest []models.SnapshotResource
-			if err := json.Unmarshal(payload, &manifest); err != nil {
-				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-				return
-			}
-			for _, entry := range manifest {
-				manifestEntries[entry.Filename] = entry
-			}
-		case strings.HasPrefix(lowerName, "resources/"):
-			payload, readErr := io.ReadAll(rc)
-			rc.Close()
-			if readErr != nil {
-				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": readErr.Error()})
-				return
-			}
-			assetsData[base] = payload
-		default:
-			rc.Close()
-		}
-	}
-
-	if !snapshotFound {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "snapshot_missing"})
-		return
-	}
-
-	assets := make([]models.SnapshotResource, 0, len(assetsData))
-	for filename, data := range assetsData {
-		entry, ok := manifestEntries[filename]
-		if !ok {
-			entry = models.SnapshotResource{Filename: filename}
-		}
-		if strings.TrimSpace(entry.Mime) == "" {
-			entry.Mime = http.DetectContentType(data)
-		}
-		if entry.Hash == "" {
-			hash := sha256.Sum256(data)
-			entry.Hash = hex.EncodeToString(hash[:])
-		}
-		entry.Data = data
-		assets = append(assets, entry)
-	}
-
-	models.EmbedSnapshotResources(&snapshot, assets)
-
-	if err := s.Store.ImportSnapshot(&snapshot); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"status": "imported"})
+    var snapshot models.Snapshot
+    if err := c.ShouldBindJSON(&snapshot); err != nil {
+        c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+        return
+    }
+    if err := s.Store.ImportSnapshot(&snapshot); err != nil {
+        c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+    c.JSON(http.StatusOK, gin.H{"status": "imported"})
 }
 
 func (s *Server) handleManualSave(c *gin.Context) {
-	if strings.TrimSpace(s.DataDir) == "" {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "data_dir_not_configured"})
-		return
-	}
-	if err := s.Store.SaveToWithRetention(s.DataDir, s.SnapshotRetention); err != nil {
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"status": "saved"})
+    if strings.TrimSpace(s.DataDir) == "" {
+        c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "data_dir_not_configured"})
+        return
+    }
+    if err := s.Store.SaveToWithRetention(s.DataDir, s.SnapshotRetention); err != nil {
+        c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+    c.JSON(http.StatusOK, gin.H{"status": "saved"})
 }
 
 func parseLedgerType(value string) (models.LedgerType, bool) {

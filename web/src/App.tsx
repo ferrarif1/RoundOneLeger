@@ -21,13 +21,9 @@ const App = () => {
   return (
     <div className="flex min-h-screen bg-[var(--bg)] text-[var(--text)]">
       {token && <Sidebar />}
-      <div className="flex flex-1 flex-col">
+      <div className="flex-1 flex flex-col">
         {token && <TopBar />}
-        <main
-          className={`flex-1 overflow-y-auto bg-[var(--bg-subtle)]/80 ${
-            token ? 'p-6 md:p-10' : 'p-0'
-          }`}
-        >
+        <main className="flex-1 overflow-y-auto bg-[var(--bg-subtle)]/80 p-6 md:p-10">
           <AnimatePresence mode="wait">
             <Routes>
               <Route path="/login" element={<Login />} />
@@ -58,7 +54,7 @@ const App = () => {
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -16 }}
                       transition={{ duration: 0.3, ease: 'easeOut' }}
-                      className="w-full"
+                      className="mx-auto max-w-5xl"
                     >
                       <Assets />
                     </motion.div>
@@ -75,7 +71,7 @@ const App = () => {
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -16 }}
                       transition={{ duration: 0.3, ease: 'easeOut' }}
-                      className="w-full"
+                      className="mx-auto max-w-5xl"
                     >
                       <IPAllowlist />
                     </motion.div>
@@ -92,7 +88,7 @@ const App = () => {
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -16 }}
                       transition={{ duration: 0.3, ease: 'easeOut' }}
-                      className="w-full"
+                      className="mx-auto max-w-5xl"
                     >
                       <AuditLogs />
                     </motion.div>
@@ -110,7 +106,7 @@ const App = () => {
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -16 }}
                       transition={{ duration: 0.3, ease: 'easeOut' }}
-                      className="w-full"
+                      className="mx-auto max-w-5xl"
                     >
                       <Users />
                     </motion.div>
