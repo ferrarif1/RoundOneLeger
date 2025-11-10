@@ -1,28 +1,47 @@
 import axios, { AxiosError } from 'axios';
 
-// Determine API base URL based on current location
-let baseURL = '';
-if (typeof window !== 'undefined') {
-  const { hostname, protocol } = window.location;
-  // For localhost, API is on port 8080
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    baseURL = `${protocol}//${hostname}:8080`;
-  } else {
-    // For other hosts, API is on the same host but port 8080
-    baseURL = `${protocol}//${hostname}:8080`;
+const resolveBaseURL = (): string | undefined => {
+  const envBase = import.meta.env.VITE_API_BASE_URL?.trim();
+  if (envBase) {
+    return envBase;
   }
-}
+
+  if (typeof window === 'undefined') {
+    return undefined;
+  }
+
+  const { origin, port, protocol, hostname } = window.location;
+
+  // In development we rely on the Vite proxy, so use relative URLs.
+  if (import.meta.env.DEV) {
+    return undefined;
+  }
+
+  if (origin === 'null' || origin.startsWith('file:')) {
+    return 'http://127.0.0.1:8080';
+  }
+
+  if (protocol === 'http:' || protocol === 'https:') {
+    if (port && port !== '80' && port !== '443') {
+      return `${protocol}//${hostname}:${port}`;
+    }
+    return origin;
+  }
+
+  return undefined;
+};
 
 const api = axios.create({
-  baseURL,
+  baseURL: resolveBaseURL(),
   withCredentials: true,
 });
 
 // Request interceptor to add auth token
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('ledger.token');
+    const token = typeof window !== 'undefined' ? localStorage.getItem('ledger.token') : null;
     if (token) {
+      config.headers = config.headers ?? {};
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
