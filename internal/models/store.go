@@ -661,6 +661,36 @@ func (s *LedgerStore) DeleteUser(id string, actor string) error {
 	return nil
 }
 
+// ChangePassword updates the password for the specified user when the current password matches.
+func (s *LedgerStore) ChangePassword(username, oldPassword, newPassword, actor string) error {
+	normalized := normalizeUsername(username)
+	if normalized == "" {
+		return ErrUsernameInvalid
+	}
+	oldPassword = strings.TrimSpace(oldPassword)
+	newPassword = strings.TrimSpace(newPassword)
+	if err := validatePassword(newPassword); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	user, ok := s.userByName[normalized]
+	if !ok {
+		return ErrUserNotFound
+	}
+	if !verifyPassword(user.PasswordHash, oldPassword) {
+		return ErrInvalidCredentials
+	}
+	hash, err := hashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+	user.PasswordHash = hash
+	user.UpdatedAt = time.Now().UTC()
+	s.appendAuditLocked(strings.TrimSpace(actor), "user_password_change", user.ID)
+	return nil
+}
+
 // AuthenticateUser validates a username/password combination.
 func (s *LedgerStore) AuthenticateUser(username, password string) (*User, error) {
 	normalized := normalizeUsername(username)
