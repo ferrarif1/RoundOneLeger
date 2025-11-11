@@ -1,35 +1,38 @@
 package api
 
 import (
-    "encoding/base64"
-    "encoding/json"
-    "errors"
-    "fmt"
-    "io"
-    "net"
-    "net/http"
-    "regexp"
-    "sort"
-    "strconv"
-    "strings"
-    "time"
+	"archive/zip"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
 
-    "github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin"
 
-    "ledger/internal/auth"
-    "ledger/internal/db"
-    "ledger/internal/middleware"
-    "ledger/internal/models"
-    "ledger/internal/xlsx"
+	"ledger/internal/auth"
+	"ledger/internal/db"
+	"ledger/internal/middleware"
+	"ledger/internal/models"
+	"ledger/internal/xlsx"
 )
 
 // Server wires handlers to the in-memory store and session manager.
 type Server struct {
-	Database *db.Database
-	Store    *models.LedgerStore
-	Sessions *auth.Manager
-    DataDir  string
-    SnapshotRetention int
+	Database          *db.Database
+	Store             *models.LedgerStore
+	Sessions          *auth.Manager
+	DataDir           string
+	SnapshotRetention int
 }
 
 // RegisterRoutes attaches handlers to the gin engine.
@@ -39,8 +42,8 @@ func (s *Server) RegisterRoutes(router *gin.Engine) {
 	authGroup := router.Group("/auth")
 	{
 		authGroup.POST("/password-login", s.handlePasswordLogin)
-        authGroup.POST("/logout", s.handleLogout)
-        authGroup.POST("/change-password", s.handleChangePassword)
+		authGroup.POST("/logout", s.handleLogout)
+		authGroup.POST("/change-password", s.handleChangePassword)
 	}
 
 	secured := router.Group("/api/v1")
@@ -79,8 +82,8 @@ func (s *Server) RegisterRoutes(router *gin.Engine) {
 		secured.POST("/history/redo", s.handleRedo)
 		secured.GET("/history", s.handleHistoryStatus)
 
-        secured.GET("/audit", s.handleAuditList)
-        secured.GET("/audit/verify", s.handleAuditVerify)
+		secured.GET("/audit-logs", s.handleAuditLogs)
+		secured.GET("/audit-logs/verify", s.handleAuditLogsVerify)
 		secured.GET("/export/all", s.handleExportAll)
 		secured.POST("/import/all", s.handleImportAll)
 		secured.POST("/admin/save-snapshot", s.handleManualSave)
@@ -109,8 +112,8 @@ type passwordLoginRequest struct {
 }
 
 type changePasswordRequest struct {
-    OldPassword string `json:"oldPassword"`
-    NewPassword string `json:"newPassword"`
+	OldPassword string `json:"oldPassword"`
+	NewPassword string `json:"newPassword"`
 }
 
 // SDID login handler removed
@@ -146,35 +149,38 @@ func (s *Server) handlePasswordLogin(c *gin.Context) {
 }
 
 func (s *Server) handleLogout(c *gin.Context) {
-    header := c.GetHeader("Authorization")
-    const prefix = "Bearer "
-    if strings.HasPrefix(header, prefix) {
-        token := strings.TrimSpace(strings.TrimPrefix(header, prefix))
-        s.Sessions.Revoke(token)
-    }
-    c.JSON(http.StatusOK, gin.H{"status": "logged_out"})
+	header := c.GetHeader("Authorization")
+	const prefix = "Bearer "
+	if strings.HasPrefix(header, prefix) {
+		token := strings.TrimSpace(strings.TrimPrefix(header, prefix))
+		s.Sessions.Revoke(token)
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "logged_out"})
 }
 
 func (s *Server) handleChangePassword(c *gin.Context) {
-    session := currentSession(c, s.Sessions)
-    if strings.TrimSpace(session) == "" || session == "system" {
-        c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-        return
-    }
-    var req changePasswordRequest
-    if err := c.ShouldBindJSON(&req); err != nil {
-        c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
-        return
-    }
-    if err := s.Store.ChangePassword(session, strings.TrimSpace(req.OldPassword), strings.TrimSpace(req.NewPassword), session); err != nil {
-        status := http.StatusUnauthorized
-        if errors.Is(err, models.ErrPasswordTooShort) {
-            status = http.StatusBadRequest
-        }
-        c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
-        return
-    }
-    c.JSON(http.StatusOK, gin.H{"status": "password_changed"})
+	session := currentSession(c, s.Sessions)
+	if strings.TrimSpace(session) == "" || session == "system" {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	var req changePasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+		return
+	}
+	if err := s.Store.ChangePassword(session, strings.TrimSpace(req.OldPassword), strings.TrimSpace(req.NewPassword), session); err != nil {
+		status := http.StatusUnauthorized
+		switch {
+		case errors.Is(err, models.ErrPasswordTooShort), errors.Is(err, models.ErrPasswordTooWeak), errors.Is(err, models.ErrUsernameInvalid):
+			status = http.StatusBadRequest
+		case errors.Is(err, models.ErrUserNotFound):
+			status = http.StatusNotFound
+		}
+		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "password_changed"})
 }
 
 // Challenge resolution removed
@@ -296,12 +302,12 @@ type workspaceColumnPayload struct {
 }
 
 type workspaceRowPayload struct {
-	ID        string            `json:"id"`
-	Cells     map[string]string `json:"cells"`
-    Styles    map[string]string `json:"styles,omitempty"`
-    Highlighted bool            `json:"highlighted,omitempty"`
-	CreatedAt time.Time         `json:"createdAt,omitempty"`
-	UpdatedAt time.Time         `json:"updatedAt,omitempty"`
+	ID          string            `json:"id"`
+	Cells       map[string]string `json:"cells"`
+	Styles      map[string]string `json:"styles,omitempty"`
+	Highlighted bool              `json:"highlighted,omitempty"`
+	CreatedAt   time.Time         `json:"createdAt,omitempty"`
+	UpdatedAt   time.Time         `json:"updatedAt,omitempty"`
 }
 
 type workspaceResponse struct {
@@ -870,66 +876,66 @@ func (s *Server) handleExportWorkspace(c *gin.Context) {
 }
 
 type exportSelectedRequest struct {
-    RowIDs []string `json:"rowIds"`
+	RowIDs []string `json:"rowIds"`
 }
 
 func (s *Server) handleExportWorkspaceSelected(c *gin.Context) {
-    workspace, err := s.Store.GetWorkspace(c.Param("id"))
-    if err != nil {
-        status := http.StatusInternalServerError
-        if errors.Is(err, models.ErrWorkspaceNotFound) {
-            status = http.StatusNotFound
-        }
-        c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
-        return
-    }
-    if !models.WorkspaceKindSupportsTable(workspace.Kind) {
-        c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": models.ErrWorkspaceKindUnsupported.Error()})
-        return
-    }
-    var req exportSelectedRequest
-    if err := c.ShouldBindJSON(&req); err != nil || len(req.RowIDs) == 0 {
-        c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
-        return
-    }
-    allow := make(map[string]struct{}, len(req.RowIDs))
-    for _, id := range req.RowIDs {
-        id = strings.TrimSpace(id)
-        if id != "" {
-            allow[id] = struct{}{}
-        }
-    }
-    rows := make([][]string, 0, len(workspace.Rows)+1)
-    if len(workspace.Columns) > 0 {
-        header := make([]string, len(workspace.Columns))
-        for i, column := range workspace.Columns {
-            header[i] = column.Title
-        }
-        rows = append(rows, header)
-    }
-    for _, row := range workspace.Rows {
-        if _, ok := allow[row.ID]; !ok {
-            continue
-        }
-        record := make([]string, len(workspace.Columns))
-        for i, column := range workspace.Columns {
-            record[i] = row.Cells[column.ID]
-        }
-        rows = append(rows, record)
-    }
-    sheetName := workspace.Name
-    if strings.TrimSpace(sheetName) == "" {
-        sheetName = "workspace"
-    }
-    workbook := xlsx.Workbook{Sheets: []xlsx.Sheet{{Name: sheetName, Rows: rows}}}
-    encoded, err := xlsx.Encode(workbook)
-    if err != nil {
-        c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "encode_failed"})
-        return
-    }
-    c.Writer.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s_selected.xlsx\"", "workspace"))
-    c.Writer.Write(encoded)
+	workspace, err := s.Store.GetWorkspace(c.Param("id"))
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, models.ErrWorkspaceNotFound) {
+			status = http.StatusNotFound
+		}
+		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	if !models.WorkspaceKindSupportsTable(workspace.Kind) {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": models.ErrWorkspaceKindUnsupported.Error()})
+		return
+	}
+	var req exportSelectedRequest
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.RowIDs) == 0 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+		return
+	}
+	allow := make(map[string]struct{}, len(req.RowIDs))
+	for _, id := range req.RowIDs {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			allow[id] = struct{}{}
+		}
+	}
+	rows := make([][]string, 0, len(workspace.Rows)+1)
+	if len(workspace.Columns) > 0 {
+		header := make([]string, len(workspace.Columns))
+		for i, column := range workspace.Columns {
+			header[i] = column.Title
+		}
+		rows = append(rows, header)
+	}
+	for _, row := range workspace.Rows {
+		if _, ok := allow[row.ID]; !ok {
+			continue
+		}
+		record := make([]string, len(workspace.Columns))
+		for i, column := range workspace.Columns {
+			record[i] = row.Cells[column.ID]
+		}
+		rows = append(rows, record)
+	}
+	sheetName := workspace.Name
+	if strings.TrimSpace(sheetName) == "" {
+		sheetName = "workspace"
+	}
+	workbook := xlsx.Workbook{Sheets: []xlsx.Sheet{{Name: sheetName, Rows: rows}}}
+	encoded, err := xlsx.Encode(workbook)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "encode_failed"})
+		return
+	}
+	c.Writer.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s_selected.xlsx\"", "workspace"))
+	c.Writer.Write(encoded)
 }
 
 func (s *Server) handleListUsers(c *gin.Context) {
@@ -1000,20 +1006,20 @@ func workspaceToResponse(workspace *models.Workspace) workspaceResponse {
 	for i, column := range workspace.Columns {
 		columns[i] = workspaceColumnPayload{ID: column.ID, Title: column.Title, Width: column.Width}
 	}
-    rows := make([]workspaceRowPayload, len(workspace.Rows))
-    for i, row := range workspace.Rows {
-        cells := make(map[string]string, len(row.Cells))
-        for key, value := range row.Cells {
-            cells[key] = value
-        }
-        styles := map[string]string{}
-        if row.Styles != nil {
-            for k, v := range row.Styles {
-                styles[k] = v
-            }
-        }
-        rows[i] = workspaceRowPayload{ID: row.ID, Cells: cells, Styles: styles, Highlighted: row.Highlighted, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
-    }
+	rows := make([]workspaceRowPayload, len(workspace.Rows))
+	for i, row := range workspace.Rows {
+		cells := make(map[string]string, len(row.Cells))
+		for key, value := range row.Cells {
+			cells[key] = value
+		}
+		styles := map[string]string{}
+		if row.Styles != nil {
+			for k, v := range row.Styles {
+				styles[k] = v
+			}
+		}
+		rows[i] = workspaceRowPayload{ID: row.ID, Cells: cells, Styles: styles, Highlighted: row.Highlighted, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
+	}
 	return workspaceResponse{
 		ID:        workspace.ID,
 		Name:      workspace.Name,
@@ -1070,18 +1076,18 @@ func payloadRowsToModel(rows []workspaceRowPayload) []models.WorkspaceRow {
 		return nil
 	}
 	out := make([]models.WorkspaceRow, 0, len(rows))
-    for _, row := range rows {
+	for _, row := range rows {
 		cells := make(map[string]string, len(row.Cells))
 		for key, value := range row.Cells {
 			cells[key] = value
 		}
-        styles := map[string]string{}
-        if row.Styles != nil {
-            for k, v := range row.Styles {
-                styles[k] = v
-            }
-        }
-        out = append(out, models.WorkspaceRow{ID: strings.TrimSpace(row.ID), Cells: cells, Styles: styles, Highlighted: row.Highlighted, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt})
+		styles := map[string]string{}
+		if row.Styles != nil {
+			for k, v := range row.Styles {
+				styles[k] = v
+			}
+		}
+		out = append(out, models.WorkspaceRow{ID: strings.TrimSpace(row.ID), Cells: cells, Styles: styles, Highlighted: row.Highlighted, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt})
 	}
 	return out
 }
@@ -1208,45 +1214,215 @@ func (s *Server) handleHistoryStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"undo": s.Store.CanUndo(), "redo": s.Store.CanRedo()})
 }
 
-func (s *Server) handleAuditList(c *gin.Context) {
+func (s *Server) handleAuditLogs(c *gin.Context) {
 	audits := s.Store.ListAudits()
 	c.JSON(http.StatusOK, gin.H{"items": audits})
 }
 
-func (s *Server) handleAuditVerify(c *gin.Context) {
+func (s *Server) handleAuditLogsVerify(c *gin.Context) {
 	ok := s.Store.VerifyAuditChain()
 	c.JSON(http.StatusOK, gin.H{"verified": ok})
 }
 
 func (s *Server) handleExportAll(c *gin.Context) {
-    snapshot := s.Store.ExportSnapshot()
-    c.JSON(http.StatusOK, snapshot)
+	filename := fmt.Sprintf("ledger-export-%s.zip", time.Now().UTC().Format("20060102T150405Z"))
+	c.Writer.Header().Set("Content-Type", "application/zip")
+	c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+
+	zipWriter := zip.NewWriter(c.Writer)
+	entry, err := zipWriter.Create("snapshot.json")
+	if err != nil {
+		_ = zipWriter.Close()
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "export_failed"})
+		return
+	}
+	if err := s.Store.WriteSnapshotJSON(entry); err != nil {
+		_ = zipWriter.Close()
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "export_failed"})
+		return
+	}
+	if err := zipWriter.Close(); err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "export_failed"})
+		return
+	}
 }
 
 func (s *Server) handleImportAll(c *gin.Context) {
-    var snapshot models.Snapshot
-    if err := c.ShouldBindJSON(&snapshot); err != nil {
-        c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
-        return
-    }
-    if err := s.Store.ImportSnapshot(&snapshot); err != nil {
-        c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
-    }
-    c.JSON(http.StatusOK, gin.H{"status": "imported"})
+	contentType := strings.ToLower(strings.TrimSpace(c.Request.Header.Get("Content-Type")))
+	if strings.HasPrefix(contentType, "application/json") || strings.HasPrefix(contentType, "text/json") {
+		var snapshot models.Snapshot
+		decoder := json.NewDecoder(c.Request.Body)
+		if err := decoder.Decode(&snapshot); err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+			return
+		}
+		if err := s.Store.ImportSnapshot(&snapshot); err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "imported"})
+		return
+	}
+
+	path, err := resolveSnapshotUpload(c)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, errImportFileMissing) || errors.Is(err, errUnsupportedArchive) {
+			status = http.StatusBadRequest
+		}
+		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	defer os.Remove(path)
+
+	fh, err := os.Open(path)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "import_open_failed"})
+		return
+	}
+	defer fh.Close()
+
+	info, err := fh.Stat()
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "import_stat_failed"})
+		return
+	}
+	if err := importSnapshotFromFile(fh, info.Size(), s.Store); err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, errSnapshotMissing) || errors.Is(err, errSnapshotInvalid) {
+			status = http.StatusBadRequest
+		} else if errors.Is(err, errUnsupportedArchive) {
+			status = http.StatusUnsupportedMediaType
+		}
+		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "imported"})
 }
 
 func (s *Server) handleManualSave(c *gin.Context) {
-    if strings.TrimSpace(s.DataDir) == "" {
-        c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "data_dir_not_configured"})
-        return
-    }
-    if err := s.Store.SaveToWithRetention(s.DataDir, s.SnapshotRetention); err != nil {
-        c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-        return
-    }
-    c.JSON(http.StatusOK, gin.H{"status": "saved"})
+	if strings.TrimSpace(s.DataDir) == "" {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "data_dir_not_configured"})
+		return
+	}
+	if err := s.Store.SaveToWithRetention(s.DataDir, s.SnapshotRetention); err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "saved"})
 }
+func resolveSnapshotUpload(c *gin.Context) (string, error) {
+	if strings.HasPrefix(strings.ToLower(c.GetHeader("Content-Type")), "multipart/form-data") {
+		reader, err := c.Request.MultipartReader()
+		if err != nil {
+			return "", err
+		}
+		for {
+			part, err := reader.NextPart()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return "", err
+			}
+			if part.FormName() != "file" {
+				_ = part.Close()
+				continue
+			}
+			path, copyErr := spoolToTemp(part)
+			_ = part.Close()
+			if copyErr != nil {
+				return "", copyErr
+			}
+			return path, nil
+		}
+		return "", errImportFileMissing
+	}
+	return spoolToTemp(c.Request.Body)
+}
+
+func spoolToTemp(r io.Reader) (string, error) {
+	fh, err := os.CreateTemp("", "ledger-import-*.tmp")
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		_ = fh.Close()
+	}()
+	if _, err := io.Copy(fh, r); err != nil {
+		name := fh.Name()
+		_ = os.Remove(name)
+		return "", err
+	}
+	if err := fh.Close(); err != nil {
+		name := fh.Name()
+		_ = os.Remove(name)
+		return "", err
+	}
+	return fh.Name(), nil
+}
+
+func importSnapshotFromFile(file *os.File, size int64, store *models.LedgerStore) error {
+	header := make([]byte, 4)
+	n, err := file.Read(header)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	if n == 4 && header[0] == 0x50 && header[1] == 0x4b && header[2] == 0x03 && header[3] == 0x04 {
+		return importSnapshotFromZip(file, size, store)
+	}
+	decoder := json.NewDecoder(file)
+	var snapshot models.Snapshot
+	if err := decoder.Decode(&snapshot); err != nil {
+		return fmt.Errorf("%w: %v", errSnapshotInvalid, err)
+	}
+	return store.ImportSnapshot(&snapshot)
+}
+
+func importSnapshotFromZip(readerAt io.ReaderAt, size int64, store *models.LedgerStore) error {
+	zipReader, err := zip.NewReader(readerAt, size)
+	if err != nil {
+		return fmt.Errorf("%w: %v", errUnsupportedArchive, err)
+	}
+	var snapshot models.Snapshot
+	found := false
+	for _, file := range zipReader.File {
+		if file.FileInfo().IsDir() {
+			continue
+		}
+		name := filepath.Base(file.Name)
+		if !strings.EqualFold(name, "snapshot.json") {
+			continue
+		}
+		rc, err := file.Open()
+		if err != nil {
+			return fmt.Errorf("open_snapshot: %w", err)
+		}
+		decoder := json.NewDecoder(rc)
+		if err := decoder.Decode(&snapshot); err != nil {
+			_ = rc.Close()
+			return fmt.Errorf("%w: %v", errSnapshotInvalid, err)
+		}
+		_ = rc.Close()
+		found = true
+		break
+	}
+	if !found {
+		return errSnapshotMissing
+	}
+	return store.ImportSnapshot(&snapshot)
+}
+
+var (
+	errImportFileMissing  = errors.New("import_file_missing")
+	errSnapshotMissing    = errors.New("snapshot_missing")
+	errSnapshotInvalid    = errors.New("snapshot_invalid")
+	errUnsupportedArchive = errors.New("unsupported_archive")
+)
 
 func parseLedgerType(value string) (models.LedgerType, bool) {
 	value = strings.ToLower(strings.TrimSpace(value))
