@@ -8,6 +8,7 @@ This repository contains a self-contained asset ledger backend written in Go. It
 - **Ledger management** – CRUD endpoints for IPs, personnel, and systems with tagging, ordering, and cross-linking.
 - **Excel workflows** – Import/export XLSX workbooks with automatic IP column detection and a derived matrix sheet representing all combinations.
 - **Collaborative workspaces** – Create free-form tables with dynamic columns, clipboard import, Excel syncing, and an inline rich text editor for narrative context or embedded imagery.
+- **Document portability** – Keep narrative workspaces in sync with offline editors by importing and exporting DOCX files.
 - **Undo/redo** – Ten-level history stack for manual corrections across all ledgers.
 - **Audit log chain** – Tamper-evident audit trail with verification endpoint.
 - **IP allowlist** – CIDR-aware middleware that blocks requests from unapproved addresses.
@@ -73,7 +74,7 @@ Once both containers are healthy, the API is reachable at <http://localhost:8080
 1. **Password login** – POST `/auth/password-login` with `{ "username": "…", "password": "…" }`. The server validates the credentials, issues a bearer token, and returns the username together with an `admin` flag.
 2. **Session usage** – Attach `Authorization: Bearer <token>` to every `/api/v1/**` request. Sessions expire automatically after the configured TTL; the frontend stores the token in `localStorage` and clears it on logout.
 
-A default administrator (`hzdsz_admin` / `Hzdsz@2025#`) is provisioned for first-time access. 登录后可在“用户中心”页面增删其他操作员帐号。只有管理员才能管理用户、IP 白名单以及台账结构，普通用户会被限制为只读视图。所有新密码需至少 10 位，同时包含大写字母、小写字母、数字与特殊字符；系统会使用 PBKDF2-HMAC-SHA256（120,000 次迭代）加盐哈希后再持久化。详见 `openapi.yaml` 获取完整的请求/响应示例和错误码。
+首次启动前请通过环境变量为默认管理员提供口令：设置 `LEDGER_ADMIN_PASSWORD`（明文）或 `LEDGER_ADMIN_PASSWORD_HASH`（PBKDF2-HMAC-SHA256 格式），系统会据此初始化 `hzdsz_admin` 账号。登录后可在“用户中心”页面增删其他操作员帐号。只有管理员才能管理用户、IP 白名单以及台账结构，普通用户会被限制为只读视图。所有新密码需至少 10 位，同时包含大写字母、小写字母、数字与特殊字符；系统会使用 PBKDF2-HMAC-SHA256（120,000 次迭代）加盐哈希后再持久化。详见 `openapi.yaml` 获取完整的请求/响应示例和错误码。
 
 ## Ledgers & Excel Import/Export
 

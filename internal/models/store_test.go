@@ -1,12 +1,22 @@
 package models
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"testing"
 )
 
+const testAdminPassword = "TestAdminPwd1!"
+
+func newTestStore(t *testing.T) *LedgerStore {
+	t.Helper()
+	t.Setenv(adminPasswordEnv, testAdminPassword)
+	return NewLedgerStore()
+}
+
 func TestLedgerStoreUndoRedo(t *testing.T) {
-	store := NewLedgerStore()
+	store := newTestStore(t)
 
 	if store.CanUndo() {
 		t.Fatalf("expected no undo available initially")
@@ -40,7 +50,7 @@ func TestLedgerStoreUndoRedo(t *testing.T) {
 }
 
 func TestLedgerStoreLoginChallengeLifecycle(t *testing.T) {
-	store := NewLedgerStore()
+	store := newTestStore(t)
 	challenge := store.CreateLoginChallenge()
 	if challenge.Nonce == "" {
 		t.Fatalf("expected nonce to be generated")
@@ -61,7 +71,7 @@ func TestLedgerStoreLoginChallengeLifecycle(t *testing.T) {
 }
 
 func TestWorkspaceLifecycle(t *testing.T) {
-	store := NewLedgerStore()
+	store := newTestStore(t)
 
 	created, err := store.CreateWorkspace("需求汇总", WorkspaceKindSheet, "", []WorkspaceColumn{{Title: "事项"}}, nil, "<p>初始说明</p>", "tester")
 	if err != nil {
@@ -124,7 +134,7 @@ func TestWorkspaceLifecycle(t *testing.T) {
 }
 
 func TestWorkspaceHierarchy(t *testing.T) {
-	store := NewLedgerStore()
+	store := newTestStore(t)
 
 	folder, err := store.CreateWorkspace("专项项目", WorkspaceKindFolder, "", nil, nil, "", "tester")
 	if err != nil {
@@ -158,6 +168,18 @@ func TestWorkspaceHierarchy(t *testing.T) {
 		t.Fatalf("expected unsupported kind error when importing document data, got %v", err)
 	}
 
+	updatedDoc, err := store.ReplaceWorkspaceDocument(doc.ID, "<p>更新后的说明</p>", "tester")
+	if err != nil {
+		t.Fatalf("replace workspace document: %v", err)
+	}
+	if updatedDoc.Document != "<p>更新后的说明</p>" {
+		t.Fatalf("unexpected document content: %q", updatedDoc.Document)
+	}
+
+	if _, err := store.ReplaceWorkspaceDocument(folder.ID, "<p>不应成功</p>", "tester"); !errors.Is(err, ErrWorkspaceKindUnsupported) {
+		t.Fatalf("expected unsupported kind error when importing folder as document, got %v", err)
+	}
+
 	if err := store.DeleteWorkspace(folder.ID, "tester"); err != nil {
 		t.Fatalf("delete folder: %v", err)
 	}
@@ -174,4 +196,77 @@ func TestWorkspaceHierarchy(t *testing.T) {
 	if _, err := store.UpdateWorkspace(doc.ID, WorkspaceUpdate{SetParent: true, ParentID: doc.ID}, "tester"); !errors.Is(err, ErrWorkspaceParentInvalid) {
 		t.Fatalf("expected invalid parent error when assigning self, got %v", err)
 	}
+}
+
+func TestChangePassword(t *testing.T) {
+	store := newTestStore(t)
+
+	const firstNewPassword = "StrongerPwd1!"
+	if err := store.ChangePassword(defaultAdminUsername, testAdminPassword, firstNewPassword, defaultAdminUsername); err != nil {
+		t.Fatalf("change password failed: %v", err)
+	}
+
+	if _, err := store.AuthenticateUser(defaultAdminUsername, testAdminPassword); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("expected old password to be rejected, got %v", err)
+	}
+
+	if _, err := store.AuthenticateUser(defaultAdminUsername, firstNewPassword); err != nil {
+		t.Fatalf("expected new password to succeed, got %v", err)
+	}
+
+	if err := store.ChangePassword(defaultAdminUsername, "WrongPassword1!", "AnotherPwd2@", defaultAdminUsername); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("expected invalid credentials error for wrong old password, got %v", err)
+	}
+
+	if err := store.ChangePassword(defaultAdminUsername, firstNewPassword, "short", defaultAdminUsername); !errors.Is(err, ErrPasswordTooShort) {
+		t.Fatalf("expected password length validation error, got %v", err)
+	}
+
+	if err := store.ChangePassword(defaultAdminUsername, firstNewPassword, "FinalPwd3#", defaultAdminUsername); err != nil {
+		t.Fatalf("change password to final value failed: %v", err)
+	}
+
+	if _, err := store.AuthenticateUser(defaultAdminUsername, "FinalPwd3#"); err != nil {
+		t.Fatalf("expected final password to succeed, got %v", err)
+	}
+}
+
+func TestWriteSnapshotJSONRoundTrip(t *testing.T) {
+	store := newTestStore(t)
+	if _, err := store.CreateEntry(LedgerTypeSystem, LedgerEntry{Name: "日志平台", Description: "集中收集日志"}, "tester"); err != nil {
+		t.Fatalf("create entry: %v", err)
+	}
+	if _, err := store.AppendAllowlist(&IPAllowlistEntry{Label: "总部办公网", CIDR: "192.168.0.0/24"}, "tester"); err != nil {
+		t.Fatalf("append allowlist: %v", err)
+	}
+	columns := []WorkspaceColumn{{ID: "col_task", Title: "任务"}, {ID: "col_owner", Title: "负责人"}}
+	rows := []WorkspaceRow{{Cells: map[string]string{"col_task": "梳理资产", "col_owner": "刘伟"}}}
+	if _, err := store.CreateWorkspace("安全周报", WorkspaceKindSheet, "", columns, rows, "<p>本周重点</p>", "tester"); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+
+	expected := store.ExportSnapshot()
+	var buf bytes.Buffer
+	if err := store.WriteSnapshotJSON(&buf); err != nil {
+		t.Fatalf("write snapshot json: %v", err)
+	}
+
+	var decoded Snapshot
+	if err := json.Unmarshal(buf.Bytes(), &decoded); err != nil {
+		t.Fatalf("unmarshal snapshot: %v", err)
+	}
+
+	expectedJSON := marshalSnapshot(t, expected)
+	decodedJSON := marshalSnapshot(t, &decoded)
+	if expectedJSON != decodedJSON {
+		t.Fatalf("snapshot mismatch after round trip")
+	}
+}
+func marshalSnapshot(t *testing.T, snap *Snapshot) string {
+	t.Helper()
+	data, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatalf("marshal snapshot: %v", err)
+	}
+	return string(data)
 }

@@ -7,7 +7,6 @@ const titles: Record<string, string> = {
   '/assets': '台账编排',
   '/ip-allowlist': 'IP 白名单',
   '/audit-logs': '审计追踪',
-  '/approvals': '身份审批',
   '/users': '用户中心'
 };
 

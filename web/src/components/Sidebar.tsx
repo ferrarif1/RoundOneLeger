@@ -5,7 +5,6 @@ import {
   ShieldCheckIcon,
   SparklesIcon,
   Squares2X2Icon,
-  ClipboardDocumentCheckIcon,
   UserGroupIcon
 } from '@heroicons/react/24/outline';
 
@@ -14,7 +13,6 @@ const links = [
   { to: '/assets', label: '台账', icon: Squares2X2Icon },
   { to: '/ip-allowlist', label: 'IP 白名单', icon: ShieldCheckIcon },
   { to: '/audit-logs', label: '审计日志', icon: DocumentTextIcon },
-  { to: '/approvals', label: '身份审批', icon: ClipboardDocumentCheckIcon },
   { to: '/users', label: '用户中心', icon: UserGroupIcon }
 ];
 
