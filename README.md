@@ -8,6 +8,7 @@ This repository contains a self-contained asset ledger backend written in Go. It
 - **Ledger management** – CRUD endpoints for IPs, personnel, and systems with tagging, ordering, and cross-linking.
 - **Excel workflows** – Import/export XLSX workbooks with automatic IP column detection and a derived matrix sheet representing all combinations.
 - **Collaborative workspaces** – Create free-form tables with dynamic columns, clipboard import, Excel syncing, and an inline rich text editor for narrative context or embedded imagery.
+- **Document portability** – Keep narrative workspaces in sync with offline editors by importing and exporting DOCX files.
 - **Undo/redo** – Ten-level history stack for manual corrections across all ledgers.
 - **Audit log chain** – Tamper-evident audit trail with verification endpoint.
 - **IP allowlist** – CIDR-aware middleware that blocks requests from unapproved addresses.

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"bufio"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -9,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	mrand "math/rand"
 	"net"
@@ -207,6 +209,222 @@ func (s *LedgerStore) ExportSnapshot() *Snapshot {
 	return snapshot
 }
 
+func (s *LedgerStore) WriteSnapshotJSON(w io.Writer) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	buf := bufio.NewWriterSize(w, 256*1024)
+	writeString := func(value string) error {
+		_, err := buf.WriteString(value)
+		return err
+	}
+	writeJSON := func(v any) error {
+		data, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		_, err = buf.Write(data)
+		return err
+	}
+	if err := writeString(`{"version":`); err != nil {
+		return err
+	}
+	if err := writeJSON(SnapshotVersion); err != nil {
+		return err
+	}
+	if err := writeString(`,"entries":{`); err != nil {
+		return err
+	}
+	writtenEntries := false
+	for _, typ := range AllLedgerTypes {
+		entries, ok := s.entries[typ]
+		if !ok {
+			continue
+		}
+		if writtenEntries {
+			if err := writeString(","); err != nil {
+				return err
+			}
+		} else {
+			writtenEntries = true
+		}
+		if err := writeJSON(string(typ)); err != nil {
+			return err
+		}
+		if err := writeString(":"); err != nil {
+			return err
+		}
+		if err := writeString("["); err != nil {
+			return err
+		}
+		for i, entry := range entries {
+			if i > 0 {
+				if err := writeString(","); err != nil {
+					return err
+				}
+			}
+			if err := writeJSON(entry); err != nil {
+				return err
+			}
+		}
+		if err := writeString("]"); err != nil {
+			return err
+		}
+	}
+
+	if err := writeString("}"); err != nil {
+		return err
+	}
+	if err := writeString(`,"workspace_order":`); err != nil {
+		return err
+	}
+	if err := writeJSON(s.workspaceOrder); err != nil {
+		return err
+	}
+	if err := writeString(`,"workspaces":[`); err != nil {
+		return err
+	}
+	seen := make(map[string]struct{}, len(s.workspaces))
+	firstWorkspace := true
+	for _, id := range s.workspaceOrder {
+		workspace, ok := s.workspaces[id]
+		if !ok || workspace == nil {
+			continue
+		}
+		if !firstWorkspace {
+			if err := writeString(","); err != nil {
+				return err
+			}
+		}
+		if err := writeJSON(workspace); err != nil {
+			return err
+		}
+		firstWorkspace = false
+		seen[id] = struct{}{}
+	}
+	for id, workspace := range s.workspaces {
+		if workspace == nil {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		if !firstWorkspace {
+			if err := writeString(","); err != nil {
+				return err
+			}
+		}
+		if err := writeJSON(workspace); err != nil {
+			return err
+		}
+		firstWorkspace = false
+	}
+	if err := writeString("]"); err != nil {
+		return err
+	}
+	allowlist := make([]*IPAllowlistEntry, 0, len(s.allow))
+	for _, entry := range s.allow {
+		if entry == nil {
+			continue
+		}
+		copy := *entry
+		allowlist = append(allowlist, &copy)
+	}
+	sort.Slice(allowlist, func(i, j int) bool {
+		return allowlist[i].CreatedAt.Before(allowlist[j].CreatedAt)
+	})
+	if err := writeString(`,"allowlist":`); err != nil {
+		return err
+	}
+	if err := writeJSON(allowlist); err != nil {
+		return err
+	}
+	if err := writeString(`,"audits":`); err != nil {
+		return err
+	}
+	audits := make([]*AuditLogEntry, len(s.audits))
+	for i, audit := range s.audits {
+		if audit == nil {
+			continue
+		}
+		copy := *audit
+		audits[i] = &copy
+	}
+	if err := writeJSON(audits); err != nil {
+		return err
+	}
+	if err := writeString(`,"users":`); err != nil {
+		return err
+	}
+	users := make([]*User, 0, len(s.userOrder))
+	for _, id := range s.userOrder {
+		if user, ok := s.users[id]; ok && user != nil {
+			clone := *user
+			users = append(users, &clone)
+		}
+	}
+	if len(users) < len(s.users) {
+		seenUsers := make(map[string]struct{}, len(s.userOrder))
+		for _, id := range s.userOrder {
+			seenUsers[id] = struct{}{}
+		}
+		for id, user := range s.users {
+			if _, ok := seenUsers[id]; ok || user == nil {
+				continue
+			}
+			clone := *user
+			users = append(users, &clone)
+		}
+	}
+	if err := writeJSON(users); err != nil {
+		return err
+	}
+	if err := writeString(`,"user_order":`); err != nil {
+		return err
+	}
+	if err := writeJSON(s.userOrder); err != nil {
+		return err
+	}
+	profiles := make([]IdentityProfile, 0, len(s.profiles))
+	for _, profile := range s.profiles {
+		copy := profile
+		copy.Roles = append([]string{}, profile.Roles...)
+		profiles = append(profiles, copy)
+	}
+	sort.Slice(profiles, func(i, j int) bool { return profiles[i].DID < profiles[j].DID })
+	if err := writeString(`,"profiles":`); err != nil {
+		return err
+	}
+	if err := writeJSON(profiles); err != nil {
+		return err
+	}
+	approvals := make([]*IdentityApproval, 0, len(s.approvalOrder))
+	for _, approval := range s.approvalOrder {
+		if approval == nil {
+			continue
+		}
+		approvals = append(approvals, approval.Clone())
+	}
+	if len(approvals) == 0 {
+		for _, approval := range s.approvals {
+			if approval == nil {
+				continue
+			}
+			approvals = append(approvals, approval.Clone())
+		}
+	}
+	if err := writeString(`,"approvals":`); err != nil {
+		return err
+	}
+	if err := writeJSON(approvals); err != nil {
+		return err
+	}
+	if err := writeString("}"); err != nil {
+		return err
+	}
+	return buf.Flush()
+}
+
 // ImportSnapshot replaces the in-memory state using the provided snapshot payload.
 func (s *LedgerStore) ImportSnapshot(snapshot *Snapshot) error {
 	if snapshot == nil {
@@ -364,14 +582,19 @@ func (s *LedgerStore) SaveTo(dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	snap := s.ExportSnapshot()
-	data, err := json.MarshalIndent(snap, "", "  ")
-	if err != nil {
-		return err
-	}
 	tmp := filepath.Join(dir, "snapshot.tmp")
 	file := filepath.Join(dir, "snapshot.json")
-	if err := os.WriteFile(tmp, data, fs.FileMode(0o644)); err != nil {
+	if err := func() error {
+		fh, err := os.Create(tmp)
+		if err != nil {
+			return err
+		}
+		defer fh.Close()
+		if err := s.WriteSnapshotJSON(fh); err != nil {
+			return err
+		}
+		return fh.Sync()
+	}(); err != nil {
 		return err
 	}
 	defer func() { _ = os.Remove(tmp) }()
@@ -413,11 +636,17 @@ func (s *LedgerStore) SaveToWithRetention(dir string, retention int) error {
 	}
 	ts := time.Now().UTC().Format("2006-01-02T15-04-05Z07-00")
 	backup := filepath.Join(dir, "snapshot-"+ts+".json")
-	data, err := json.MarshalIndent(s.ExportSnapshot(), "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(backup, data, fs.FileMode(0o644)); err != nil {
+	if err := func() error {
+		fh, err := os.Create(backup)
+		if err != nil {
+			return err
+		}
+		defer fh.Close()
+		if err := s.WriteSnapshotJSON(fh); err != nil {
+			return err
+		}
+		return fh.Sync()
+	}(); err != nil {
 		return err
 	}
 	entries, err := os.ReadDir(dir)
@@ -658,6 +887,36 @@ func (s *LedgerStore) DeleteUser(id string, actor string) error {
 	}
 	s.userOrder = filtered
 	s.appendAuditLocked(strings.TrimSpace(actor), "user_delete", trimmed)
+	return nil
+}
+
+// ChangePassword updates the password for the specified user when the current password matches.
+func (s *LedgerStore) ChangePassword(username, oldPassword, newPassword, actor string) error {
+	normalized := normalizeUsername(username)
+	if normalized == "" {
+		return ErrUsernameInvalid
+	}
+	oldPassword = strings.TrimSpace(oldPassword)
+	newPassword = strings.TrimSpace(newPassword)
+	if err := validatePassword(newPassword); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	user, ok := s.userByName[normalized]
+	if !ok {
+		return ErrUserNotFound
+	}
+	if !verifyPassword(user.PasswordHash, oldPassword) {
+		return ErrInvalidCredentials
+	}
+	hash, err := hashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+	user.PasswordHash = hash
+	user.UpdatedAt = time.Now().UTC()
+	s.appendAuditLocked(strings.TrimSpace(actor), "user_password_change", user.ID)
 	return nil
 }
 
@@ -1293,6 +1552,26 @@ func (s *LedgerStore) ReplaceWorkspaceData(id string, headers []string, records 
 
 	s.workspaces[workspace.ID] = workspace
 	s.appendAuditLocked(actor, "workspace_import", workspace.ID)
+	return workspace.Clone(), nil
+}
+
+// ReplaceWorkspaceDocument overwrites a document workspace's content.
+func (s *LedgerStore) ReplaceWorkspaceDocument(id string, document string, actor string) (*Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	workspace, ok := s.workspaces[strings.TrimSpace(id)]
+	if !ok {
+		return nil, ErrWorkspaceNotFound
+	}
+	if !WorkspaceKindSupportsDocument(workspace.Kind) {
+		return nil, ErrWorkspaceKindUnsupported
+	}
+
+	workspace.Document = strings.TrimSpace(document)
+	workspace.UpdatedAt = time.Now().UTC()
+	s.workspaces[workspace.ID] = workspace
+	s.appendAuditLocked(actor, "workspace_document_import", workspace.ID)
 	return workspace.Clone(), nil
 }
 

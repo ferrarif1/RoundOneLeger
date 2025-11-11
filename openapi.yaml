@@ -826,6 +826,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/workspaces/{id}/import/docx:
+    post:
+      summary: Import document workspace from DOCX
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Workspace document updated from DOCX
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceEnvelope'
+        '404':
+          description: Workspace not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /api/v1/workspaces/{id}/export:
     get:
       summary: Export workspace as Excel
@@ -840,6 +874,20 @@ paths:
       responses:
         '200':
           description: Workspace Excel workbook
+  /api/v1/workspaces/{id}/export/docx:
+    get:
+      summary: Export document workspace as DOCX
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Workspace DOCX document
   /api/v1/workspaces/{id}/export/selected:
     post:
       summary: Export selected workspace rows to Excel
@@ -854,6 +902,19 @@ paths:
       requestBody:
         required: true
         content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required:
+                - file
+          application/zip:
+            schema:
+              type: string
+              format: binary
           application/json:
             schema:
               type: object
@@ -1077,7 +1138,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HistoryStatus'
-  /api/v1/audit:
+  /api/v1/audit-logs:
     get:
       summary: List audit logs
       security:
@@ -1089,7 +1150,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuditListResponse'
-  /api/v1/audit/verify:
+  /api/v1/audit-logs/verify:
     get:
       summary: Verify audit chain
       security:
@@ -1113,9 +1174,10 @@ paths:
         '200':
           description: Complete snapshot for migration
           content:
-            application/json:
+            application/zip:
               schema:
-                type: object
+                type: string
+                format: binary
   /api/v1/import/all:
     post:
       summary: Import all data snapshot (destructive replace)
@@ -1124,6 +1186,19 @@ paths:
       requestBody:
         required: true
         content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required:
+                - file
+          application/zip:
+            schema:
+              type: string
+              format: binary
           application/json:
             schema:
               type: object

@@ -36,6 +36,28 @@ const DEFAULT_TITLE = '未命名台账';
 const MIN_COLUMN_WIDTH = 140;
 const DEFAULT_COLUMN_WIDTH = 220;
 
+const resolveExportFilename = (disposition?: string | null, fallback?: string) => {
+  if (!disposition) {
+    return fallback;
+  }
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      // ignore decode errors and fall back to ASCII branch
+    }
+  }
+  const asciiMatch = disposition.match(/filename="?([^";]+)"?/i);
+  if (asciiMatch?.[1]) {
+    return asciiMatch[1];
+  }
+  return fallback;
+};
+
+const hasFileSystemAccess = () =>
+  typeof window !== 'undefined' && typeof (window as typeof window & { showSaveFilePicker?: unknown }).showSaveFilePicker === 'function';
+
 const normalizeColumnWidth = (width?: number) =>
   Math.max(MIN_COLUMN_WIDTH, width ?? DEFAULT_COLUMN_WIDTH);
 
@@ -435,6 +457,7 @@ const Assets = () => {
   const [saving, setSaving] = useState(false);
   const [highlightedRowIds, setHighlightedRowIds] = useState<string[]>([]);
   const excelInputRef = useRef<HTMLInputElement>(null);
+  const docxInputRef = useRef<HTMLInputElement>(null);
   const importAllRef = useRef<HTMLInputElement>(null);
 
   const allNodes = useMemo(() => flattenWorkspaces(workspaceTree), [workspaceTree]);
@@ -956,6 +979,36 @@ const Assets = () => {
     [currentWorkspace, isSheet, loadWorkspace]
   );
 
+  const handleImportDocx = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = '';
+      if (!file || !currentWorkspace || !isDocument) {
+        return;
+      }
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const { data } = await api.post<{ workspace: Workspace }>(
+          `/api/v1/workspaces/${currentWorkspace.id}/import/docx`,
+          formData,
+          {
+            headers: { 'Content-Type': 'multipart/form-data' }
+          }
+        );
+        if (data?.workspace) {
+          await loadWorkspace(data.workspace.id);
+          setStatus('文档内容已导入。');
+        }
+      } catch (err) {
+        console.error('导入文档失败', err);
+        const axiosError = err as AxiosError<{ error?: string }>;
+        setError(axiosError.response?.data?.error || axiosError.message || '导入失败，请确认文件格式。');
+      }
+    },
+    [currentWorkspace, isDocument, loadWorkspace]
+  );
+
   const handleImportText = useCallback(
     async (text: string, delimiter: string, hasHeader: boolean) => {
       if (!currentWorkspace || !isSheet) {
@@ -1007,6 +1060,35 @@ const Assets = () => {
     }
   }, [currentWorkspace, isSheet]);
 
+  const handleExportDocument = useCallback(async () => {
+    if (!currentWorkspace || !isDocument) {
+      setStatus('当前内容不支持导出文档。');
+      return;
+    }
+    try {
+      const { data } = await api.get<ArrayBuffer>(
+        `/api/v1/workspaces/${currentWorkspace.id}/export/docx`,
+        { responseType: 'arraybuffer' }
+      );
+      const blob = new Blob([data], {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${(currentWorkspace.name || DEFAULT_TITLE).replace(/\s+/g, '_')}.docx`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      setStatus('已导出文档。');
+    } catch (err) {
+      console.error('导出文档失败', err);
+      const axiosError = err as AxiosError<{ error?: string }>;
+      setError(axiosError.response?.data?.error || axiosError.message || '导出失败，请稍后再试。');
+    }
+  }, [currentWorkspace, isDocument]);
+
   const exportSelectedExcel = useCallback(async () => {
     if (!currentWorkspace || !isSheet || !selectedRowIds.length) {
       return;
@@ -1036,6 +1118,82 @@ const Assets = () => {
     }
   }, [currentWorkspace, isSheet, selectedRowIds]);
 
+  const downloadAllSnapshotWithPicker = async (fallbackName: string) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('ledger.token') : null;
+    const requestUrl = api.getUri({ url: '/api/v1/export/all' });
+    const response = await fetch(requestUrl, {
+      method: 'GET',
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      credentials: 'include'
+    });
+    if (!response.ok) {
+      let message = '导出失败';
+      try {
+        const data = await response.json();
+        if (data && typeof data === 'object' && 'error' in data && typeof (data as { error?: string }).error === 'string') {
+          message = (data as { error?: string }).error ?? message;
+        } else if (typeof data === 'string' && data) {
+          message = data;
+        }
+      } catch {
+        try {
+          const text = await response.text();
+          if (text) {
+            message = text;
+          }
+        } catch {
+          // ignore parsing failures
+        }
+      }
+      throw new Error(message);
+    }
+
+    const disposition = response.headers.get('content-disposition');
+    const filename = resolveExportFilename(disposition, fallbackName) ?? fallbackName;
+    const extendedWindow = window as typeof window & {
+      showSaveFilePicker?: (options?: unknown) => Promise<any>;
+    };
+    const handle = await extendedWindow.showSaveFilePicker?.({
+      suggestedName: filename,
+      types: [
+        {
+          description: 'ZIP Archive',
+          accept: { 'application/zip': ['.zip'] }
+        }
+      ]
+    });
+    if (!handle) {
+      throw new Error('save_picker_unavailable');
+    }
+
+    const writable = await handle.createWritable();
+    try {
+      if (response.body) {
+        const reader = response.body.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            break;
+          }
+          if (value && value.length) {
+            await writable.write(value);
+          }
+        }
+      } else {
+        const blob = await response.blob();
+        await writable.write(blob);
+      }
+      await writable.close();
+    } catch (streamError) {
+      try {
+        await (writable as { abort?: () => Promise<void> }).abort?.();
+      } catch {
+        // ignore abort failures
+      }
+      throw streamError;
+    }
+  };
+
   const sidebar = (
     <LedgerListCard
       items={workspaceTree}
@@ -1063,29 +1221,54 @@ const Assets = () => {
     <ToolbarActions
       onSave={handleSave}
       onDelete={handleDeleteWorkspace}
-      onExcelImport={() => excelInputRef.current?.click()}
-      onPasteImport={() => setShowPasteModal(true)}
-      onExport={handleExport}
+      onExcelImport={isSheet ? () => excelInputRef.current?.click() : undefined}
+      onPasteImport={isSheet ? () => setShowPasteModal(true) : undefined}
+      onExport={isSheet ? handleExport : undefined}
+      onDocumentImport={isDocument ? () => docxInputRef.current?.click() : undefined}
+      onDocumentExport={isDocument ? handleExportDocument : undefined}
+      sheetActionsEnabled={isSheet}
+      documentActionsEnabled={isDocument}
       onExportAll={async () => {
+        const fallbackName = `roundone_ledger_export_${Date.now()}.zip`;
         try {
-          const { data } = await api.get('/api/v1/export/all', { responseType: 'json' });
-          const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `roundone_ledger_export_${Date.now()}.json`;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          URL.revokeObjectURL(url);
+          if (hasFileSystemAccess()) {
+            await downloadAllSnapshotWithPicker(fallbackName);
+          } else {
+            const response = await api.get('/api/v1/export/all', { responseType: 'blob' });
+            const filename = resolveExportFilename(response.headers['content-disposition'], fallbackName) ?? fallbackName;
+            const blob = new Blob([response.data], { type: 'application/zip' });
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = filename;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            URL.revokeObjectURL(url);
+          }
           setStatus('已导出全部数据。');
         } catch (err) {
+          if (err instanceof DOMException && err.name === 'AbortError') {
+            setStatus('已取消导出。');
+            return;
+          }
           const axiosError = err as AxiosError<{ error?: string }>;
-          setError(axiosError.response?.data?.error || axiosError.message || '导出失败');
+          if (axiosError.response?.data?.error) {
+            setError(axiosError.response.data.error);
+            return;
+          }
+          if (axiosError.message) {
+            setError(axiosError.message);
+            return;
+          }
+          if (err instanceof Error) {
+            setError(err.message);
+          } else {
+            setError('导出失败');
+          }
         }
       }}
       onImportAll={() => importAllRef.current?.click()}
-      disabledSheetActions={!isSheet}
       busy={saving}
       dirty={hasUnsavedChanges}
     />
@@ -1208,18 +1391,35 @@ const Assets = () => {
         onChange={handleImportExcel}
       />
       <input
+        ref={docxInputRef}
+        type="file"
+        accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        className="hidden"
+        onChange={handleImportDocx}
+      />
+      <input
         ref={importAllRef}
         type="file"
-        accept="application/json"
+        accept=".zip,application/zip,application/json"
         className="hidden"
         onChange={async (e) => {
           const file = e.target.files?.[0];
           e.target.value = '';
           if (!file) return;
           try {
-            const text = await file.text();
-            const payload = JSON.parse(text);
-            await api.post('/api/v1/import/all', payload);
+            const isZip =
+              file.type === 'application/zip' ||
+              file.type === 'application/x-zip-compressed' ||
+              file.name.toLowerCase().endsWith('.zip');
+            if (isZip) {
+              const formData = new FormData();
+              formData.append('file', file);
+              await api.post('/api/v1/import/all', formData);
+            } else {
+              const text = await file.text();
+              const payload = JSON.parse(text);
+              await api.post('/api/v1/import/all', payload);
+            }
             setStatus('已导入全部数据。');
             await refreshList();
           } catch (err) {

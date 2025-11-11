@@ -6,8 +6,9 @@ interface AuditLog {
   id: string;
   actor: string;
   action: string;
-  prev_hash: string;
-  record_hash: string;
+  details?: string;
+  hash: string;
+  prev_hash?: string;
   created_at: string;
 }
 
@@ -16,8 +17,8 @@ const AuditLogs = () => {
 
   useEffect(() => {
     (async () => {
-      const { data } = await api.get('/audit-logs');
-      setLogs(data);
+      const { data } = await api.get('/api/v1/audit-logs');
+      setLogs(Array.isArray(data.items) ? data.items : []);
     })();
   }, []);
 
@@ -39,6 +40,7 @@ const AuditLogs = () => {
               <th className="px-6 py-3 text-left">动作</th>
               <th className="px-6 py-3 text-left">记录哈希</th>
               <th className="px-6 py-3 text-left">前序哈希</th>
+              <th className="px-6 py-3 text-left">详情</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[rgba(20,20,20,0.12)] text-sm">
@@ -49,8 +51,9 @@ const AuditLogs = () => {
                 </td>
                 <td className="px-6 py-4 text-[var(--text)]">{log.actor}</td>
                 <td className="px-6 py-4 text-[var(--text)]">{log.action}</td>
-                <td className="px-6 py-4 text-[11px] text-[var(--accent)]">{log.record_hash}</td>
-                <td className="px-6 py-4 text-[11px] text-[rgba(20,20,20,0.55)]">{log.prev_hash}</td>
+                <td className="px-6 py-4 text-[11px] text-[var(--accent)]">{log.hash}</td>
+                <td className="px-6 py-4 text-[11px] text-[rgba(20,20,20,0.55)]">{log.prev_hash || '-'}</td>
+                <td className="px-6 py-4 text-[rgba(20,20,20,0.55)]">{log.details || '—'}</td>
               </tr>
             ))}
           </tbody>
