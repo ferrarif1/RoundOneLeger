@@ -65,6 +65,8 @@ var (
 	ErrPasswordTooShort = errors.New("password_too_short")
 	// ErrPasswordTooWeak indicates the provided password lacks the required complexity.
 	ErrPasswordTooWeak = errors.New("password_too_weak")
+	// ErrPasswordHashInvalid indicates that a configured password hash cannot be parsed.
+	ErrPasswordHashInvalid = errors.New("password_hash_invalid")
 )
 
 var (
@@ -74,11 +76,14 @@ var (
 )
 
 const (
-	defaultAdminUsername = "hzdsz_admin"
-	defaultAdminPassword = "Hzdsz@2025#"
-	passwordSaltBytes    = 16
-	passwordKeyBytes     = 32
-	passwordIterations   = 120_000
+	defaultAdminUsername     = "hzdsz_admin"
+	defaultAdminPasswordHash = "120000:okGdNKgWgWak3qj9s5FsOA:/GkUWT7QKUDXD6i5kXAq9L9S87meVZPZ2nU6IWY9tNk"
+	passwordSaltBytes        = 16
+	passwordKeyBytes         = 32
+	passwordIterations       = 120_000
+
+	adminPasswordEnv     = "LEDGER_ADMIN_PASSWORD"
+	adminPasswordHashEnv = "LEDGER_ADMIN_PASSWORD_HASH"
 )
 
 // LedgerStore coordinates all mutable state for the in-memory implementation.
@@ -780,10 +785,7 @@ func (s *LedgerStore) ensureDefaultAdmin() error {
 	if _, exists := s.userByName[normalized]; exists {
 		return nil
 	}
-	if err := validatePassword(defaultAdminPassword); err != nil {
-		return err
-	}
-	hash, err := hashPassword(defaultAdminPassword)
+	hash, err := resolveDefaultAdminPasswordHash()
 	if err != nil {
 		return err
 	}
@@ -998,6 +1000,26 @@ func validatePassword(password string) error {
 	return nil
 }
 
+func resolveDefaultAdminPasswordHash() (string, error) {
+	if hash := strings.TrimSpace(os.Getenv(adminPasswordHashEnv)); hash != "" {
+		if !isSupportedPasswordHash(hash) {
+			return "", ErrPasswordHashInvalid
+		}
+		return hash, nil
+	}
+	if password := strings.TrimSpace(os.Getenv(adminPasswordEnv)); password != "" {
+		if err := validatePassword(password); err != nil {
+			return "", err
+		}
+		hash, err := hashPassword(password)
+		if err != nil {
+			return "", err
+		}
+		return hash, nil
+	}
+	return defaultAdminPasswordHash, nil
+}
+
 func hashPassword(password string) (string, error) {
 	salt := make([]byte, passwordSaltBytes)
 	if _, err := rand.Read(salt); err != nil {
@@ -1085,6 +1107,33 @@ func pbkdf2Key(password, salt []byte, iterations, length int) []byte {
 		copy(derived[offset:], block)
 	}
 	return derived[:length]
+}
+
+func isSupportedPasswordHash(hash string) bool {
+	parts := strings.Split(hash, ":")
+	switch len(parts) {
+	case 3:
+		if _, err := strconv.Atoi(parts[0]); err != nil {
+			return false
+		}
+		if _, err := base64.RawStdEncoding.DecodeString(parts[1]); err != nil {
+			return false
+		}
+		if _, err := base64.RawStdEncoding.DecodeString(parts[2]); err != nil {
+			return false
+		}
+		return true
+	case 2:
+		if _, err := base64.RawStdEncoding.DecodeString(parts[0]); err != nil {
+			return false
+		}
+		if _, err := base64.RawStdEncoding.DecodeString(parts[1]); err != nil {
+			return false
+		}
+		return true
+	default:
+		return false
+	}
 }
 
 func cloneEntrySlice(entries []LedgerEntry) []LedgerEntry {

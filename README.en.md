@@ -60,7 +60,7 @@ This brings up Postgres alongside the backend container. Adjust environment vari
 ### Authentication
 - POST `/auth/password-login` with `{ "username": "…", "password": "…" }` to obtain a bearer token. The response echoes the username and an `admin` flag so the UI can tailor access.
 - Include the token in `Authorization: Bearer <token>` for all authenticated API calls. Sessions automatically expire based on the server TTL and the frontend clears stored credentials on logout.
-- A default administrator (`hzdsz_admin` / `Hzdsz@2025#`) is provisioned for initial access. After signing in, open the “用户中心” page to add or remove other operators. Only administrators may manage users, IP allowlists, or ledger schemas.
+- Provide initial administrator credentials via environment variables before launch. Set `LEDGER_ADMIN_PASSWORD` (plain text) or `LEDGER_ADMIN_PASSWORD_HASH` (PBKDF2-HMAC-SHA256) so the `hzdsz_admin` account can be seeded, then rotate or add additional operators from the “用户中心” page. Only administrators may manage users, IP allowlists, or ledger schemas.
 
 ## Collaborative Workspaces
 

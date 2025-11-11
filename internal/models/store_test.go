@@ -7,8 +7,16 @@ import (
 	"testing"
 )
 
+const testAdminPassword = "TestAdminPwd1!"
+
+func newTestStore(t *testing.T) *LedgerStore {
+	t.Helper()
+	t.Setenv(adminPasswordEnv, testAdminPassword)
+	return NewLedgerStore()
+}
+
 func TestLedgerStoreUndoRedo(t *testing.T) {
-	store := NewLedgerStore()
+	store := newTestStore(t)
 
 	if store.CanUndo() {
 		t.Fatalf("expected no undo available initially")
@@ -42,7 +50,7 @@ func TestLedgerStoreUndoRedo(t *testing.T) {
 }
 
 func TestLedgerStoreLoginChallengeLifecycle(t *testing.T) {
-	store := NewLedgerStore()
+	store := newTestStore(t)
 	challenge := store.CreateLoginChallenge()
 	if challenge.Nonce == "" {
 		t.Fatalf("expected nonce to be generated")
@@ -63,7 +71,7 @@ func TestLedgerStoreLoginChallengeLifecycle(t *testing.T) {
 }
 
 func TestWorkspaceLifecycle(t *testing.T) {
-	store := NewLedgerStore()
+	store := newTestStore(t)
 
 	created, err := store.CreateWorkspace("需求汇总", WorkspaceKindSheet, "", []WorkspaceColumn{{Title: "事项"}}, nil, "<p>初始说明</p>", "tester")
 	if err != nil {
@@ -126,7 +134,7 @@ func TestWorkspaceLifecycle(t *testing.T) {
 }
 
 func TestWorkspaceHierarchy(t *testing.T) {
-	store := NewLedgerStore()
+	store := newTestStore(t)
 
 	folder, err := store.CreateWorkspace("专项项目", WorkspaceKindFolder, "", nil, nil, "", "tester")
 	if err != nil {
@@ -191,14 +199,14 @@ func TestWorkspaceHierarchy(t *testing.T) {
 }
 
 func TestChangePassword(t *testing.T) {
-	store := NewLedgerStore()
+	store := newTestStore(t)
 
 	const firstNewPassword = "StrongerPwd1!"
-	if err := store.ChangePassword(defaultAdminUsername, defaultAdminPassword, firstNewPassword, defaultAdminUsername); err != nil {
+	if err := store.ChangePassword(defaultAdminUsername, testAdminPassword, firstNewPassword, defaultAdminUsername); err != nil {
 		t.Fatalf("change password failed: %v", err)
 	}
 
-	if _, err := store.AuthenticateUser(defaultAdminUsername, defaultAdminPassword); !errors.Is(err, ErrInvalidCredentials) {
+	if _, err := store.AuthenticateUser(defaultAdminUsername, testAdminPassword); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("expected old password to be rejected, got %v", err)
 	}
 
@@ -224,7 +232,7 @@ func TestChangePassword(t *testing.T) {
 }
 
 func TestWriteSnapshotJSONRoundTrip(t *testing.T) {
-	store := NewLedgerStore()
+	store := newTestStore(t)
 	if _, err := store.CreateEntry(LedgerTypeSystem, LedgerEntry{Name: "日志平台", Description: "集中收集日志"}, "tester"); err != nil {
 		t.Fatalf("create entry: %v", err)
 	}

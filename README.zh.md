@@ -60,7 +60,7 @@ docker-compose up --build
 ### 认证
 - 通过 POST `/auth/password-login`，提交 `{ "username": "…", "password": "…" }` 获取会话令牌。返回值会带回用户名及 `admin` 标记，方便前端控制权限。
 - 之后所有 `/api/v1/**` 请求需在 Header 中附加 `Authorization: Bearer <token>`。会话会在设定的 TTL 到期后自动失效，前端退出登录时会清除本地存储的凭据。
-- 系统默认提供管理员账号 `hzdsz_admin`（密码 `Hzdsz@2025#`）。登录后可在“用户中心”页面新增或删除其他操作员；仅管理员可管理用户、IP 白名单及台账结构，普通账号仅能查看。
+- 请在启动前通过环境变量为默认管理员提供口令：设置 `LEDGER_ADMIN_PASSWORD`（明文）或 `LEDGER_ADMIN_PASSWORD_HASH`（PBKDF2-HMAC-SHA256 格式），系统会据此初始化 `hzdsz_admin` 账号。登录后可在“用户中心”页面新增或删除其他操作员；仅管理员可管理用户、IP 白名单及台账结构，普通账号仅能查看。
 
 ## 协同台账工作区
 
