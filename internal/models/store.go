@@ -1555,6 +1555,26 @@ func (s *LedgerStore) ReplaceWorkspaceData(id string, headers []string, records 
 	return workspace.Clone(), nil
 }
 
+// ReplaceWorkspaceDocument overwrites a document workspace's content.
+func (s *LedgerStore) ReplaceWorkspaceDocument(id string, document string, actor string) (*Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	workspace, ok := s.workspaces[strings.TrimSpace(id)]
+	if !ok {
+		return nil, ErrWorkspaceNotFound
+	}
+	if !WorkspaceKindSupportsDocument(workspace.Kind) {
+		return nil, ErrWorkspaceKindUnsupported
+	}
+
+	workspace.Document = strings.TrimSpace(document)
+	workspace.UpdatedAt = time.Now().UTC()
+	s.workspaces[workspace.ID] = workspace
+	s.appendAuditLocked(actor, "workspace_document_import", workspace.ID)
+	return workspace.Clone(), nil
+}
+
 func sanitizeWorkspaceName(name string) string {
 	trimmed := strings.TrimSpace(name)
 	if trimmed != "" {

@@ -10,6 +10,7 @@ RoundOneLeger is a full-stack asset ledger system that centralizes inventory for
 - **Authentication and allowlisting hooks** supporting SDID wallet challenge/response logins plus optional fixed-network allowlisting.
 - **Tamper-evident audit log** endpoints capable of exporting signed chains and verifying historical integrity.
 - **Collaborative workspace UI** offering dynamic spreadsheet-style ledgers with clipboard import, Excel syncing, and an inline rich text editor for commentary or images.
+- **Document portability** so narrative workspaces can import and export DOCX files for heavy offline editing workflows.
 
 ## Architecture
 - **Backend (`cmd/server`, `internal/`)** – Go 1.22 service exposing REST endpoints through a vendored Gin shim, with typed ledger store, authentication helpers, and middleware.

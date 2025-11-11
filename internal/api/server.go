@@ -21,6 +21,7 @@ import (
 
 	"ledger/internal/auth"
 	"ledger/internal/db"
+	"ledger/internal/docx"
 	"ledger/internal/middleware"
 	"ledger/internal/models"
 	"ledger/internal/xlsx"
@@ -66,7 +67,9 @@ func (s *Server) RegisterRoutes(router *gin.Engine) {
 		secured.DELETE("/workspaces/:id", s.handleDeleteWorkspace)
 		secured.POST("/workspaces/:id/import/excel", s.handleImportWorkspaceExcel)
 		secured.POST("/workspaces/:id/import/text", s.handleImportWorkspaceText)
+		secured.POST("/workspaces/:id/import/docx", s.handleImportWorkspaceDocx)
 		secured.GET("/workspaces/:id/export", s.handleExportWorkspace)
+		secured.GET("/workspaces/:id/export/docx", s.handleExportWorkspaceDocx)
 		secured.POST("/workspaces/:id/export/selected", s.handleExportWorkspaceSelected)
 
 		secured.GET("/users", s.handleListUsers)
@@ -829,6 +832,39 @@ func (s *Server) handleImportWorkspaceText(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"workspace": workspaceToResponse(workspace)})
 }
 
+func (s *Server) handleImportWorkspaceDocx(c *gin.Context) {
+	uploaded, _, err := c.Request.FormFile("file")
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "missing_file"})
+		return
+	}
+	defer uploaded.Close()
+
+	data, err := io.ReadAll(uploaded)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "file_read_failed"})
+		return
+	}
+	htmlContent, err := docx.DecodeToHTML(data)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_document"})
+		return
+	}
+	actor := currentSession(c, s.Sessions)
+	workspace, err := s.Store.ReplaceWorkspaceDocument(c.Param("id"), htmlContent, actor)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, models.ErrWorkspaceNotFound) {
+			status = http.StatusNotFound
+		} else if errors.Is(err, models.ErrWorkspaceKindUnsupported) {
+			status = http.StatusBadRequest
+		}
+		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"workspace": workspaceToResponse(workspace)})
+}
+
 func (s *Server) handleExportWorkspace(c *gin.Context) {
 	workspace, err := s.Store.GetWorkspace(c.Param("id"))
 	if err != nil {
@@ -938,6 +974,31 @@ func (s *Server) handleExportWorkspaceSelected(c *gin.Context) {
 	c.Writer.Write(encoded)
 }
 
+func (s *Server) handleExportWorkspaceDocx(c *gin.Context) {
+	workspace, err := s.Store.GetWorkspace(c.Param("id"))
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, models.ErrWorkspaceNotFound) {
+			status = http.StatusNotFound
+		}
+		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	if !models.WorkspaceKindSupportsDocument(workspace.Kind) {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": models.ErrWorkspaceKindUnsupported.Error()})
+		return
+	}
+	payload, err := docx.EncodeFromHTML(workspace.Document)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "encode_failed"})
+		return
+	}
+	filename := buildDownloadFilename(workspace.Name, "workspace", ".docx")
+	c.Writer.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+	c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	c.Writer.Write(payload)
+}
+
 func (s *Server) handleListUsers(c *gin.Context) {
 	session := currentSession(c, s.Sessions)
 	if !s.Store.IsUserAdmin(session) {
@@ -1045,6 +1106,32 @@ func workspaceTreeItemFromModel(workspace *models.Workspace) workspaceTreeItem {
 		CreatedAt: workspace.CreatedAt,
 		UpdatedAt: workspace.UpdatedAt,
 	}
+}
+
+func buildDownloadFilename(name string, fallback string, ext string) string {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		trimmed = fallback
+	}
+	cleaned := strings.Map(func(r rune) rune {
+		switch r {
+		case '\\', '/', ':', '*', '?', '"', '<', '>', '|':
+			return '_'
+		default:
+			if r >= 0 && r < 32 {
+				return -1
+			}
+			return r
+		}
+	}, trimmed)
+	cleaned = strings.Trim(cleaned, " ._")
+	if cleaned == "" {
+		cleaned = fallback
+	}
+	if ext == "" {
+		return cleaned
+	}
+	return cleaned + ext
 }
 
 func userToResponse(user *models.User) userResponse {

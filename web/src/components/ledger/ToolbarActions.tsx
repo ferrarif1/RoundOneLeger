@@ -4,12 +4,15 @@ import { clsx } from 'clsx';
 interface ToolbarActionsProps {
   onSave: () => void;
   onDelete: () => void;
-  onExcelImport: () => void;
-  onPasteImport: () => void;
-  onExport: () => void;
+  onExcelImport?: () => void;
+  onPasteImport?: () => void;
+  onExport?: () => void;
   onExportAll?: () => void;
   onImportAll?: () => void;
-  disabledSheetActions?: boolean;
+  onDocumentImport?: () => void;
+  onDocumentExport?: () => void;
+  sheetActionsEnabled?: boolean;
+  documentActionsEnabled?: boolean;
   busy?: boolean;
   dirty?: boolean;
 }
@@ -47,15 +50,38 @@ export const ToolbarActions = ({
   onExport,
   onExportAll,
   onImportAll,
-  disabledSheetActions = false,
+  onDocumentImport,
+  onDocumentExport,
+  sheetActionsEnabled = true,
+  documentActionsEnabled = false,
   busy = false,
   dirty = false
 }: ToolbarActionsProps) => {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <ActionButton icon={ArrowUpTrayIcon} label="Excel 导入" onClick={onExcelImport} disabled={disabledSheetActions} />
-      <ActionButton icon={ClipboardDocumentListIcon} label="粘贴导入" onClick={onPasteImport} disabled={disabledSheetActions} />
-      <ActionButton icon={ArrowDownTrayIcon} label="导出 Excel" onClick={onExport} disabled={disabledSheetActions} />
+      {sheetActionsEnabled && (
+        <>
+          {onExcelImport && (
+            <ActionButton icon={ArrowUpTrayIcon} label="Excel 导入" onClick={onExcelImport} />
+          )}
+          {onPasteImport && (
+            <ActionButton icon={ClipboardDocumentListIcon} label="粘贴导入" onClick={onPasteImport} />
+          )}
+          {onExport && (
+            <ActionButton icon={ArrowDownTrayIcon} label="导出 Excel" onClick={onExport} />
+          )}
+        </>
+      )}
+      {documentActionsEnabled && (
+        <>
+          {onDocumentImport && (
+            <ActionButton icon={ArrowUpTrayIcon} label="导入文档" onClick={onDocumentImport} />
+          )}
+          {onDocumentExport && (
+            <ActionButton icon={ArrowDownTrayIcon} label="导出文档" onClick={onDocumentExport} />
+          )}
+        </>
+      )}
       {onExportAll && <ActionButton icon={ArrowDownTrayIcon} label="导出全部数据" onClick={onExportAll} />}
       {onImportAll && (
         <button type="button" onClick={onImportAll} className="eidos-btn eidos-btn--ghost text-xs font-medium">

@@ -160,6 +160,18 @@ func TestWorkspaceHierarchy(t *testing.T) {
 		t.Fatalf("expected unsupported kind error when importing document data, got %v", err)
 	}
 
+	updatedDoc, err := store.ReplaceWorkspaceDocument(doc.ID, "<p>更新后的说明</p>", "tester")
+	if err != nil {
+		t.Fatalf("replace workspace document: %v", err)
+	}
+	if updatedDoc.Document != "<p>更新后的说明</p>" {
+		t.Fatalf("unexpected document content: %q", updatedDoc.Document)
+	}
+
+	if _, err := store.ReplaceWorkspaceDocument(folder.ID, "<p>不应成功</p>", "tester"); !errors.Is(err, ErrWorkspaceKindUnsupported) {
+		t.Fatalf("expected unsupported kind error when importing folder as document, got %v", err)
+	}
+
 	if err := store.DeleteWorkspace(folder.ID, "tester"); err != nil {
 		t.Fatalf("delete folder: %v", err)
 	}

@@ -457,6 +457,7 @@ const Assets = () => {
   const [saving, setSaving] = useState(false);
   const [highlightedRowIds, setHighlightedRowIds] = useState<string[]>([]);
   const excelInputRef = useRef<HTMLInputElement>(null);
+  const docxInputRef = useRef<HTMLInputElement>(null);
   const importAllRef = useRef<HTMLInputElement>(null);
 
   const allNodes = useMemo(() => flattenWorkspaces(workspaceTree), [workspaceTree]);
@@ -978,6 +979,36 @@ const Assets = () => {
     [currentWorkspace, isSheet, loadWorkspace]
   );
 
+  const handleImportDocx = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = '';
+      if (!file || !currentWorkspace || !isDocument) {
+        return;
+      }
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const { data } = await api.post<{ workspace: Workspace }>(
+          `/api/v1/workspaces/${currentWorkspace.id}/import/docx`,
+          formData,
+          {
+            headers: { 'Content-Type': 'multipart/form-data' }
+          }
+        );
+        if (data?.workspace) {
+          await loadWorkspace(data.workspace.id);
+          setStatus('文档内容已导入。');
+        }
+      } catch (err) {
+        console.error('导入文档失败', err);
+        const axiosError = err as AxiosError<{ error?: string }>;
+        setError(axiosError.response?.data?.error || axiosError.message || '导入失败，请确认文件格式。');
+      }
+    },
+    [currentWorkspace, isDocument, loadWorkspace]
+  );
+
   const handleImportText = useCallback(
     async (text: string, delimiter: string, hasHeader: boolean) => {
       if (!currentWorkspace || !isSheet) {
@@ -1028,6 +1059,35 @@ const Assets = () => {
       setError(axiosError.response?.data?.error || axiosError.message || '导出失败，请稍后再试。');
     }
   }, [currentWorkspace, isSheet]);
+
+  const handleExportDocument = useCallback(async () => {
+    if (!currentWorkspace || !isDocument) {
+      setStatus('当前内容不支持导出文档。');
+      return;
+    }
+    try {
+      const { data } = await api.get<ArrayBuffer>(
+        `/api/v1/workspaces/${currentWorkspace.id}/export/docx`,
+        { responseType: 'arraybuffer' }
+      );
+      const blob = new Blob([data], {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${(currentWorkspace.name || DEFAULT_TITLE).replace(/\s+/g, '_')}.docx`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      setStatus('已导出文档。');
+    } catch (err) {
+      console.error('导出文档失败', err);
+      const axiosError = err as AxiosError<{ error?: string }>;
+      setError(axiosError.response?.data?.error || axiosError.message || '导出失败，请稍后再试。');
+    }
+  }, [currentWorkspace, isDocument]);
 
   const exportSelectedExcel = useCallback(async () => {
     if (!currentWorkspace || !isSheet || !selectedRowIds.length) {
@@ -1161,9 +1221,13 @@ const Assets = () => {
     <ToolbarActions
       onSave={handleSave}
       onDelete={handleDeleteWorkspace}
-      onExcelImport={() => excelInputRef.current?.click()}
-      onPasteImport={() => setShowPasteModal(true)}
-      onExport={handleExport}
+      onExcelImport={isSheet ? () => excelInputRef.current?.click() : undefined}
+      onPasteImport={isSheet ? () => setShowPasteModal(true) : undefined}
+      onExport={isSheet ? handleExport : undefined}
+      onDocumentImport={isDocument ? () => docxInputRef.current?.click() : undefined}
+      onDocumentExport={isDocument ? handleExportDocument : undefined}
+      sheetActionsEnabled={isSheet}
+      documentActionsEnabled={isDocument}
       onExportAll={async () => {
         const fallbackName = `roundone_ledger_export_${Date.now()}.zip`;
         try {
@@ -1205,7 +1269,6 @@ const Assets = () => {
         }
       }}
       onImportAll={() => importAllRef.current?.click()}
-      disabledSheetActions={!isSheet}
       busy={saving}
       dirty={hasUnsavedChanges}
     />
@@ -1326,6 +1389,13 @@ const Assets = () => {
         accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         className="hidden"
         onChange={handleImportExcel}
+      />
+      <input
+        ref={docxInputRef}
+        type="file"
+        accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        className="hidden"
+        onChange={handleImportDocx}
       />
       <input
         ref={importAllRef}
