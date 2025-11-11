@@ -1,6 +1,8 @@
 package models
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"testing"
 )
@@ -207,4 +209,44 @@ func TestChangePassword(t *testing.T) {
 	if _, err := store.AuthenticateUser(defaultAdminUsername, "FinalPwd3#"); err != nil {
 		t.Fatalf("expected final password to succeed, got %v", err)
 	}
+}
+
+func TestWriteSnapshotJSONRoundTrip(t *testing.T) {
+	store := NewLedgerStore()
+	if _, err := store.CreateEntry(LedgerTypeSystem, LedgerEntry{Name: "日志平台", Description: "集中收集日志"}, "tester"); err != nil {
+		t.Fatalf("create entry: %v", err)
+	}
+	if _, err := store.AppendAllowlist(&IPAllowlistEntry{Label: "总部办公网", CIDR: "192.168.0.0/24"}, "tester"); err != nil {
+		t.Fatalf("append allowlist: %v", err)
+	}
+	columns := []WorkspaceColumn{{ID: "col_task", Title: "任务"}, {ID: "col_owner", Title: "负责人"}}
+	rows := []WorkspaceRow{{Cells: map[string]string{"col_task": "梳理资产", "col_owner": "刘伟"}}}
+	if _, err := store.CreateWorkspace("安全周报", WorkspaceKindSheet, "", columns, rows, "<p>本周重点</p>", "tester"); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+
+	expected := store.ExportSnapshot()
+	var buf bytes.Buffer
+	if err := store.WriteSnapshotJSON(&buf); err != nil {
+		t.Fatalf("write snapshot json: %v", err)
+	}
+
+	var decoded Snapshot
+	if err := json.Unmarshal(buf.Bytes(), &decoded); err != nil {
+		t.Fatalf("unmarshal snapshot: %v", err)
+	}
+
+	expectedJSON := marshalSnapshot(t, expected)
+	decodedJSON := marshalSnapshot(t, &decoded)
+	if expectedJSON != decodedJSON {
+		t.Fatalf("snapshot mismatch after round trip")
+	}
+}
+func marshalSnapshot(t *testing.T, snap *Snapshot) string {
+	t.Helper()
+	data, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatalf("marshal snapshot: %v", err)
+	}
+	return string(data)
 }

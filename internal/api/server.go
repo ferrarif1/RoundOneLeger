@@ -1,6 +1,7 @@
 package api
 
 import (
+	"archive/zip"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -1222,20 +1225,79 @@ func (s *Server) handleAuditLogsVerify(c *gin.Context) {
 }
 
 func (s *Server) handleExportAll(c *gin.Context) {
-	snapshot := s.Store.ExportSnapshot()
-	c.JSON(http.StatusOK, snapshot)
+	filename := fmt.Sprintf("ledger-export-%s.zip", time.Now().UTC().Format("20060102T150405Z"))
+	c.Writer.Header().Set("Content-Type", "application/zip")
+	c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+
+	zipWriter := zip.NewWriter(c.Writer)
+	entry, err := zipWriter.Create("snapshot.json")
+	if err != nil {
+		_ = zipWriter.Close()
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "export_failed"})
+		return
+	}
+	if err := s.Store.WriteSnapshotJSON(entry); err != nil {
+		_ = zipWriter.Close()
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "export_failed"})
+		return
+	}
+	if err := zipWriter.Close(); err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "export_failed"})
+		return
+	}
 }
 
 func (s *Server) handleImportAll(c *gin.Context) {
-	var snapshot models.Snapshot
-	if err := c.ShouldBindJSON(&snapshot); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+	contentType := strings.ToLower(strings.TrimSpace(c.Request.Header.Get("Content-Type")))
+	if strings.HasPrefix(contentType, "application/json") || strings.HasPrefix(contentType, "text/json") {
+		var snapshot models.Snapshot
+		decoder := json.NewDecoder(c.Request.Body)
+		if err := decoder.Decode(&snapshot); err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+			return
+		}
+		if err := s.Store.ImportSnapshot(&snapshot); err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "imported"})
 		return
 	}
-	if err := s.Store.ImportSnapshot(&snapshot); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+
+	path, err := resolveSnapshotUpload(c)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, errImportFileMissing) || errors.Is(err, errUnsupportedArchive) {
+			status = http.StatusBadRequest
+		}
+		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
 		return
 	}
+	defer os.Remove(path)
+
+	fh, err := os.Open(path)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "import_open_failed"})
+		return
+	}
+	defer fh.Close()
+
+	info, err := fh.Stat()
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "import_stat_failed"})
+		return
+	}
+	if err := importSnapshotFromFile(fh, info.Size(), s.Store); err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, errSnapshotMissing) || errors.Is(err, errSnapshotInvalid) {
+			status = http.StatusBadRequest
+		} else if errors.Is(err, errUnsupportedArchive) {
+			status = http.StatusUnsupportedMediaType
+		}
+		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{"status": "imported"})
 }
 
@@ -1250,6 +1312,117 @@ func (s *Server) handleManualSave(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "saved"})
 }
+func resolveSnapshotUpload(c *gin.Context) (string, error) {
+	if strings.HasPrefix(strings.ToLower(c.GetHeader("Content-Type")), "multipart/form-data") {
+		reader, err := c.Request.MultipartReader()
+		if err != nil {
+			return "", err
+		}
+		for {
+			part, err := reader.NextPart()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return "", err
+			}
+			if part.FormName() != "file" {
+				_ = part.Close()
+				continue
+			}
+			path, copyErr := spoolToTemp(part)
+			_ = part.Close()
+			if copyErr != nil {
+				return "", copyErr
+			}
+			return path, nil
+		}
+		return "", errImportFileMissing
+	}
+	return spoolToTemp(c.Request.Body)
+}
+
+func spoolToTemp(r io.Reader) (string, error) {
+	fh, err := os.CreateTemp("", "ledger-import-*.tmp")
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		_ = fh.Close()
+	}()
+	if _, err := io.Copy(fh, r); err != nil {
+		name := fh.Name()
+		_ = os.Remove(name)
+		return "", err
+	}
+	if err := fh.Close(); err != nil {
+		name := fh.Name()
+		_ = os.Remove(name)
+		return "", err
+	}
+	return fh.Name(), nil
+}
+
+func importSnapshotFromFile(file *os.File, size int64, store *models.LedgerStore) error {
+	header := make([]byte, 4)
+	n, err := file.Read(header)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	if n == 4 && header[0] == 0x50 && header[1] == 0x4b && header[2] == 0x03 && header[3] == 0x04 {
+		return importSnapshotFromZip(file, size, store)
+	}
+	decoder := json.NewDecoder(file)
+	var snapshot models.Snapshot
+	if err := decoder.Decode(&snapshot); err != nil {
+		return fmt.Errorf("%w: %v", errSnapshotInvalid, err)
+	}
+	return store.ImportSnapshot(&snapshot)
+}
+
+func importSnapshotFromZip(readerAt io.ReaderAt, size int64, store *models.LedgerStore) error {
+	zipReader, err := zip.NewReader(readerAt, size)
+	if err != nil {
+		return fmt.Errorf("%w: %v", errUnsupportedArchive, err)
+	}
+	var snapshot models.Snapshot
+	found := false
+	for _, file := range zipReader.File {
+		if file.FileInfo().IsDir() {
+			continue
+		}
+		name := filepath.Base(file.Name)
+		if !strings.EqualFold(name, "snapshot.json") {
+			continue
+		}
+		rc, err := file.Open()
+		if err != nil {
+			return fmt.Errorf("open_snapshot: %w", err)
+		}
+		decoder := json.NewDecoder(rc)
+		if err := decoder.Decode(&snapshot); err != nil {
+			_ = rc.Close()
+			return fmt.Errorf("%w: %v", errSnapshotInvalid, err)
+		}
+		_ = rc.Close()
+		found = true
+		break
+	}
+	if !found {
+		return errSnapshotMissing
+	}
+	return store.ImportSnapshot(&snapshot)
+}
+
+var (
+	errImportFileMissing  = errors.New("import_file_missing")
+	errSnapshotMissing    = errors.New("snapshot_missing")
+	errSnapshotInvalid    = errors.New("snapshot_invalid")
+	errUnsupportedArchive = errors.New("unsupported_archive")
+)
 
 func parseLedgerType(value string) (models.LedgerType, bool) {
 	value = strings.ToLower(strings.TrimSpace(value))
