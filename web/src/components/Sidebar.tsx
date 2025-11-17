@@ -45,10 +45,18 @@ const Sidebar = ({ collapsed, onToggle }: SidebarProps) => (
         onClick={onToggle}
         aria-pressed={collapsed}
         aria-label={collapsed ? '展开菜单栏' : '折叠菜单栏'}
-        className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-[rgba(20,20,20,0.12)] bg-white py-2 text-xs font-semibold tracking-widest text-[rgba(20,20,20,0.65)] transition hover:border-black/70 hover:text-black"
+        className={clsx(
+          'mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full border-2 border-[#0f62fe] bg-white/95 px-5 py-2.5 text-sm font-semibold tracking-[0.32em] text-[#0f62fe] shadow-[0_12px_30px_rgba(15,98,254,0.18)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-white focus:outline-none focus-visible:ring-4 focus-visible:ring-[#0f62fe]/20',
+          collapsed && 'px-3 tracking-[0.2em]'
+        )}
       >
-        <ChevronDoubleLeftIcon className={clsx('h-4 w-4 transition-transform', collapsed && 'rotate-180')} />
-        <span className={clsx('transition-opacity duration-200', collapsed && 'opacity-0')}>折叠菜单</span>
+        <ChevronDoubleLeftIcon
+          className={clsx(
+            'h-4 w-4 text-[#0f62fe] transition-transform',
+            collapsed && 'rotate-180'
+          )}
+        />
+        <span className={clsx('transition-opacity duration-200', collapsed && 'sr-only')}>折叠菜单</span>
       </button>
     </div>
     <nav className={clsx('flex-1 space-y-2 px-4 py-6', collapsed && 'px-2')}>
