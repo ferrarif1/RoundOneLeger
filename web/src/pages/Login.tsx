@@ -63,7 +63,7 @@ const Login = () => {
   };
 
   return (
-    <div className="auth-shell">
+    <div className="auth-shell eidos-ledger-root">
       <div className="auth-panel glass-panel">
         <header className="auth-header">
           <div className="auth-icon">
@@ -78,14 +78,14 @@ const Login = () => {
 
         <form onSubmit={handleSubmit} className="auth-form">
           {status && (
-            <div className="auth-alert auth-alert--success">
+            <div className="auth-alert auth-alert--success" role="status" aria-live="polite">
               <CheckCircleIcon />
               <p>{status}</p>
             </div>
           )}
 
           {error && (
-            <div className="auth-alert auth-alert--error">
+            <div className="auth-alert auth-alert--error" role="alert" aria-live="assertive">
               <ExclamationCircleIcon />
               <p>{error}</p>
             </div>
@@ -117,10 +117,19 @@ const Login = () => {
             />
           </label>
 
-          <button type="submit" disabled={loading} className="button-primary auth-submit">
+          <button
+            type="submit"
+            disabled={loading}
+            className="button-primary auth-submit"
+            aria-busy={loading ? true : undefined}
+          >
             {loading ? '登录中…' : '登录'}
           </button>
         </form>
+        <footer className="auth-meta">
+          <p>仅限授权用户访问，所有操作都会被记录以保障合规。</p>
+          <span>Eidos Ledger · 内部版本</span>
+        </footer>
       </div>
     </div>
   );
