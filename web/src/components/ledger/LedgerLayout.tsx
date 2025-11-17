@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useState } from 'react';
-import { Bars3Icon, XMarkIcon } from '@heroicons/react/24/outline';
+import { Bars3Icon, ChevronDoubleLeftIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { clsx } from 'clsx';
 
 interface LedgerLayoutProps {
@@ -39,16 +39,6 @@ export const LedgerLayout = ({ sidebar, editor }: LedgerLayoutProps) => {
           {sidebarOpen ? '收起台账列表' : '显示台账列表'}
         </button>
       </div>
-      <div className="eidos-ledger-desktop-toggle">
-        <button
-          type="button"
-          onClick={() => setSidebarCollapsed((prev) => !prev)}
-          aria-pressed={sidebarCollapsed}
-          className={clsx('eidos-btn eidos-btn--ghost eidos-ledger-toggle-button', sidebarCollapsed && 'is-active')}
-        >
-          {sidebarCollapsed ? '展开台账列表' : '收起台账列表'}
-        </button>
-      </div>
       <div
         className={clsx(
           'eidos-ledger-container',
@@ -57,6 +47,15 @@ export const LedgerLayout = ({ sidebar, editor }: LedgerLayoutProps) => {
         )}
       >
         <aside className={clsx('eidos-ledger-list', sidebarOpen && 'is-open')}>
+          <button
+            type="button"
+            className={clsx('eidos-ledger-collapse-handle', sidebarCollapsed && 'is-collapsed')}
+            onClick={() => setSidebarCollapsed((prev) => !prev)}
+            aria-pressed={sidebarCollapsed}
+            aria-label={sidebarCollapsed ? '展开台账列表' : '折叠台账列表'}
+          >
+            <ChevronDoubleLeftIcon className={clsx('h-4 w-4', sidebarCollapsed && 'rotate-180')} />
+          </button>
           <div className="eidos-ledger-list-scroll">{sidebar}</div>
         </aside>
         <section className="eidos-ledger-editor">{editor}</section>

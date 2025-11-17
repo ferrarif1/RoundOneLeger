@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import Sidebar from './components/Sidebar';
@@ -17,10 +18,11 @@ const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
 
 const App = () => {
   const { token } = useSession();
+  const [navCollapsed, setNavCollapsed] = useState(false);
 
   return (
     <div className="flex min-h-screen bg-[var(--bg)] text-[var(--text)]">
-      {token && <Sidebar />}
+      {token && <Sidebar collapsed={navCollapsed} onToggle={() => setNavCollapsed((prev) => !prev)} />}
       <div className="flex-1 flex flex-col">
         {token && <TopBar />}
         <main className="flex-1 overflow-y-auto bg-[var(--bg-subtle)]/80 p-6 md:p-10">
