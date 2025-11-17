@@ -81,7 +81,7 @@
   box-shadow: var(--card-elev-2);
   padding: clamp(20px, 2vw, 28px);
   height: min(calc(100vh - 160px), 920px);
-  overflow: hidden;
+  overflow: visible;
   display: block;
   position: relative;
 }
@@ -101,6 +101,7 @@
   justify-content: center;
   box-shadow: 0 20px 36px rgba(14, 14, 14, 0.18);
   transition: transform 180ms ease, box-shadow 180ms ease, color 180ms ease, opacity 180ms ease;
+  z-index: 3;
 }
 
 .eidos-ledger-collapse-handle:hover {
@@ -119,6 +120,7 @@
   height: 100%;
   overflow-y: auto;
   padding-right: 6px;
+  overflow-x: hidden;
 }
 
 .ledger-list-card {
