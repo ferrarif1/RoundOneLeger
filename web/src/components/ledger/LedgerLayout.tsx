@@ -9,6 +9,7 @@ interface LedgerLayoutProps {
 
 export const LedgerLayout = ({ sidebar, editor }: LedgerLayoutProps) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -17,8 +18,11 @@ export const LedgerLayout = ({ sidebar, editor }: LedgerLayoutProps) => {
     const handleResize = () => {
       if (window.innerWidth >= 1024) {
         setSidebarOpen(false);
+      } else {
+        setSidebarCollapsed(false);
       }
     };
+    handleResize();
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
@@ -35,7 +39,23 @@ export const LedgerLayout = ({ sidebar, editor }: LedgerLayoutProps) => {
           {sidebarOpen ? '收起台账列表' : '显示台账列表'}
         </button>
       </div>
-      <div className={clsx('eidos-ledger-container', sidebarOpen && 'sidebar-open')}>
+      <div className="eidos-ledger-desktop-toggle">
+        <button
+          type="button"
+          onClick={() => setSidebarCollapsed((prev) => !prev)}
+          aria-pressed={sidebarCollapsed}
+          className={clsx('eidos-btn eidos-btn--ghost eidos-ledger-toggle-button', sidebarCollapsed && 'is-active')}
+        >
+          {sidebarCollapsed ? '展开台账列表' : '收起台账列表'}
+        </button>
+      </div>
+      <div
+        className={clsx(
+          'eidos-ledger-container',
+          sidebarOpen && 'sidebar-open',
+          sidebarCollapsed && 'sidebar-collapsed'
+        )}
+      >
         <aside className={clsx('eidos-ledger-list', sidebarOpen && 'is-open')}>
           <div className="eidos-ledger-list-scroll">{sidebar}</div>
         </aside>

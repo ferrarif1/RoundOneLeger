@@ -71,7 +71,7 @@ export const DocumentEditor = ({ value, editable, onChange, onStatus, onSave, di
     if (container.innerHTML !== value) {
       container.innerHTML = value || '';
     }
-  }, [value]);
+  }, [value, displayMode]);
 
   useEffect(() => {
     if (!isFullscreen) {
