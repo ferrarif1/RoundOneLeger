@@ -69,6 +69,24 @@ docker-compose up --build
 
 Once both containers are healthy, the API is reachable at <http://localhost:8080> with identical routes as the local build.
 
+## Windows One-Click Bundle
+
+Use the new helper script to compile a single Windows executable that ships both the Go backend and the compiled React SPA:
+
+```powershell
+pwsh -File scripts/build-windows-bundle.ps1
+```
+
+The script performs the following steps:
+
+1. Installs/refreshes frontend dependencies under `web/node_modules/` (skip via `-SkipNpmInstall`).
+2. Builds the production SPA into `web/dist/` (skip via `-SkipFrontendBuild` if you already ran `npm run build`).
+3. Cross-compiles `./cmd/server` for Windows (`GOOS=windows GOARCH=amd64 CGO_ENABLED=0`) and writes the output to `dist/ledger.exe`.
+
+You can override the output path with `-Output C:\path\to\ledger.exe` or change the architecture with `-Arch arm64`. After the command finishes, double-click the generated `ledger.exe` to launch the entire application at `http://localhost:8080` without separate web servers or proxies.
+
+For non-Windows environments, run `make frontend windows-exe` to achieve the same result from a Unix shell.
+
 ## Authentication Flow
 
 1. **Password login** – POST `/auth/password-login` with `{ "username": "…", "password": "…" }`. The server validates the credentials, issues a bearer token, and returns the username together with an `admin` flag.
@@ -147,7 +165,7 @@ The repository ships with a repeatable workflow for preparing and operating the 
    - `dist/server.exe`
    - `web/node_modules/`
    - `web/package-lock.json`
-   - `web/build/`
+   - `web/dist/`
    - npm cache directory (obtain with `npm config get cache`)
 5. Place the captured content inside a folder named `offline-artifacts/` using the structure below (archives such as `.zip` are also supported by the setup script):
 
@@ -156,7 +174,7 @@ The repository ships with a repeatable workflow for preparing and operating the 
    ├── vendor/                  # from go mod vendor
    ├── server.exe               # from go build -o dist/server.exe …
    ├── node_modules/            # from web/node_modules
-   ├── build/                   # from web/build
+   ├── dist/                    # from web/dist
    ├── npm-cache/               # npm cache directory
    ├── web-package-lock.json    # optional backup copy
    ├── docker-images/           # will store docker save outputs (see below)
@@ -201,8 +219,7 @@ The repository ships with a repeatable workflow for preparing and operating the 
 
 ### 4. Launching the application
 
-- Backend: `dist/server.exe` is started automatically (listens on `http://localhost:8080`).
-- Frontend: `npx serve build --listen 0.0.0.0:3000` is launched inside `web/`. Adjust the command to integrate with IIS/NGINX if required.
+- Backend + Frontend: `dist/server.exe` now embeds the compiled SPA and serves everything from `http://localhost:8080`. Double-click the executable or run it from PowerShell/CMD; the login screen will be available at the same port without an additional static file server.
 
 ### 5. Verifying the deployment
 
