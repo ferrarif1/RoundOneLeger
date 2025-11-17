@@ -2,7 +2,10 @@ bin/
 /tmp/
 *.log
 web/node_modules/
-web/dist/
+web/dist/*
+!web/dist/README.md
+webembed/dist/*
+!webembed/dist/README.md
 web/package-lock.json
 web/*.tsbuildinfo
 web/vite.config.js

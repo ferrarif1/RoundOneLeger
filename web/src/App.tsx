@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import Sidebar from './components/Sidebar';
@@ -17,10 +18,26 @@ const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
 
 const App = () => {
   const { token } = useSession();
+  const [navCollapsed, setNavCollapsed] = useState(false);
+
+  const renderProtectedPage = (key: string, className: string, content: JSX.Element) => (
+    <ProtectedRoute>
+      <motion.div
+        key={key}
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -16 }}
+        transition={{ duration: 0.3, ease: 'easeOut' }}
+        className={className}
+      >
+        {content}
+      </motion.div>
+    </ProtectedRoute>
+  );
 
   return (
     <div className="flex min-h-screen bg-[var(--bg)] text-[var(--text)]">
-      {token && <Sidebar />}
+      {token && <Sidebar collapsed={navCollapsed} onToggle={() => setNavCollapsed((prev) => !prev)} />}
       <div className="flex-1 flex flex-col">
         {token && <TopBar />}
         <main className="flex-1 overflow-y-auto bg-[var(--bg-subtle)]/80 p-6 md:p-10">
@@ -29,88 +46,23 @@ const App = () => {
               <Route path="/login" element={<Login />} />
               <Route
                 path="/dashboard"
-                element={
-                  <ProtectedRoute>
-                    <motion.div
-                      key="dashboard"
-                      initial={{ opacity: 0, y: 16 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -16 }}
-                      transition={{ duration: 0.3, ease: 'easeOut' }}
-                      className="mx-auto max-w-5xl space-y-6"
-                    >
-                      <Dashboard />
-                    </motion.div>
-                  </ProtectedRoute>
-                }
+                element={renderProtectedPage('dashboard', 'mx-auto max-w-5xl space-y-6', <Dashboard />)}
               />
               <Route
                 path="/assets"
-                element={
-                  <ProtectedRoute>
-                    <motion.div
-                      key="assets"
-                      initial={{ opacity: 0, y: 16 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -16 }}
-                      transition={{ duration: 0.3, ease: 'easeOut' }}
-                      className="mx-auto max-w-5xl"
-                    >
-                      <Assets />
-                    </motion.div>
-                  </ProtectedRoute>
-                }
+                element={renderProtectedPage('assets', 'mx-auto w-full max-w-[1680px]', <Assets />)}
               />
               <Route
                 path="/ip-allowlist"
-                element={
-                  <ProtectedRoute>
-                    <motion.div
-                      key="ip-allowlist"
-                      initial={{ opacity: 0, y: 16 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -16 }}
-                      transition={{ duration: 0.3, ease: 'easeOut' }}
-                      className="mx-auto max-w-5xl"
-                    >
-                      <IPAllowlist />
-                    </motion.div>
-                  </ProtectedRoute>
-                }
+                element={renderProtectedPage('ip-allowlist', 'mx-auto max-w-5xl', <IPAllowlist />)}
               />
               <Route
                 path="/audit-logs"
-                element={
-                  <ProtectedRoute>
-                    <motion.div
-                      key="audit-logs"
-                      initial={{ opacity: 0, y: 16 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -16 }}
-                      transition={{ duration: 0.3, ease: 'easeOut' }}
-                      className="mx-auto max-w-5xl"
-                    >
-                      <AuditLogs />
-                    </motion.div>
-                  </ProtectedRoute>
-                }
+                element={renderProtectedPage('audit-logs', 'mx-auto max-w-5xl', <AuditLogs />)}
               />
               <Route
                 path="/users"
-                element={
-                  <ProtectedRoute>
-                    <motion.div
-                      key="users"
-                      initial={{ opacity: 0, y: 16 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -16 }}
-                      transition={{ duration: 0.3, ease: 'easeOut' }}
-                      className="mx-auto max-w-5xl"
-                    >
-                      <Users />
-                    </motion.div>
-                  </ProtectedRoute>
-                }
+                element={renderProtectedPage('users', 'mx-auto max-w-5xl', <Users />)}
               />
               <Route path="*" element={<Navigate to={token ? '/dashboard' : '/login'} replace />} />
             </Routes>
