@@ -24,21 +24,22 @@ type LedgerListCardProps = {
 };
 
 const filterTree = (nodes: WorkspaceNode[], keyword: string): WorkspaceNode[] => {
-  if (!keyword.trim()) {
+  const trimmed = keyword.trim();
+  if (!trimmed) {
     return nodes;
   }
-  const lower = keyword.trim().toLowerCase();
+  const lower = trimmed.toLowerCase();
   const walk = (list: WorkspaceNode[]): WorkspaceNode[] => {
-    return list
-      .map((node) => {
-        const matches = (node.name || '').toLowerCase().includes(lower);
-        const children = node.children ? walk(node.children) : [];
-        if (matches || children.length) {
-          return { ...node, children };
-        }
-        return null;
-      })
-      .filter((node): node is WorkspaceNode => node !== null);
+    const results: WorkspaceNode[] = [];
+    for (const node of list) {
+      const matches = (node.name || '').toLowerCase().includes(lower);
+      const children = node.children ? walk(node.children) : [];
+      const normalizedChildren = children.length ? children : undefined;
+      if (matches || normalizedChildren) {
+        results.push({ ...node, children: normalizedChildren });
+      }
+    }
+    return results;
   };
   return walk(nodes);
 };

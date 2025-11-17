@@ -7,6 +7,7 @@ import (
 	"ledger/internal/db"
 	"ledger/internal/middleware"
 	"ledger/internal/models"
+	"ledger/webembed"
 )
 
 // Config configures the router dependencies.
@@ -25,6 +26,7 @@ func NewRouter(cfg Config) *gin.Engine {
 
 	server := &Server{Database: cfg.Database, Store: cfg.Store, Sessions: cfg.Sessions, DataDir: cfg.DataDir, SnapshotRetention: cfg.Retention}
 	server.RegisterRoutes(r)
+	webembed.Register(r)
 
 	return r
 }

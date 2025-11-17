@@ -9,16 +9,17 @@
   --text: #141414;
   --radius-lg: 20px;
   --radius-md: 14px;
-  --gap: 22px;
+  --gap: clamp(18px, 2.6vw, 38px);
   --bg: var(--bg-page);
   --shadow-soft: var(--card-elev);
   --shadow-sm: var(--card-elev-2);
+  --ledger-shell-max: 1680px;
 }
 
 .eidos-ledger-root {
   min-height: 100vh;
   background: var(--bg-page);
-  padding: 32px 28px 44px;
+  padding: clamp(24px, 4vw, 60px) clamp(16px, 4vw, 64px) clamp(40px, 6vw, 80px);
   font-family: 'Inter', 'Noto Sans SC', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   color: var(--text);
   -webkit-font-smoothing: antialiased;
@@ -28,13 +29,17 @@
   display: flex;
   flex-direction: column;
   gap: 18px;
-  max-width: 1440px;
+  width: 100%;
+  max-width: var(--ledger-shell-max);
   margin: 0 auto;
 }
 
 .eidos-ledger-mobile-toggle {
   display: none;
   justify-content: flex-end;
+  width: 100%;
+  max-width: var(--ledger-shell-max);
+  margin: 0 auto;
 }
 
 .eidos-ledger-toggle-button {
@@ -48,6 +53,12 @@
   transition: transform 180ms ease, box-shadow 180ms ease;
 }
 
+.eidos-ledger-toggle-button.is-active {
+  border-color: rgba(20, 20, 20, 0.3);
+  color: var(--accent);
+  box-shadow: 0 20px 36px rgba(14, 14, 14, 0.16);
+}
+
 .eidos-ledger-toggle-button:hover {
   transform: translateY(-1px);
   box-shadow: 0 18px 34px rgba(14, 14, 14, 0.1);
@@ -55,9 +66,12 @@
 
 .eidos-ledger-container {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: clamp(240px, 22vw, 320px) minmax(0, 1fr);
   gap: var(--gap);
-  align-items: start;
+  align-items: stretch;
+  width: 100%;
+  position: relative;
+  margin: 0 auto;
 }
 
 .eidos-ledger-list {
@@ -65,16 +79,48 @@
   border-radius: var(--radius-md);
   border: 1.5px solid rgba(20, 20, 20, 0.12);
   box-shadow: var(--card-elev-2);
-  padding: 22px;
-  height: calc(100vh - 120px);
-  overflow: hidden;
+  padding: clamp(20px, 2vw, 28px);
+  height: min(calc(100vh - 160px), 920px);
+  overflow: visible;
   display: block;
+  position: relative;
+}
+
+.eidos-ledger-collapse-handle {
+  position: absolute;
+  top: 20px;
+  right: -22px;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(15, 23, 42, 0.16);
+  background: radial-gradient(circle at 30% 30%, #ffffff, #f4f6fb);
+  color: rgba(20, 20, 20, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 20px 36px rgba(14, 14, 14, 0.18);
+  transition: transform 180ms ease, box-shadow 180ms ease, color 180ms ease, opacity 180ms ease;
+  z-index: 3;
+}
+
+.eidos-ledger-collapse-handle:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 34px rgba(14, 14, 14, 0.18);
+  color: var(--accent);
+}
+
+.eidos-ledger-collapse-handle.is-collapsed {
+  right: auto;
+  left: 50%;
+  transform: translate(-50%, 0);
 }
 
 .eidos-ledger-list-scroll {
   height: 100%;
   overflow-y: auto;
   padding-right: 6px;
+  overflow-x: hidden;
 }
 
 .ledger-list-card {
@@ -89,11 +135,13 @@
   border-radius: var(--radius-lg);
   border: 1.5px solid rgba(20, 20, 20, 0.12);
   box-shadow: var(--card-elev);
-  padding: 28px;
-  height: calc(100vh - 120px);
+  padding: clamp(24px, 2.6vw, 40px);
+  height: min(calc(100vh - 140px), 960px);
+  min-height: clamp(520px, 60vh, 720px);
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .eidos-ledger-editor > * {
@@ -222,13 +270,22 @@
   height: 100%;
 }
 
-@media (max-width: 1279px) {
+@media (max-width: 1439px) {
   .eidos-ledger-container {
-    grid-template-columns: 280px 1fr;
+    grid-template-columns: clamp(220px, 28vw, 280px) minmax(0, 1fr);
+  }
+}
+
+@media (min-width: 1440px) {
+  .eidos-ledger-container {
+    grid-template-columns: minmax(260px, 320px) minmax(900px, 1fr);
   }
 }
 
 @media (max-width: 1023px) {
+  .eidos-ledger-collapse-handle {
+    display: none;
+  }
   .eidos-ledger-root {
     padding: 24px 20px 36px;
   }
@@ -263,6 +320,29 @@
   }
   .eidos-ledger-list {
     padding: 18px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .eidos-ledger-container.sidebar-collapsed {
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 24px;
+  }
+  .eidos-ledger-container.sidebar-collapsed .eidos-ledger-list {
+    padding: 8px 4px;
+    border: none;
+    box-shadow: none;
+    background: transparent;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+  }
+  .eidos-ledger-container.sidebar-collapsed .eidos-ledger-list-scroll {
+    display: none;
+  }
+  .eidos-ledger-container.sidebar-collapsed .eidos-ledger-collapse-handle {
+    position: static;
+    transform: none;
   }
 }
 
