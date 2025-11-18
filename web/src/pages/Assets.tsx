@@ -35,6 +35,7 @@ import type {
 const DEFAULT_TITLE = '未命名台账';
 const MIN_COLUMN_WIDTH = 140;
 const DEFAULT_COLUMN_WIDTH = 220;
+const WORKSPACE_CONFLICT_MESSAGE = '当前台账内容已被其他成员更新，请刷新后重试。';
 
 const resolveExportFilename = (disposition?: string | null, fallback?: string) => {
   if (!disposition) {
@@ -646,7 +647,12 @@ const Assets = () => {
             : [];
         const normalizedDocument = kind === 'folder' ? '' : workspace.document || '';
 
-        setCurrentWorkspace({ ...workspace, kind, parentId: workspace.parentId ?? '' });
+setCurrentWorkspace({
+...workspace,
+version: typeof workspace.version === 'number' && workspace.version > 0 ? workspace.version : 1,
+kind,
+parentId: workspace.parentId ?? ''
+});
         setColumns(normalizedColumns);
         setRows(normalizedRows);
         try {
@@ -905,7 +911,7 @@ const Assets = () => {
     setStatus(null);
     setError(null);
     const trimmedName = name.trim() || DEFAULT_TITLE;
-    const payload: Record<string, unknown> = { name: trimmedName };
+const payload: Record<string, unknown> = { name: trimmedName, version: currentWorkspace.version };
     if (isSheet) {
       payload.document = documentContent;
       payload.columns = columns.map((column, index) => ({
@@ -918,18 +924,24 @@ const Assets = () => {
       payload.document = documentContent;
     }
     setSaving(true);
-    try {
-      await api.put(`/api/v1/workspaces/${currentWorkspace.id}`, payload);
-      setStatus('已保存所有更改。');
-      await refreshList(currentWorkspace.id);
-    } catch (err) {
-      console.error('保存失败', err);
-      const axiosError = err as AxiosError<{ error?: string }>;
-      setError(axiosError.response?.data?.error || axiosError.message || '保存失败，请稍后再试。');
-    } finally {
-      setSaving(false);
-    }
-  }, [columns, currentWorkspace, documentContent, isDocument, isSheet, name, refreshList, rows]);
+try {
+await api.put(`/api/v1/workspaces/${currentWorkspace.id}`, payload);
+await loadWorkspace(currentWorkspace.id);
+await refreshList(currentWorkspace.id);
+setStatus('已保存所有更改。');
+} catch (err) {
+console.error('保存失败', err);
+const axiosError = err as AxiosError<{ error?: string }>;
+if (axiosError.response?.status === 409) {
+setError(WORKSPACE_CONFLICT_MESSAGE);
+await loadWorkspace(currentWorkspace.id);
+return;
+}
+setError(axiosError.response?.data?.error || axiosError.message || '保存失败，请稍后再试。');
+} finally {
+setSaving(false);
+}
+}, [columns, currentWorkspace, documentContent, highlightedRowIds, isDocument, isSheet, loadWorkspace, name, refreshList, rows]);
 
   const handleDeleteWorkspace = useCallback(async () => {
     if (!currentWorkspace) {
@@ -959,6 +971,7 @@ const Assets = () => {
       try {
         const formData = new FormData();
         formData.append('file', file);
+        formData.append('version', String(currentWorkspace.version));
         const { data } = await api.post<{ workspace: Workspace }>(
           `/api/v1/workspaces/${currentWorkspace.id}/import/excel`,
           formData,
@@ -973,6 +986,11 @@ const Assets = () => {
       } catch (err) {
         console.error('导入 Excel 失败', err);
         const axiosError = err as AxiosError<{ error?: string }>;
+        if (axiosError.response?.status === 409 && currentWorkspace) {
+          setError(WORKSPACE_CONFLICT_MESSAGE);
+          await loadWorkspace(currentWorkspace.id);
+          return;
+        }
         setError(axiosError.response?.data?.error || axiosError.message || '导入失败，请确认文件格式。');
       }
     },
@@ -989,6 +1007,7 @@ const Assets = () => {
       try {
         const formData = new FormData();
         formData.append('file', file);
+        formData.append('version', String(currentWorkspace.version));
         const { data } = await api.post<{ workspace: Workspace }>(
           `/api/v1/workspaces/${currentWorkspace.id}/import/docx`,
           formData,
@@ -1003,6 +1022,11 @@ const Assets = () => {
       } catch (err) {
         console.error('导入文档失败', err);
         const axiosError = err as AxiosError<{ error?: string }>;
+        if (axiosError.response?.status === 409 && currentWorkspace) {
+          setError(WORKSPACE_CONFLICT_MESSAGE);
+          await loadWorkspace(currentWorkspace.id);
+          return;
+        }
         setError(axiosError.response?.data?.error || axiosError.message || '导入失败，请确认文件格式。');
       }
     },
@@ -1015,17 +1039,29 @@ const Assets = () => {
         setStatus('仅表格台账支持粘贴导入。');
         return;
       }
-      const { data } = await api.post<{ workspace: Workspace }>(
-        `/api/v1/workspaces/${currentWorkspace.id}/import/text`,
-        {
-          text,
-          delimiter,
-          hasHeader
+      try {
+        const { data } = await api.post<{ workspace: Workspace }>(
+          `/api/v1/workspaces/${currentWorkspace.id}/import/text`,
+          {
+            text,
+            delimiter,
+            hasHeader,
+            version: currentWorkspace.version
+          }
+        );
+        if (data?.workspace) {
+          await loadWorkspace(data.workspace.id);
+          setStatus('粘贴内容已导入。');
         }
-      );
-      if (data?.workspace) {
-        await loadWorkspace(data.workspace.id);
-        setStatus('粘贴内容已导入。');
+      } catch (err) {
+        console.error('导入文本失败', err);
+        const axiosError = err as AxiosError<{ error?: string }>;
+        if (axiosError.response?.status === 409 && currentWorkspace) {
+          setError(WORKSPACE_CONFLICT_MESSAGE);
+          await loadWorkspace(currentWorkspace.id);
+          return;
+        }
+        setError(axiosError.response?.data?.error || axiosError.message || '导入失败，请稍后再试。');
       }
     },
     [currentWorkspace, isSheet, loadWorkspace]

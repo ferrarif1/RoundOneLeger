@@ -108,7 +108,7 @@ func TestWorkspaceLifecycle(t *testing.T) {
 
 	headers := []string{"负责人", "计划"}
 	records := [][]string{{"王五", "本周内完成"}}
-	replaced, err := store.ReplaceWorkspaceData(created.ID, headers, records, "tester")
+	replaced, err := store.ReplaceWorkspaceData(created.ID, headers, records, "tester", 0)
 	if err != nil {
 		t.Fatalf("replace workspace data: %v", err)
 	}
@@ -164,11 +164,11 @@ func TestWorkspaceHierarchy(t *testing.T) {
 	if _, err := store.UpdateWorkspace(doc.ID, WorkspaceUpdate{SetColumns: true, Columns: []WorkspaceColumn{}}, "tester"); !errors.Is(err, ErrWorkspaceKindUnsupported) {
 		t.Fatalf("expected unsupported kind error when updating columns, got %v", err)
 	}
-	if _, err := store.ReplaceWorkspaceData(doc.ID, []string{"A"}, [][]string{{"1"}}, "tester"); !errors.Is(err, ErrWorkspaceKindUnsupported) {
+	if _, err := store.ReplaceWorkspaceData(doc.ID, []string{"A"}, [][]string{{"1"}}, "tester", 0); !errors.Is(err, ErrWorkspaceKindUnsupported) {
 		t.Fatalf("expected unsupported kind error when importing document data, got %v", err)
 	}
 
-	updatedDoc, err := store.ReplaceWorkspaceDocument(doc.ID, "<p>更新后的说明</p>", "tester")
+	updatedDoc, err := store.ReplaceWorkspaceDocument(doc.ID, "<p>更新后的说明</p>", "tester", 0)
 	if err != nil {
 		t.Fatalf("replace workspace document: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestWorkspaceHierarchy(t *testing.T) {
 		t.Fatalf("unexpected document content: %q", updatedDoc.Document)
 	}
 
-	if _, err := store.ReplaceWorkspaceDocument(folder.ID, "<p>不应成功</p>", "tester"); !errors.Is(err, ErrWorkspaceKindUnsupported) {
+	if _, err := store.ReplaceWorkspaceDocument(folder.ID, "<p>不应成功</p>", "tester", 0); !errors.Is(err, ErrWorkspaceKindUnsupported) {
 		t.Fatalf("expected unsupported kind error when importing folder as document, got %v", err)
 	}
 
@@ -195,6 +195,62 @@ func TestWorkspaceHierarchy(t *testing.T) {
 
 	if _, err := store.UpdateWorkspace(doc.ID, WorkspaceUpdate{SetParent: true, ParentID: doc.ID}, "tester"); !errors.Is(err, ErrWorkspaceParentInvalid) {
 		t.Fatalf("expected invalid parent error when assigning self, got %v", err)
+	}
+}
+
+func TestWorkspaceVersionConflicts(t *testing.T) {
+	store := newTestStore(t)
+
+	sheet, err := store.CreateWorkspace("版本测试", WorkspaceKindSheet, "", []WorkspaceColumn{{Title: "事项"}}, nil, "", "tester")
+	if err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	if sheet.Version != 1 {
+		t.Fatalf("expected initial version to be 1, got %d", sheet.Version)
+	}
+
+	update := WorkspaceUpdate{SetName: true, Name: "版本已更新", ExpectedVersion: sheet.Version}
+	updated, err := store.UpdateWorkspace(sheet.ID, update, "tester")
+	if err != nil {
+		t.Fatalf("update workspace with version: %v", err)
+	}
+	if updated.Version != sheet.Version+1 {
+		t.Fatalf("expected version to increment, got %d", updated.Version)
+	}
+
+	update.ExpectedVersion = sheet.Version
+	update.Name = "冲突"
+	if _, err := store.UpdateWorkspace(sheet.ID, update, "tester"); !errors.Is(err, ErrWorkspaceVersionConflict) {
+		t.Fatalf("expected version conflict, got %v", err)
+	}
+
+	headers := []string{"列1"}
+	rows := [][]string{{"值"}}
+	replaced, err := store.ReplaceWorkspaceData(sheet.ID, headers, rows, "tester", updated.Version)
+	if err != nil {
+		t.Fatalf("replace workspace data with version: %v", err)
+	}
+	if replaced.Version != updated.Version+1 {
+		t.Fatalf("expected import to bump version, got %d", replaced.Version)
+	}
+
+	if _, err := store.ReplaceWorkspaceData(sheet.ID, headers, rows, "tester", updated.Version); !errors.Is(err, ErrWorkspaceVersionConflict) {
+		t.Fatalf("expected import version conflict, got %v", err)
+	}
+
+	doc, err := store.CreateWorkspace("文档版本", WorkspaceKindDocument, "", nil, nil, "<p>初始</p>", "tester")
+	if err != nil {
+		t.Fatalf("create document workspace: %v", err)
+	}
+	changedDoc, err := store.ReplaceWorkspaceDocument(doc.ID, "<p>更新</p>", "tester", doc.Version)
+	if err != nil {
+		t.Fatalf("replace document with version: %v", err)
+	}
+	if changedDoc.Version != doc.Version+1 {
+		t.Fatalf("expected document version bump, got %d", changedDoc.Version)
+	}
+	if _, err := store.ReplaceWorkspaceDocument(doc.ID, "<p>再次更新</p>", "tester", doc.Version); !errors.Is(err, ErrWorkspaceVersionConflict) {
+		t.Fatalf("expected document version conflict, got %v", err)
 	}
 }
 

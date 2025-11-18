@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { clsx } from 'clsx';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
   ChartPieIcon,
   ChevronDoubleLeftIcon,
@@ -23,22 +24,31 @@ type SidebarProps = {
   onToggle: () => void;
 };
 
+const expandedWidth = 320;
+const collapsedWidth = 80;
+
 const Sidebar = ({ collapsed, onToggle }: SidebarProps) => (
-  <aside
-    className={clsx(
-      'hidden lg:flex flex-col border-r border-[rgba(20,20,20,0.08)] bg-[var(--bg-subtle)]/80 backdrop-blur-md transition-[width] duration-300 ease-out',
-      collapsed ? 'w-20' : 'w-72 xl:w-80'
-    )}
+  <motion.aside
+    initial={false}
+    animate={{ width: collapsed ? collapsedWidth : expandedWidth }}
+    transition={{ type: 'spring', stiffness: 280, damping: 32, mass: 0.9 }}
+    className="hidden lg:flex flex-col border-r border-[rgba(20,20,20,0.08)] bg-[var(--bg-subtle)]/80 backdrop-blur-md"
+    style={{ width: collapsed ? collapsedWidth : expandedWidth }}
   >
     <div className="px-6 py-8 border-b border-[rgba(20,20,20,0.08)]">
       <div className={clsx('flex items-center text-[var(--text)]', collapsed ? 'justify-center' : 'gap-3')}>
         <div className="rounded-2xl border border-[rgba(20,20,20,0.12)] bg-white p-2.5 shadow-sm">
           <SparklesIcon className="h-6 w-6 text-[var(--accent)]" />
         </div>
-        <div className={clsx('min-w-0 transition-opacity duration-200', collapsed && 'opacity-0')}>
+        <motion.div
+          className="min-w-0"
+          initial={false}
+          animate={{ opacity: collapsed ? 0 : 1, x: collapsed ? -8 : 0 }}
+          transition={{ duration: 0.24, ease: 'easeOut' }}
+        >
           <p className="text-xs uppercase tracking-[0.32em] text-[rgba(20,20,20,0.45)]">RoundOneLeger</p>
           <p className="mt-1 text-xl font-semibold tracking-tight text-[var(--text)]">RoundOneLeger</p>
-        </div>
+        </motion.div>
       </div>
       <button
         type="button"
@@ -56,7 +66,20 @@ const Sidebar = ({ collapsed, onToggle }: SidebarProps) => (
             collapsed && 'rotate-180'
           )}
         />
-        <span className={clsx('transition-opacity duration-200', collapsed && 'sr-only')}>折叠菜单</span>
+        <AnimatePresence initial={false}>
+          {!collapsed && (
+            <motion.span
+              key="toggle-label"
+              initial={{ opacity: 0, x: -6 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -6 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="whitespace-nowrap"
+            >
+              折叠菜单
+            </motion.span>
+          )}
+        </AnimatePresence>
       </button>
     </div>
     <nav className={clsx('flex-1 space-y-2 px-4 py-6', collapsed && 'px-2')}>
@@ -84,16 +107,40 @@ const Sidebar = ({ collapsed, onToggle }: SidebarProps) => (
                     : 'text-[rgba(20,20,20,0.55)] group-hover:text-black'
                 ].join(' ')}
               />
-              <span className={clsx('truncate transition-opacity duration-150', collapsed && 'sr-only')}>{label}</span>
+              <AnimatePresence initial={false}>
+                {!collapsed && (
+                  <motion.span
+                    key={label}
+                    initial={{ opacity: 0, x: -6 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -6 }}
+                    transition={{ duration: 0.18, ease: 'easeOut' }}
+                    className="truncate"
+                  >
+                    {label}
+                  </motion.span>
+                )}
+              </AnimatePresence>
             </>
           )}
         </NavLink>
       ))}
     </nav>
-    <div className={clsx('px-6 pb-8 text-xs leading-relaxed text-[rgba(20,20,20,0.55)]', collapsed && 'sr-only')}>
-      采用黑白线框与圆角面板，构建类似 ChatGPT 控制台的沉浸式空间感。
-    </div>
-  </aside>
+    <AnimatePresence initial={false}>
+      {!collapsed && (
+        <motion.div
+          key="sidebar-footnote"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 8 }}
+          transition={{ duration: 0.24, ease: 'easeOut' }}
+          className="px-6 pb-8 text-xs leading-relaxed text-[rgba(20,20,20,0.55)]"
+        >
+          采用黑白线框与圆角面板，构建类似 ChatGPT 控制台的沉浸式空间感。
+        </motion.div>
+      )}
+    </AnimatePresence>
+  </motion.aside>
 );
 
 export default Sidebar;

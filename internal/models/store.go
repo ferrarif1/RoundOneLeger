@@ -51,6 +51,8 @@ var (
 	ErrWorkspaceParentInvalid = errors.New("workspace_parent_invalid")
 	// ErrWorkspaceKindUnsupported indicates the requested operation is not allowed for the workspace kind.
 	ErrWorkspaceKindUnsupported = errors.New("workspace_kind_unsupported")
+	// ErrWorkspaceVersionConflict indicates that the workspace has been modified since the last fetch.
+	ErrWorkspaceVersionConflict = errors.New("workspace_version_conflict")
 	// ErrUserExists indicates the username is already registered.
 	ErrUserExists = errors.New("user_exists")
 	// ErrUserNotFound indicates the requested user cannot be located.
@@ -1384,16 +1386,17 @@ func cloneSnapshot(snapshot storeSnapshot) map[LedgerType][]LedgerEntry {
 
 // WorkspaceUpdate contains optional updates applied to a workspace.
 type WorkspaceUpdate struct {
-	Name        string
-	Document    string
-	Columns     []WorkspaceColumn
-	Rows        []WorkspaceRow
-	SetName     bool
-	SetDocument bool
-	SetColumns  bool
-	SetRows     bool
-	ParentID    string
-	SetParent   bool
+	Name            string
+	Document        string
+	Columns         []WorkspaceColumn
+	Rows            []WorkspaceRow
+	ExpectedVersion int
+	SetName         bool
+	SetDocument     bool
+	SetColumns      bool
+	SetRows         bool
+	ParentID        string
+	SetParent       bool
 }
 
 // ListWorkspaces returns the collaborative workspaces in creation order.
@@ -1436,6 +1439,7 @@ func (s *LedgerStore) CreateWorkspace(name string, kind WorkspaceKind, parentID 
 		Name:      sanitizeWorkspaceName(name),
 		Kind:      normalizedKind,
 		ParentID:  parent,
+		Version:   1,
 		Document:  strings.TrimSpace(document),
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -1476,6 +1480,9 @@ func (s *LedgerStore) UpdateWorkspace(id string, update WorkspaceUpdate, actor s
 	if !ok {
 		return nil, ErrWorkspaceNotFound
 	}
+	if update.ExpectedVersion > 0 && workspace.Version != update.ExpectedVersion {
+		return nil, ErrWorkspaceVersionConflict
+	}
 
 	now := time.Now().UTC()
 	workspace.Kind = NormalizeWorkspaceKind(workspace.Kind)
@@ -1515,6 +1522,7 @@ func (s *LedgerStore) UpdateWorkspace(id string, update WorkspaceUpdate, actor s
 		}
 	}
 
+	workspace.Version++
 	workspace.UpdatedAt = now
 	s.workspaces[workspace.ID] = workspace
 	s.appendAuditLocked(actor, "workspace_update", workspace.ID)
@@ -1558,7 +1566,7 @@ func (s *LedgerStore) DeleteWorkspace(id string, actor string) error {
 }
 
 // ReplaceWorkspaceData overwrites the table content with provided headers and rows.
-func (s *LedgerStore) ReplaceWorkspaceData(id string, headers []string, records [][]string, actor string) (*Workspace, error) {
+func (s *LedgerStore) ReplaceWorkspaceData(id string, headers []string, records [][]string, actor string, expectedVersion int) (*Workspace, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -1568,6 +1576,9 @@ func (s *LedgerStore) ReplaceWorkspaceData(id string, headers []string, records 
 	}
 	if !WorkspaceKindSupportsTable(workspace.Kind) {
 		return nil, ErrWorkspaceKindUnsupported
+	}
+	if expectedVersion > 0 && workspace.Version != expectedVersion {
+		return nil, ErrWorkspaceVersionConflict
 	}
 
 	now := time.Now().UTC()
@@ -1597,6 +1608,7 @@ func (s *LedgerStore) ReplaceWorkspaceData(id string, headers []string, records 
 
 	workspace.Columns = columns
 	workspace.Rows = rows
+	workspace.Version++
 	workspace.UpdatedAt = now
 
 	s.workspaces[workspace.ID] = workspace
@@ -1605,7 +1617,7 @@ func (s *LedgerStore) ReplaceWorkspaceData(id string, headers []string, records 
 }
 
 // ReplaceWorkspaceDocument overwrites a document workspace's content.
-func (s *LedgerStore) ReplaceWorkspaceDocument(id string, document string, actor string) (*Workspace, error) {
+func (s *LedgerStore) ReplaceWorkspaceDocument(id string, document string, actor string, expectedVersion int) (*Workspace, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -1616,8 +1628,12 @@ func (s *LedgerStore) ReplaceWorkspaceDocument(id string, document string, actor
 	if !WorkspaceKindSupportsDocument(workspace.Kind) {
 		return nil, ErrWorkspaceKindUnsupported
 	}
+	if expectedVersion > 0 && workspace.Version != expectedVersion {
+		return nil, ErrWorkspaceVersionConflict
+	}
 
 	workspace.Document = strings.TrimSpace(document)
+	workspace.Version++
 	workspace.UpdatedAt = time.Now().UTC()
 	s.workspaces[workspace.ID] = workspace
 	s.appendAuditLocked(actor, "workspace_document_import", workspace.ID)

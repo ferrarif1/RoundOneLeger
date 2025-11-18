@@ -23,11 +23,12 @@ const App = () => {
   const renderProtectedPage = (key: string, className: string, content: JSX.Element) => (
     <ProtectedRoute>
       <motion.div
+        layout
         key={key}
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -16 }}
-        transition={{ duration: 0.3, ease: 'easeOut' }}
+        transition={{ type: 'spring', stiffness: 220, damping: 28, mass: 0.9 }}
         className={className}
       >
         {content}

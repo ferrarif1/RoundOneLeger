@@ -72,12 +72,12 @@ const (
 
 // WorkspaceRow stores user-entered cell values keyed by column ID.
 type WorkspaceRow struct {
-	ID        string            `json:"id"`
-	Cells     map[string]string `json:"cells"`
-    Styles    map[string]string `json:"styles,omitempty"`
-    Highlighted bool            `json:"highlighted,omitempty"`
-	CreatedAt time.Time         `json:"created_at"`
-	UpdatedAt time.Time         `json:"updated_at"`
+	ID          string            `json:"id"`
+	Cells       map[string]string `json:"cells"`
+	Styles      map[string]string `json:"styles,omitempty"`
+	Highlighted bool              `json:"highlighted,omitempty"`
+	CreatedAt   time.Time         `json:"created_at"`
+	UpdatedAt   time.Time         `json:"updated_at"`
 }
 
 // Workspace represents a flexible workspace that can behave as a sheet, document, or folder.
@@ -86,6 +86,7 @@ type Workspace struct {
 	Name      string            `json:"name"`
 	Kind      WorkspaceKind     `json:"kind"`
 	ParentID  string            `json:"parent_id,omitempty"`
+	Version   int               `json:"version"`
 	Columns   []WorkspaceColumn `json:"columns"`
 	Rows      []WorkspaceRow    `json:"rows"`
 	Document  string            `json:"document,omitempty"`
@@ -99,6 +100,9 @@ func (w *Workspace) Clone() *Workspace {
 		return nil
 	}
 	clone := *w
+	if clone.Version <= 0 {
+		clone.Version = 1
+	}
 	clone.Kind = NormalizeWorkspaceKind(w.Kind)
 	clone.ParentID = strings.TrimSpace(w.ParentID)
 	if len(w.Columns) > 0 {
@@ -114,12 +118,12 @@ func (w *Workspace) Clone() *Workspace {
 					clonedRow.Cells[key] = value
 				}
 			}
-            if row.Styles != nil {
-                clonedRow.Styles = make(map[string]string, len(row.Styles))
-                for key, value := range row.Styles {
-                    clonedRow.Styles[key] = value
-                }
-            }
+			if row.Styles != nil {
+				clonedRow.Styles = make(map[string]string, len(row.Styles))
+				for key, value := range row.Styles {
+					clonedRow.Styles[key] = value
+				}
+			}
 			clone.Rows[i] = clonedRow
 		}
 	}
