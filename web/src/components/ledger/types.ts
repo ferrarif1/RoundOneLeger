@@ -29,6 +29,7 @@ export type Workspace = {
   name: string;
   kind: WorkspaceKind;
   parentId?: string | null;
+  version: number;
   columns: WorkspaceColumn[];
   rows: WorkspaceRow[];
   document?: string;

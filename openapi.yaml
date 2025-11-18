@@ -113,6 +113,8 @@ components:
         parentId:
           type: string
           nullable: true
+        version:
+          type: integer
         columns:
           type: array
           items:
@@ -209,6 +211,8 @@ components:
         parentId:
           type: string
           nullable: true
+        version:
+          type: integer
     WorkspaceTextImportRequest:
       type: object
       properties:
@@ -218,6 +222,8 @@ components:
           type: string
         hasHeader:
           type: boolean
+        version:
+          type: integer
     AllowlistEntry:
       type: object
       properties:
@@ -737,6 +743,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WorkspaceEnvelope'
+        '409':
+          description: Version conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Workspace not found
           content:
@@ -790,6 +802,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WorkspaceEnvelope'
+        '409':
+          description: Version conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Workspace not found
           content:
@@ -820,6 +838,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WorkspaceEnvelope'
+        '409':
+          description: Version conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Workspace not found
           content:
@@ -854,6 +878,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WorkspaceEnvelope'
+        '409':
+          description: Version conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Workspace not found
           content:

@@ -318,6 +318,7 @@ type workspaceResponse struct {
 	Name      string                   `json:"name"`
 	Kind      string                   `json:"kind"`
 	ParentID  string                   `json:"parentId,omitempty"`
+	Version   int                      `json:"version"`
 	Columns   []workspaceColumnPayload `json:"columns"`
 	Rows      []workspaceRowPayload    `json:"rows"`
 	Document  string                   `json:"document,omitempty"`
@@ -364,12 +365,14 @@ type workspaceUpdateRequest struct {
 	Columns  *[]workspaceColumnPayload `json:"columns,omitempty"`
 	Rows     *[]workspaceRowPayload    `json:"rows,omitempty"`
 	ParentID *string                   `json:"parentId,omitempty"`
+	Version  *int                      `json:"version,omitempty"`
 }
 
 type workspaceTextImportRequest struct {
 	Text      string `json:"text"`
 	Delimiter string `json:"delimiter"`
 	HasHeader *bool  `json:"hasHeader"`
+	Version   *int   `json:"version,omitempty"`
 }
 
 func (s *Server) handleCreateLedger(c *gin.Context) {
@@ -705,6 +708,9 @@ func (s *Server) handleUpdateWorkspace(c *gin.Context) {
 		return
 	}
 	update := models.WorkspaceUpdate{}
+	if req.Version != nil {
+		update.ExpectedVersion = *req.Version
+	}
 	if req.Name != nil {
 		update.SetName = true
 		update.Name = *req.Name
@@ -733,6 +739,8 @@ func (s *Server) handleUpdateWorkspace(c *gin.Context) {
 			status = http.StatusNotFound
 		} else if errors.Is(err, models.ErrWorkspaceParentInvalid) || errors.Is(err, models.ErrWorkspaceKindUnsupported) {
 			status = http.StatusBadRequest
+		} else if errors.Is(err, models.ErrWorkspaceVersionConflict) {
+			status = http.StatusConflict
 		}
 		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
 		return
@@ -786,13 +794,20 @@ func (s *Server) handleImportWorkspaceExcel(c *gin.Context) {
 		}
 	}
 	actor := currentSession(c, s.Sessions)
-	workspace, err := s.Store.ReplaceWorkspaceData(c.Param("id"), headers, rows, actor)
+	expectedVersion := extractWorkspaceVersion(
+		c.GetHeader("X-Workspace-Version"),
+		c.Request.FormValue("version"),
+		c.Query("version"),
+	)
+	workspace, err := s.Store.ReplaceWorkspaceData(c.Param("id"), headers, rows, actor, expectedVersion)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, models.ErrWorkspaceNotFound) {
 			status = http.StatusNotFound
 		} else if errors.Is(err, models.ErrWorkspaceKindUnsupported) {
 			status = http.StatusBadRequest
+		} else if errors.Is(err, models.ErrWorkspaceVersionConflict) {
+			status = http.StatusConflict
 		}
 		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
 		return
@@ -818,13 +833,19 @@ func (s *Server) handleImportWorkspaceText(c *gin.Context) {
 	}
 	headers, records := parseDelimitedText(text, delimiter, hasHeader)
 	actor := currentSession(c, s.Sessions)
-	workspace, err := s.Store.ReplaceWorkspaceData(c.Param("id"), headers, records, actor)
+	expectedVersion := 0
+	if req.Version != nil {
+		expectedVersion = *req.Version
+	}
+	workspace, err := s.Store.ReplaceWorkspaceData(c.Param("id"), headers, records, actor, expectedVersion)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, models.ErrWorkspaceNotFound) {
 			status = http.StatusNotFound
 		} else if errors.Is(err, models.ErrWorkspaceKindUnsupported) {
 			status = http.StatusBadRequest
+		} else if errors.Is(err, models.ErrWorkspaceVersionConflict) {
+			status = http.StatusConflict
 		}
 		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
 		return
@@ -851,13 +872,20 @@ func (s *Server) handleImportWorkspaceDocx(c *gin.Context) {
 		return
 	}
 	actor := currentSession(c, s.Sessions)
-	workspace, err := s.Store.ReplaceWorkspaceDocument(c.Param("id"), htmlContent, actor)
+	expectedVersion := extractWorkspaceVersion(
+		c.GetHeader("X-Workspace-Version"),
+		c.Request.FormValue("version"),
+		c.Query("version"),
+	)
+	workspace, err := s.Store.ReplaceWorkspaceDocument(c.Param("id"), htmlContent, actor, expectedVersion)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, models.ErrWorkspaceNotFound) {
 			status = http.StatusNotFound
 		} else if errors.Is(err, models.ErrWorkspaceKindUnsupported) {
 			status = http.StatusBadRequest
+		} else if errors.Is(err, models.ErrWorkspaceVersionConflict) {
+			status = http.StatusConflict
 		}
 		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
 		return
@@ -1086,6 +1114,7 @@ func workspaceToResponse(workspace *models.Workspace) workspaceResponse {
 		Name:      workspace.Name,
 		Kind:      string(models.NormalizeWorkspaceKind(workspace.Kind)),
 		ParentID:  strings.TrimSpace(workspace.ParentID),
+		Version:   workspace.Version,
 		Columns:   columns,
 		Rows:      rows,
 		Document:  workspace.Document,
@@ -1177,6 +1206,19 @@ func payloadRowsToModel(rows []workspaceRowPayload) []models.WorkspaceRow {
 		out = append(out, models.WorkspaceRow{ID: strings.TrimSpace(row.ID), Cells: cells, Styles: styles, Highlighted: row.Highlighted, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt})
 	}
 	return out
+}
+
+func extractWorkspaceVersion(values ...string) int {
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if parsed, err := strconv.Atoi(trimmed); err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return 0
 }
 
 func normaliseDelimiter(value string) string {
