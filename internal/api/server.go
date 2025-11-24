@@ -85,6 +85,8 @@ func (s *Server) RegisterRoutes(router *gin.Engine) {
 		secured.POST("/history/redo", s.handleRedo)
 		secured.GET("/history", s.handleHistoryStatus)
 
+		secured.GET("/overview", s.handleOverview)
+
 		secured.GET("/audit-logs", s.handleAuditLogs)
 		secured.GET("/audit-logs/verify", s.handleAuditLogsVerify)
 		secured.GET("/export/all", s.handleExportAll)
@@ -288,6 +290,11 @@ func (s *Server) handleListLedger(c *gin.Context) {
 	}
 	entries := s.Store.ListEntries(typ)
 	c.JSON(http.StatusOK, gin.H{"items": entries})
+}
+
+func (s *Server) handleOverview(c *gin.Context) {
+	stats := s.Store.OverviewStats()
+	c.JSON(http.StatusOK, gin.H{"stats": stats})
 }
 
 type ledgerRequest struct {

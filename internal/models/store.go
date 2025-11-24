@@ -129,6 +129,42 @@ type Snapshot struct {
 	Approvals      []*IdentityApproval          `json:"approvals,omitempty"`
 }
 
+// OverviewStats summarizes ledger contents for the overview page.
+type OverviewStats struct {
+	Ledgers       []LedgerOverview  `json:"ledgers"`
+	TagTop        []TagCount        `json:"tag_top"`
+	Relationships RelationshipStats `json:"relationships"`
+	Recent        []RecentEntry     `json:"recent"`
+}
+
+// LedgerOverview aggregates basic counts and freshness for a ledger type.
+type LedgerOverview struct {
+	Type        LedgerType `json:"type"`
+	Count       int        `json:"count"`
+	LastUpdated time.Time  `json:"last_updated,omitempty"`
+}
+
+// TagCount captures how frequently a tag appears.
+type TagCount struct {
+	Tag   string `json:"tag"`
+	Count int    `json:"count"`
+}
+
+// RelationshipStats reports link counts between ledger entries.
+type RelationshipStats struct {
+	Total    int                `json:"total"`
+	ByLedger map[LedgerType]int `json:"by_ledger"`
+}
+
+// RecentEntry highlights the latest updates across all ledgers.
+type RecentEntry struct {
+	ID        string     `json:"id"`
+	Type      LedgerType `json:"type"`
+	Name      string     `json:"name"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	Tags      []string   `json:"tags,omitempty"`
+}
+
 // ExportSnapshot returns a deep copy of the current store suitable for persistence.
 func (s *LedgerStore) ExportSnapshot() *Snapshot {
 	s.mu.RLock()
@@ -1177,6 +1213,81 @@ func (s *LedgerStore) ListEntries(typ LedgerType) []LedgerEntry {
 	}
 	sort.Slice(cloned, func(i, j int) bool { return cloned[i].Order < cloned[j].Order })
 	return cloned
+}
+
+// OverviewStats aggregates counts, tags, links, and recents for dashboards.
+func (s *LedgerStore) OverviewStats() OverviewStats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	stats := OverviewStats{
+		Relationships: RelationshipStats{
+			ByLedger: make(map[LedgerType]int),
+		},
+	}
+
+	tagCounts := make(map[string]int)
+	recents := make([]RecentEntry, 0, 16)
+
+	for _, typ := range AllLedgerTypes {
+		entries := s.entries[typ]
+		overview := LedgerOverview{Type: typ, Count: len(entries)}
+		var newest time.Time
+
+		for _, entry := range entries {
+			if entry.UpdatedAt.After(newest) {
+				newest = entry.UpdatedAt
+			}
+			for _, tag := range entry.Tags {
+				normalized := strings.ToLower(strings.TrimSpace(tag))
+				if normalized == "" {
+					continue
+				}
+				tagCounts[normalized]++
+			}
+			for linkType, ids := range entry.Links {
+				stats.Relationships.ByLedger[linkType] += len(ids)
+				stats.Relationships.Total += len(ids)
+			}
+			recents = append(recents, RecentEntry{
+				ID:        entry.ID,
+				Type:      typ,
+				Name:      entry.Name,
+				UpdatedAt: entry.UpdatedAt,
+				Tags:      append([]string{}, entry.Tags...),
+			})
+		}
+
+		if !newest.IsZero() {
+			overview.LastUpdated = newest
+		}
+		stats.Ledgers = append(stats.Ledgers, overview)
+	}
+
+	tagList := make([]TagCount, 0, len(tagCounts))
+	for tag, count := range tagCounts {
+		tagList = append(tagList, TagCount{Tag: tag, Count: count})
+	}
+	sort.Slice(tagList, func(i, j int) bool {
+		if tagList[i].Count == tagList[j].Count {
+			return tagList[i].Tag < tagList[j].Tag
+		}
+		return tagList[i].Count > tagList[j].Count
+	})
+	if len(tagList) > 12 {
+		tagList = tagList[:12]
+	}
+	stats.TagTop = tagList
+
+	sort.Slice(recents, func(i, j int) bool {
+		return recents[i].UpdatedAt.After(recents[j].UpdatedAt)
+	})
+	if len(recents) > 10 {
+		recents = recents[:10]
+	}
+	stats.Recent = recents
+
+	return stats
 }
 
 // GetEntry retrieves an entry by ID.

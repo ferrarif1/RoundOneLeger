@@ -31,6 +31,7 @@ func main() {
 
 	database, err := db.ConnectFromEnv(ctx)
 	if err != nil {
+		
 		log.Printf("database connection warning: %v", err)
 	}
 
