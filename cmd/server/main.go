@@ -50,10 +50,35 @@ func main() {
 		dataDir = os.Getenv("LEDGER_DATA_DIR")
 	}
 	useDB := database != nil && database.SQL != nil
+	retention := *flagRetention
+	if retention <= 0 {
+		if v := os.Getenv("LEDGER_SNAPSHOT_RETENTION"); v != "" {
+			var parsed int
+			if _, err := fmt.Sscanf(v, "%d", &parsed); err == nil {
+				retention = parsed
+			}
+		}
+	}
+	if retention <= 0 {
+		retention = 10
+	}
 
 	if useDB {
-		if err := store.LoadFromDatabase(database.SQL); err != nil {
+		shouldPersist := false
+		loaded, err := store.LoadFromDatabase(database.SQL)
+		if err != nil {
 			log.Printf("load snapshot from database error: %v", err)
+			shouldPersist = true
+		}
+		if !loaded {
+			shouldPersist = true
+		}
+		if shouldPersist {
+			if err := store.SaveToDatabaseWithRetention(database.SQL, retention); err != nil {
+				log.Printf("seed snapshot to database error: %v", err)
+			} else {
+				log.Printf("seeded default snapshot (with admin) to database")
+			}
 		}
 	} else if dataDir != "" {
 		if err := store.LoadFrom(dataDir); err != nil {
@@ -106,20 +131,6 @@ func main() {
 	}
 
 	sessions := auth.NewManager(12 * time.Hour)
-
-	retention := *flagRetention
-	if retention <= 0 {
-		if v := os.Getenv("LEDGER_SNAPSHOT_RETENTION"); v != "" {
-			// parse integer from env
-			var parsed int
-			if _, err := fmt.Sscanf(v, "%d", &parsed); err == nil {
-				retention = parsed
-			}
-		}
-	}
-	if retention <= 0 {
-		retention = 10
-	}
 
 	router := api.NewRouter(api.Config{Database: database, Store: store, Sessions: sessions, DataDir: dataDir, Retention: retention})
 

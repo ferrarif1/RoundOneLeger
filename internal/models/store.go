@@ -615,6 +615,10 @@ func (s *LedgerStore) ImportSnapshot(snapshot *Snapshot) error {
 
 	s.loginChallenges = make(map[string]*LoginChallenge)
 
+	if err := s.ensureDefaultAdminLocked(); err != nil {
+		return err
+	}
+
 	s.history.Reset(s.snapshotLocked())
 	return nil
 }
@@ -714,29 +718,29 @@ func (s *LedgerStore) SaveToWithRetention(dir string, retention int) error {
 	return nil
 }
 
-// LoadFromDatabase restores state from the latest snapshot row.
-func (s *LedgerStore) LoadFromDatabase(db *sql.DB) error {
+// LoadFromDatabase restores state from the latest snapshot row and reports whether one was found.
+func (s *LedgerStore) LoadFromDatabase(db *sql.DB) (bool, error) {
 	if db == nil {
-		return errors.New("database_not_configured")
+		return false, errors.New("database_not_configured")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := ensureSnapshotTable(ctx, db); err != nil {
-		return err
+		return false, err
 	}
 	var payload []byte
 	err := db.QueryRowContext(ctx, `SELECT payload FROM snapshots ORDER BY created_at DESC, id DESC LIMIT 1`).Scan(&payload)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	var snap Snapshot
 	if err := json.Unmarshal(payload, &snap); err != nil {
-		return err
+		return false, err
 	}
-	return s.ImportSnapshot(&snap)
+	return true, s.ImportSnapshot(&snap)
 }
 
 // SaveToDatabaseWithRetention writes a snapshot row and prunes older ones.
@@ -890,16 +894,26 @@ func NewLedgerStore() *LedgerStore {
 func (s *LedgerStore) ensureDefaultAdmin() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.ensureDefaultAdminLocked()
+}
+
+// ensureDefaultAdminLocked seeds the default admin while assuming the mutex is already held.
+func (s *LedgerStore) ensureDefaultAdminLocked() error {
 	normalized := normalizeUsername(defaultAdminUsername)
 	if normalized == "" {
 		return ErrUsernameInvalid
 	}
-	if _, exists := s.userByName[normalized]; exists {
-		return nil
-	}
 	hash, err := resolveDefaultAdminPasswordHash()
 	if err != nil {
 		return err
+	}
+	if existing, exists := s.userByName[normalized]; exists {
+		if existing.PasswordHash != hash {
+			existing.PasswordHash = hash
+			existing.UpdatedAt = time.Now().UTC()
+			s.appendAuditLocked("system", "user_seed_reset", existing.ID)
+		}
+		return nil
 	}
 	now := time.Now().UTC()
 	user := &User{

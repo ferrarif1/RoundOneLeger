@@ -54,11 +54,11 @@ const ToolbarButton = ({
 export const DocumentEditor = ({ value, editable, onChange, onStatus, onSave, dirty }: DocumentEditorProps) => {
   const documentRef = useRef<HTMLDivElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
-  const audioInputRef = useRef<HTMLInputElement | null>(null);
-  const videoInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedBlock, setSelectedBlock] = useState<DocumentBlockValue>('paragraph');
   const [displayMode, setDisplayMode] = useState<'default' | 'wide' | 'fullscreen'>('default');
   const autosaveRef = useRef<number | null>(null);
+  const colorInputRef = useRef<HTMLInputElement | null>(null);
+  const [fontColor, setFontColor] = useState('#000000');
 
   const isWide = displayMode === 'wide';
   const isFullscreen = displayMode === 'fullscreen';
@@ -172,7 +172,7 @@ export const DocumentEditor = ({ value, editable, onChange, onStatus, onSave, di
   }, [insertHtml]);
 
   const handleMediaInsert = useCallback(
-    (event: ChangeEvent<HTMLInputElement>, type: 'image' | 'audio' | 'video') => {
+    (event: ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
       event.target.value = '';
       if (!file || !editable) return;
@@ -180,15 +180,9 @@ export const DocumentEditor = ({ value, editable, onChange, onStatus, onSave, di
       reader.onload = () => {
         const result = reader.result;
         if (typeof result === 'string') {
-          if (type === 'image') {
-            insertHtml(
-              `<figure class="doc-figure"><img src="${result}" alt="插入图片" /><figcaption>图片说明</figcaption></figure>`
-            );
-            return;
-          }
-          const tag = type === 'audio' ? 'audio' : 'video';
-          const extra = type === 'video' ? ' class="doc-video"' : '';
-          insertHtml(`<${tag}${extra} controls src="${result}"></${tag}>`);
+          insertHtml(
+            `<figure class="doc-figure"><img src="${result}" alt="插入图片" /><figcaption>图片说明</figcaption></figure>`
+          );
         }
       };
       reader.readAsDataURL(file);
@@ -271,11 +265,29 @@ export const DocumentEditor = ({ value, editable, onChange, onStatus, onSave, di
       <ToolbarButton label="Call" tooltip="提示块" onClick={insertCallout} disabled={!editable} />
       <ToolbarButton label="HR" tooltip="分割线" onClick={insertDivider} disabled={!editable} />
       <ToolbarButton label="IMG" tooltip="插入图片" onClick={() => imageInputRef.current?.click()} disabled={!editable} />
-      <ToolbarButton label="AUD" tooltip="插入音频" onClick={() => audioInputRef.current?.click()} disabled={!editable} />
-      <ToolbarButton label="VID" tooltip="插入视频" onClick={() => videoInputRef.current?.click()} disabled={!editable} />
       <ToolbarButton label="Find" tooltip="搜索并高亮" onClick={handleSearchHighlight} disabled={!editable} />
       <ToolbarButton label="CLR" tooltip="清除格式" onClick={clearFormatting} disabled={!editable} />
-      <input type="color" defaultValue="#000000" onChange={(e) => execCommand('foreColor', e.target.value)} disabled={!editable} title="字体颜色" />
+      <button
+        type="button"
+        onClick={() => colorInputRef.current?.click()}
+        disabled={!editable}
+        title="字体颜色"
+        aria-label="字体颜色"
+        className="h-8 w-8 rounded-full border border-[var(--muted)]/30 shadow-[var(--shadow-sm)] disabled:cursor-not-allowed"
+        style={{ backgroundColor: fontColor }}
+      />
+      <input
+        ref={colorInputRef}
+        type="color"
+        value={fontColor}
+        onChange={(e) => {
+          setFontColor(e.target.value);
+          execCommand('foreColor', e.target.value);
+        }}
+        disabled={!editable}
+        className="hidden"
+        title="字体颜色"
+      />
       <select
         defaultValue="3"
         onChange={(e) => execCommand('fontSize', e.target.value)}
@@ -376,18 +388,10 @@ export const DocumentEditor = ({ value, editable, onChange, onStatus, onSave, di
         onChange={(event) => handleMediaInsert(event, 'image')}
       />
       <input
-        ref={audioInputRef}
         type="file"
-        accept="audio/*"
+        accept="image/*"
         className="hidden"
-        onChange={(event) => handleMediaInsert(event, 'audio')}
-      />
-      <input
-        ref={videoInputRef}
-        type="file"
-        accept="video/*"
-        className="hidden"
-        onChange={(event) => handleMediaInsert(event, 'video')}
+        onChange={(event) => handleMediaInsert(event)}
       />
       {isFullscreen &&
         createPortal(
