@@ -31,7 +31,7 @@ func main() {
 
 	database, err := db.ConnectFromEnv(ctx)
 	if err != nil {
-		
+
 		log.Printf("database connection warning: %v", err)
 	}
 
@@ -49,22 +49,31 @@ func main() {
 	if dataDir == "" {
 		dataDir = os.Getenv("LEDGER_DATA_DIR")
 	}
-	if dataDir != "" {
+	useDB := database != nil && database.SQL != nil
+
+	if useDB {
+		if err := store.LoadFromDatabase(database.SQL); err != nil {
+			log.Printf("load snapshot from database error: %v", err)
+		}
+	} else if dataDir != "" {
 		if err := store.LoadFrom(dataDir); err != nil {
 			log.Printf("load snapshot error: %v", err)
 		}
-		// autosave ticker
-		autosaveSecs := *flagAutosaveSecs
-		if autosaveSecs <= 0 {
-			if v := os.Getenv("LEDGER_AUTOSAVE_SECS"); v != "" {
-				if n, err := time.ParseDuration(v + "s"); err == nil {
-					autosaveSecs = int(n.Seconds())
-				}
+	}
+
+	// autosave ticker (database preferred, otherwise filesystem if configured)
+	autosaveSecs := *flagAutosaveSecs
+	if autosaveSecs <= 0 {
+		if v := os.Getenv("LEDGER_AUTOSAVE_SECS"); v != "" {
+			if n, err := time.ParseDuration(v + "s"); err == nil {
+				autosaveSecs = int(n.Seconds())
 			}
 		}
-		if autosaveSecs <= 0 {
-			autosaveSecs = 10
-		}
+	}
+	if autosaveSecs <= 0 {
+		autosaveSecs = 10
+	}
+	if useDB || dataDir != "" {
 		autosave := time.NewTicker(time.Duration(autosaveSecs) * time.Second)
 		defer autosave.Stop()
 		go func() {
@@ -82,6 +91,12 @@ func main() {
 				}
 				if retention <= 0 {
 					retention = 10
+				}
+				if useDB {
+					if err := store.SaveToDatabaseWithRetention(database.SQL, retention); err != nil {
+						log.Printf("autosave db error: %v", err)
+					}
+					continue
 				}
 				if err := store.SaveToWithRetention(dataDir, retention); err != nil {
 					log.Printf("autosave error: %v", err)
@@ -130,7 +145,11 @@ func main() {
 		log.Printf("server shutdown error: %v", err)
 	}
 
-	if dataDir != "" {
+	if useDB {
+		if err := store.SaveToDatabaseWithRetention(database.SQL, retention); err != nil {
+			log.Printf("final db save error: %v", err)
+		}
+	} else if dataDir != "" {
 		if err := store.SaveToWithRetention(dataDir, retention); err != nil {
 			log.Printf("final save error: %v", err)
 		}

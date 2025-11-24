@@ -2,10 +2,12 @@ package models
 
 import (
 	"bufio"
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -712,6 +714,78 @@ func (s *LedgerStore) SaveToWithRetention(dir string, retention int) error {
 	return nil
 }
 
+// LoadFromDatabase restores state from the latest snapshot row.
+func (s *LedgerStore) LoadFromDatabase(db *sql.DB) error {
+	if db == nil {
+		return errors.New("database_not_configured")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := ensureSnapshotTable(ctx, db); err != nil {
+		return err
+	}
+	var payload []byte
+	err := db.QueryRowContext(ctx, `SELECT payload FROM snapshots ORDER BY created_at DESC, id DESC LIMIT 1`).Scan(&payload)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var snap Snapshot
+	if err := json.Unmarshal(payload, &snap); err != nil {
+		return err
+	}
+	return s.ImportSnapshot(&snap)
+}
+
+// SaveToDatabaseWithRetention writes a snapshot row and prunes older ones.
+func (s *LedgerStore) SaveToDatabaseWithRetention(db *sql.DB, retention int) error {
+	if db == nil {
+		return errors.New("database_not_configured")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := ensureSnapshotTable(ctx, db); err != nil {
+		return err
+	}
+	snapshot := s.ExportSnapshot()
+	payload, err := json.Marshal(snapshot)
+	if err != nil {
+		return err
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO snapshots (payload) VALUES ($1)`, payload); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if retention > 0 {
+		if _, err := tx.ExecContext(ctx, `
+			DELETE FROM snapshots
+			WHERE id NOT IN (
+				SELECT id FROM snapshots ORDER BY created_at DESC, id DESC LIMIT $1
+			)`, retention); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func ensureSnapshotTable(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS snapshots (
+			id BIGSERIAL PRIMARY KEY,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			payload JSONB NOT NULL
+		)
+	`)
+	return err
+}
+
 // WriteBinary persists arbitrary data inside an assets directory under dir.
 func (s *LedgerStore) WriteBinary(dir, name string, data []byte) (string, error) {
 	if strings.TrimSpace(dir) == "" {
@@ -841,6 +915,15 @@ func (s *LedgerStore) ensureDefaultAdmin() error {
 	s.userOrder = append(s.userOrder, user.ID)
 	s.appendAuditLocked("system", "user_seed", user.ID)
 	return nil
+}
+
+// DefaultAdminActive reports whether the seeded default admin still exists.
+func (s *LedgerStore) DefaultAdminActive() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	normalized := normalizeUsername(defaultAdminUsername)
+	_, exists := s.userByName[normalized]
+	return exists
 }
 
 // ListUsers returns all registered users in creation order.

@@ -1,4 +1,4 @@
-ARG GO_BASE_IMAGE=mirror.gcr.io/library/golang:1.22-alpine
+ARG GO_BASE_IMAGE=mirror.gcr.io/library/golang:1.23-alpine
 ARG RUNTIME_BASE_IMAGE=mirror.gcr.io/library/alpine:3.20
 
 FROM ${GO_BASE_IMAGE} AS builder

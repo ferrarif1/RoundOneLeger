@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -39,6 +40,7 @@ type Server struct {
 // RegisterRoutes attaches handlers to the gin engine.
 func (s *Server) RegisterRoutes(router *gin.Engine) {
 	router.GET("/health", s.handleHealth)
+	router.GET("/assets/:name", s.handleAsset)
 
 	authGroup := router.Group("/auth")
 	{
@@ -68,6 +70,7 @@ func (s *Server) RegisterRoutes(router *gin.Engine) {
 		secured.POST("/workspaces/:id/import/excel", s.handleImportWorkspaceExcel)
 		secured.POST("/workspaces/:id/import/text", s.handleImportWorkspaceText)
 		secured.POST("/workspaces/:id/import/docx", s.handleImportWorkspaceDocx)
+		secured.POST("/workspaces/:id/import/pdf", s.handleImportWorkspacePDF)
 		secured.GET("/workspaces/:id/export", s.handleExportWorkspace)
 		secured.GET("/workspaces/:id/export/docx", s.handleExportWorkspaceDocx)
 		secured.POST("/workspaces/:id/export/selected", s.handleExportWorkspaceSelected)
@@ -105,6 +108,24 @@ func (s *Server) handleHealth(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, payload)
+}
+
+func (s *Server) handleAsset(c *gin.Context) {
+	if strings.TrimSpace(s.DataDir) == "" {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	name := filepath.Base(c.Param("name"))
+	if name == "" || name == "." || name == ".." {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	target := filepath.Join(s.DataDir, "assets", name)
+	if _, err := os.Stat(target); err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	http.ServeFile(c.Writer, c.Request, target)
 }
 
 // SDID nonce and base64 helpers removed as we now use username/password only
@@ -145,11 +166,13 @@ func (s *Server) handlePasswordLogin(c *gin.Context) {
 	}
 	s.Store.RecordLogin(user.Username)
 	c.JSON(http.StatusOK, gin.H{
-		"token":     session.Token,
-		"username":  user.Username,
-		"admin":     user.Admin,
-		"issuedAt":  session.IssuedAt,
-		"expiresAt": session.ExpiresAt,
+		"token":                session.Token,
+		"username":             user.Username,
+		"admin":                user.Admin,
+		"issuedAt":             session.IssuedAt,
+		"expiresAt":            session.ExpiresAt,
+		"defaultAdminActive":   s.Store.DefaultAdminActive(),
+		"defaultAdminUsername": "hzdsz_admin",
 	})
 }
 
@@ -900,6 +923,51 @@ func (s *Server) handleImportWorkspaceDocx(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"workspace": workspaceToResponse(workspace)})
 }
 
+func (s *Server) handleImportWorkspacePDF(c *gin.Context) {
+	if strings.TrimSpace(s.DataDir) == "" {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "data_dir_not_configured"})
+		return
+	}
+	uploaded, header, err := c.Request.FormFile("file")
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "missing_file"})
+		return
+	}
+	defer uploaded.Close()
+
+	data, err := io.ReadAll(uploaded)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "file_read_failed"})
+		return
+	}
+	assetPath, err := s.Store.WriteBinary(s.DataDir, header.Filename, data)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "asset_write_failed"})
+		return
+	}
+	link := fmt.Sprintf(`<p>已上传 PDF：<a href="/%s" target="_blank" rel="noreferrer">%s</a></p>`, assetPath, header.Filename)
+	actor := currentSession(c, s.Sessions)
+	expectedVersion := extractWorkspaceVersion(
+		c.GetHeader("X-Workspace-Version"),
+		c.Request.FormValue("version"),
+		c.Query("version"),
+	)
+	workspace, err := s.Store.ReplaceWorkspaceDocument(c.Param("id"), link, actor, expectedVersion)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, models.ErrWorkspaceNotFound) {
+			status = http.StatusNotFound
+		} else if errors.Is(err, models.ErrWorkspaceKindUnsupported) {
+			status = http.StatusBadRequest
+		} else if errors.Is(err, models.ErrWorkspaceVersionConflict) {
+			status = http.StatusConflict
+		}
+		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"workspace": workspaceToResponse(workspace), "asset": assetPath})
+}
+
 func (s *Server) handleExportWorkspace(c *gin.Context) {
 	workspace, err := s.Store.GetWorkspace(c.Param("id"))
 	if err != nil {
@@ -1366,16 +1434,36 @@ func (s *Server) handleExportAll(c *gin.Context) {
 	c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
 
 	zipWriter := zip.NewWriter(c.Writer)
-	entry, err := zipWriter.Create("snapshot.json")
+	entry, err := zipWriter.Create("snapshot.sql")
 	if err != nil {
 		_ = zipWriter.Close()
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "export_failed"})
 		return
 	}
-	if err := s.Store.WriteSnapshotJSON(entry); err != nil {
+	if err := writeSnapshotSQL(entry, s.Store.ExportSnapshot()); err != nil {
 		_ = zipWriter.Close()
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "export_failed"})
 		return
+	}
+	if strings.TrimSpace(s.DataDir) != "" {
+		assetsDir := filepath.Join(s.DataDir, "assets")
+		_ = filepath.WalkDir(assetsDir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d == nil || d.IsDir() {
+				return nil
+			}
+			target := filepath.ToSlash(filepath.Join("assets", filepath.Base(path)))
+			fh, openErr := os.Open(path)
+			if openErr != nil {
+				return nil
+			}
+			defer fh.Close()
+			w, createErr := zipWriter.Create(target)
+			if createErr != nil {
+				return nil
+			}
+			_, _ = io.Copy(w, fh)
+			return nil
+		})
 	}
 	if err := zipWriter.Close(); err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "export_failed"})
@@ -1423,7 +1511,7 @@ func (s *Server) handleImportAll(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "import_stat_failed"})
 		return
 	}
-	if err := importSnapshotFromFile(fh, info.Size(), s.Store); err != nil {
+	if err := importSnapshotFromFile(fh, info.Size(), s.Store, s.DataDir); err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, errSnapshotMissing) || errors.Is(err, errSnapshotInvalid) {
 			status = http.StatusBadRequest
@@ -1438,6 +1526,14 @@ func (s *Server) handleImportAll(c *gin.Context) {
 }
 
 func (s *Server) handleManualSave(c *gin.Context) {
+	if s.Database != nil && s.Database.SQL != nil {
+		if err := s.Store.SaveToDatabaseWithRetention(s.Database.SQL, s.SnapshotRetention); err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "saved_to_database"})
+		return
+	}
 	if strings.TrimSpace(s.DataDir) == "" {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "data_dir_not_configured"})
 		return
@@ -1499,7 +1595,7 @@ func spoolToTemp(r io.Reader) (string, error) {
 	return fh.Name(), nil
 }
 
-func importSnapshotFromFile(file *os.File, size int64, store *models.LedgerStore) error {
+func importSnapshotFromFile(file *os.File, size int64, store *models.LedgerStore, dataDir string) error {
 	header := make([]byte, 4)
 	n, err := file.Read(header)
 	if err != nil && !errors.Is(err, io.EOF) {
@@ -1509,17 +1605,25 @@ func importSnapshotFromFile(file *os.File, size int64, store *models.LedgerStore
 		return err
 	}
 	if n == 4 && header[0] == 0x50 && header[1] == 0x4b && header[2] == 0x03 && header[3] == 0x04 {
-		return importSnapshotFromZip(file, size, store)
+		return importSnapshotFromZip(file, size, store, dataDir)
 	}
 	decoder := json.NewDecoder(file)
 	var snapshot models.Snapshot
-	if err := decoder.Decode(&snapshot); err != nil {
-		return fmt.Errorf("%w: %v", errSnapshotInvalid, err)
+	if err := decoder.Decode(&snapshot); err == nil {
+		return store.ImportSnapshot(&snapshot)
 	}
-	return store.ImportSnapshot(&snapshot)
+	content, readErr := io.ReadAll(file)
+	if readErr != nil {
+		return fmt.Errorf("%w: %v", errSnapshotInvalid, readErr)
+	}
+	snap, sqlErr := parseSnapshotSQL(content)
+	if sqlErr != nil {
+		return fmt.Errorf("%w: %v", errSnapshotInvalid, sqlErr)
+	}
+	return store.ImportSnapshot(snap)
 }
 
-func importSnapshotFromZip(readerAt io.ReaderAt, size int64, store *models.LedgerStore) error {
+func importSnapshotFromZip(readerAt io.ReaderAt, size int64, store *models.LedgerStore, dataDir string) error {
 	zipReader, err := zip.NewReader(readerAt, size)
 	if err != nil {
 		return fmt.Errorf("%w: %v", errUnsupportedArchive, err)
@@ -1530,22 +1634,50 @@ func importSnapshotFromZip(readerAt io.ReaderAt, size int64, store *models.Ledge
 		if file.FileInfo().IsDir() {
 			continue
 		}
-		name := filepath.Base(file.Name)
-		if !strings.EqualFold(name, "snapshot.json") {
+		base := filepath.Base(file.Name)
+		lowerBase := strings.ToLower(base)
+		switch lowerBase {
+		case "snapshot.sql":
+			rc, err := file.Open()
+			if err != nil {
+				return fmt.Errorf("open_snapshot: %w", err)
+			}
+			content, err := io.ReadAll(rc)
+			_ = rc.Close()
+			if err != nil {
+				return fmt.Errorf("%w: %v", errSnapshotInvalid, err)
+			}
+			parsed, parseErr := parseSnapshotSQL(content)
+			if parseErr != nil {
+				return fmt.Errorf("%w: %v", errSnapshotInvalid, parseErr)
+			}
+			snapshot = *parsed
+			found = true
 			continue
 		}
-		rc, err := file.Open()
-		if err != nil {
-			return fmt.Errorf("open_snapshot: %w", err)
-		}
-		decoder := json.NewDecoder(rc)
-		if err := decoder.Decode(&snapshot); err != nil {
+		if strings.EqualFold(lowerBase, "snapshot.json") {
+			rc, err := file.Open()
+			if err != nil {
+				return fmt.Errorf("open_snapshot: %w", err)
+			}
+			decoder := json.NewDecoder(rc)
+			if err := decoder.Decode(&snapshot); err != nil {
+				_ = rc.Close()
+				return fmt.Errorf("%w: %v", errSnapshotInvalid, err)
+			}
 			_ = rc.Close()
-			return fmt.Errorf("%w: %v", errSnapshotInvalid, err)
+			found = true
+			continue
 		}
-		_ = rc.Close()
-		found = true
-		break
+		if strings.TrimSpace(dataDir) == "" {
+			continue
+		}
+		name := strings.ToLower(file.Name)
+		if strings.HasPrefix(name, "assets/") || strings.HasPrefix(name, "media/") {
+			if err := persistAssetFromZip(file, dataDir); err != nil {
+				return err
+			}
+		}
 	}
 	if !found {
 		return errSnapshotMissing
@@ -1559,6 +1691,72 @@ var (
 	errSnapshotInvalid    = errors.New("snapshot_invalid")
 	errUnsupportedArchive = errors.New("unsupported_archive")
 )
+
+func writeSnapshotSQL(w io.Writer, snapshot *models.Snapshot) error {
+	if snapshot == nil {
+		return fmt.Errorf("%w", errSnapshotMissing)
+	}
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		return err
+	}
+	escaped := strings.ReplaceAll(string(data), "'", "''")
+	chunks := []string{
+		"BEGIN;",
+		"CREATE TABLE IF NOT EXISTS snapshots (id BIGSERIAL PRIMARY KEY, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), payload JSONB NOT NULL);",
+		"TRUNCATE snapshots;",
+		fmt.Sprintf("INSERT INTO snapshots (payload) VALUES ('%s');", escaped),
+		"COMMIT;",
+	}
+	for _, line := range chunks {
+		if _, err := io.WriteString(w, line+"\n"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func parseSnapshotSQL(data []byte) (*models.Snapshot, error) {
+	re := regexp.MustCompile(`(?is)values\s*\(\s*'(.*)'\s*\)`)
+	matches := re.FindStringSubmatch(string(data))
+	if len(matches) < 2 {
+		return nil, errors.New("insert_not_found")
+	}
+	payload := strings.ReplaceAll(matches[1], "''", "'")
+	var snap models.Snapshot
+	if err := json.Unmarshal([]byte(payload), &snap); err != nil {
+		return nil, err
+	}
+	return &snap, nil
+}
+
+func persistAssetFromZip(file *zip.File, dataDir string) error {
+	if file == nil || strings.TrimSpace(dataDir) == "" {
+		return nil
+	}
+	rc, err := file.Open()
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+	targetName := filepath.Base(strings.TrimPrefix(strings.TrimPrefix(file.Name, "media/"), "assets/"))
+	if targetName == "." || targetName == "" {
+		return nil
+	}
+	dest := filepath.Join(dataDir, "assets", targetName)
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	fh, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	defer fh.Close()
+	if _, err := io.Copy(fh, rc); err != nil {
+		return err
+	}
+	return nil
+}
 
 func parseLedgerType(value string) (models.LedgerType, bool) {
 	value = strings.ToLower(strings.TrimSpace(value))
