@@ -1,4 +1,7 @@
-FROM golang:1.22-alpine AS builder
+ARG GO_BASE_IMAGE=mirror.gcr.io/library/golang:1.22-alpine
+ARG RUNTIME_BASE_IMAGE=mirror.gcr.io/library/alpine:3.20
+
+FROM ${GO_BASE_IMAGE} AS builder
 
 WORKDIR /app
 
@@ -8,7 +11,7 @@ RUN go mod download || true
 COPY . .
 RUN go build -o server ./cmd/server
 
-FROM alpine:3.20
+FROM ${RUNTIME_BASE_IMAGE}
 
 WORKDIR /app
 

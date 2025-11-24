@@ -57,6 +57,8 @@ docker-compose up --build
 ```
 该命令会启动 Postgres 与后端容器。运行前可根据需要修改 `docker-compose.yml` 中的环境变量。
 
+> **镜像加速**：`docker-compose.yml` 与 `Dockerfile` 默认使用 `mirror.gcr.io` 上的 Postgres、Go 与 Alpine 镜像，避免 Docker Hub 认证或拉取超时。如果你的环境需要其他镜像源，可在构建时覆盖 `GO_BASE_IMAGE`、`RUNTIME_BASE_IMAGE`，或调整 Postgres 的镜像标签。
+
 ### 认证
 - 通过 POST `/auth/password-login`，提交 `{ "username": "…", "password": "…" }` 获取会话令牌。返回值会带回用户名及 `admin` 标记，方便前端控制权限。
 - 之后所有 `/api/v1/**` 请求需在 Header 中附加 `Authorization: Bearer <token>`。会话会在设定的 TTL 到期后自动失效，前端退出登录时会清除本地存储的凭据。

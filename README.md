@@ -67,6 +67,8 @@ The provided `docker-compose.yml` launches PostgreSQL and the Go API in a single
 docker-compose up --build
 ```
 
+> **Image mirrors**: The compose file and `Dockerfile` default to `mirror.gcr.io` mirrors (for Postgres, Go, and Alpine) to avoid Docker Hub authentication timeouts. You can override the build args `GO_BASE_IMAGE` and `RUNTIME_BASE_IMAGE` or swap the Postgres image tag if your environment requires a different registry.
+
 Once both containers are healthy, the API is reachable at <http://localhost:8080> with identical routes as the local build.
 
 ## Windows One-Click Bundle

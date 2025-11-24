@@ -57,6 +57,8 @@ docker-compose up --build
 ```
 This brings up Postgres alongside the backend container. Adjust environment variables inside `docker-compose.yml` before running if you need custom credentials.
 
+> **Image mirrors**: `docker-compose.yml` and the `Dockerfile` default to `mirror.gcr.io` for Postgres, Go, and Alpine images to avoid Docker Hub authentication timeouts. Override the `GO_BASE_IMAGE` and `RUNTIME_BASE_IMAGE` build args or swap the Postgres tag if your environment prefers a different registry.
+
 ### Authentication
 - POST `/auth/password-login` with `{ "username": "…", "password": "…" }` to obtain a bearer token. The response echoes the username and an `admin` flag so the UI can tailor access.
 - Include the token in `Authorization: Bearer <token>` for all authenticated API calls. Sessions automatically expire based on the server TTL and the frontend clears stored credentials on logout.
