@@ -43,7 +43,7 @@ web/                  # Frontend placeholder (not required to run backend)
 | Variable             | Default     | Description                                      |
 |----------------------|-------------|--------------------------------------------------|
 | `DB_HOST`            | `localhost` | PostgreSQL host                                  |
-| `DB_PORT`            | `5432`      | PostgreSQL port                                  |
+| `DB_PORT`            | `5433`      | PostgreSQL port                                  |
 | `DB_NAME`            | `ledger`    | PostgreSQL database name                         |
 | `DB_USER`            | `postgres`  | PostgreSQL user                                  |
 | `DB_PASS`            | `postgres`  | PostgreSQL password                              |

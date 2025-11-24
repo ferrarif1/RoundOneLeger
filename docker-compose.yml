@@ -7,12 +7,13 @@ services:
       POSTGRES_DB: ledger
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+    command: ["postgres", "-p", "5433"]
     ports:
-      - "5432:5432"
+      - "5433:5433"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d ledger"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ledger -p 5433"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -23,7 +24,7 @@ services:
       dockerfile: Dockerfile
     environment:
       DB_HOST: db
-      DB_PORT: "5432"
+      DB_PORT: "5433"
       DB_NAME: ledger
       DB_USER: postgres
       DB_PASS: postgres

@@ -58,7 +58,7 @@ func (d *Database) Close() error {
 func loadConfigFromEnv() Config {
 	return Config{
 		Host:     getenv("DB_HOST", "localhost"),
-		Port:     getenv("DB_PORT", "5432"),
+		Port:     getenv("DB_PORT", "5433"),
 		Name:     getenv("DB_NAME", "ledger"),
 		User:     getenv("DB_USER", "postgres"),
 		Password: getenv("DB_PASS", "postgres"),
