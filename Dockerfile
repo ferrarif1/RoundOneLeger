@@ -13,6 +13,8 @@ RUN npm run build
 # Build backend (embed frontend)
 FROM ${GO_BASE_IMAGE} AS builder
 
+ENV GOPROXY=https://goproxy.cn,direct
+
 WORKDIR /app
 
 COPY go.mod go.sum ./

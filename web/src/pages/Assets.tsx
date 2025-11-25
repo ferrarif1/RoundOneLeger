@@ -462,6 +462,22 @@ const Assets = () => {
   const importAllRef = useRef<HTMLInputElement>(null);
 
   const allNodes = useMemo(() => flattenWorkspaces(workspaceTree), [workspaceTree]);
+  const childMap = useMemo(() => {
+    const map = new Map<string, string[]>();
+    const walk = (nodes: WorkspaceNode[]) => {
+      nodes.forEach((node) => {
+        if (node.children?.length) {
+          map.set(
+            node.id,
+            node.children.map((child) => child.id)
+          );
+          walk(node.children);
+        }
+      });
+    };
+    walk(workspaceTree);
+    return map;
+  }, [workspaceTree]);
   const workspaceMap = useMemo(() => {
     const map = new Map<string, WorkspaceNode>();
     allNodes.forEach((node) => {
@@ -469,6 +485,16 @@ const Assets = () => {
     });
     return map;
   }, [allNodes]);
+  const getSiblings = useCallback(
+    (parentId: string | null) => {
+      const pid = parentId?.trim() ?? '';
+      if (!pid) {
+        return workspaceTree.map((node) => node.id);
+      }
+      return childMap.get(pid) ?? [];
+    },
+    [childMap, workspaceTree]
+  );
 
   const selectedNode = selectedId ? workspaceMap.get(selectedId) : null;
   const selectedKind: WorkspaceKind = currentWorkspace?.kind ?? normalizeKind(selectedNode?.kind);
@@ -1236,6 +1262,77 @@ setSaving(false);
       selectedId={selectedId}
       onSelect={(node) => setSelectedId(node.id)}
       onCreate={handleCreateWorkspace}
+      onMove={async ({ sourceId, targetId, position }) => {
+        if (!targetId && position === 'into') return;
+        const sourceNode = workspaceMap.get(sourceId);
+        const targetNode = targetId ? workspaceMap.get(targetId) : null;
+        if (!sourceNode) return;
+
+        const oldParent = (sourceNode.parentId || '').trim();
+        const targetParent =
+          position === 'into'
+            ? (targetId || '')
+            : (targetNode?.parentId || '');
+
+        if (targetParent && normalizeKind(targetNode?.kind) !== 'folder' && position === 'into') {
+          setStatus('只能拖入文件夹。');
+          return;
+        }
+
+        const isDescendant = (parentId: string, candidateId: string | null): boolean => {
+          if (!candidateId) return false;
+          const stack = [...(childMap.get(parentId) || [])];
+          while (stack.length) {
+            const current = stack.pop()!;
+            if (current === candidateId) return true;
+            const children = childMap.get(current);
+            if (children?.length) {
+              stack.push(...children);
+            }
+          }
+          return false;
+        };
+        if (isDescendant(sourceId, targetParent)) {
+          setStatus('不能拖入自身或其子文件夹。');
+          return;
+        }
+
+        const targetSiblings = getSiblings(targetParent);
+        const cleanedSourceId = sourceId;
+        let nextOrder = targetSiblings.filter((id) => id !== cleanedSourceId);
+        if (position === 'into') {
+          nextOrder = [...nextOrder, cleanedSourceId];
+        } else if (targetId) {
+          const idx = nextOrder.indexOf(targetId);
+          if (idx === -1) {
+            nextOrder.push(cleanedSourceId);
+          } else {
+            const insertAt = position === 'before' ? idx : idx + 1;
+            nextOrder.splice(insertAt, 0, cleanedSourceId);
+          }
+        }
+
+        const oldOrder = getSiblings(oldParent).filter((id) => id !== cleanedSourceId);
+
+        try {
+          if (oldParent !== targetParent) {
+            await api.put(`/api/v1/workspaces/${cleanedSourceId}`, { parentId: targetParent });
+            if (oldOrder.length) {
+              await api.post('/api/v1/workspaces/reorder', { parentId: oldParent, orderedIds: oldOrder });
+            }
+          }
+          await api.post('/api/v1/workspaces/reorder', { parentId: targetParent, orderedIds: nextOrder });
+          await refreshList(cleanedSourceId);
+          setStatus('已调整顺序。');
+        } catch (err) {
+          const axiosErr = err as AxiosError<{ error?: string }>;
+          if (axiosErr.response?.data?.error) {
+            setError(axiosErr.response.data.error);
+          } else {
+            setError(axiosErr.message || '移动失败');
+          }
+        }
+      }}
       search={listQuery}
       onSearchChange={setListQuery}
       creationOptions={CREATION_OPTIONS}
@@ -1378,7 +1475,7 @@ setSaving(false);
                         key={child.id}
                         type="button"
                         onClick={() => setSelectedId(child.id)}
-                        className="flex w-full flex-col gap-1 rounded-[var(--radius-md)] border border-black/5 bg-white/90 p-4 text-left text-sm text-[var(--muted)] transition hover:border-[var(--accent)]/60 hover:text-[var(--text)]"
+                        className="flex w-full flex-col gap-1 rounded-[var(--radius-md)] border border-black/5 bg-white/90 p-4 text-left text-sm text-[var(--muted)]"
                       >
                         <Icon className="h-5 w-5 text-[var(--accent)]" />
                         <span className="truncate font-medium text-[var(--text)]">{child.name || DEFAULT_TITLE}</span>

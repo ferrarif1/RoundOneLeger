@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type React from 'react';
 import { MagnifyingGlassIcon, PlusIcon } from '@heroicons/react/24/outline';
 import type { ComponentType, SVGProps } from 'react';
 
@@ -17,6 +18,7 @@ type LedgerListCardProps = {
   selectedId?: string | null;
   onSelect: (node: WorkspaceNode) => void;
   onCreate: (kind: WorkspaceKind) => void;
+  onMove?: (intent: { sourceId: string; targetId: string | null; position: 'before' | 'after' | 'into' }) => void;
   search: string;
   onSearchChange: (value: string) => void;
   creationOptions: CreationOption[];
@@ -49,6 +51,7 @@ export const LedgerListCard = ({
   selectedId,
   onSelect,
   onCreate,
+  onMove,
   search,
   onSearchChange,
   creationOptions,
@@ -57,6 +60,9 @@ export const LedgerListCard = ({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [hoverTarget, setHoverTarget] = useState<{ id: string; position: 'before' | 'after' } | null>(null);
 
   useEffect(() => {
     const handleClick = (event: MouseEvent) => {
@@ -75,19 +81,86 @@ export const LedgerListCard = ({
 
   const filtered = useMemo(() => filterTree(items, search), [items, search]);
 
+  useEffect(() => {
+    if (!expanded.size && filtered.length) {
+      const initial = new Set<string>();
+      filtered.forEach((node) => {
+        if (node.kind === 'folder') {
+          initial.add(node.id);
+        }
+      });
+      setExpanded(initial);
+    }
+  }, [expanded.size, filtered]);
+
+  const toggleFolder = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
   const renderNodes = (nodes: WorkspaceNode[], depth = 0) =>
-    nodes.map((node) => (
-      <div key={node.id}>
-        <LedgerItem
-          node={node}
-          depth={depth}
-          active={node.id === selectedId}
-          onSelect={onSelect}
-          formatTimestamp={formatTimestamp}
-        />
-        {node.children?.length ? <div>{renderNodes(node.children, depth + 1)}</div> : null}
-      </div>
-    ));
+    nodes.map((node) => {
+      const isFolder = node.kind === 'folder';
+      const isExpanded = expanded.has(node.id);
+      const hasChildren = Boolean(node.children?.length);
+      const showChildren = isFolder && isExpanded && hasChildren;
+
+      return (
+        <div key={node.id} className="rounded-xl">
+          <div
+            draggable
+            onDragStart={() => setDraggingId(node.id)}
+            onDragEnd={() => {
+              setDraggingId(null);
+              setHoverTarget(null);
+            }}
+            onDragOver={(event) => {
+              if (!draggingId || draggingId === node.id) {
+                return;
+              }
+              const rect = (event.currentTarget as HTMLDivElement).getBoundingClientRect();
+              const offsetY = event.clientY - rect.top;
+              const position = offsetY < rect.height / 2 ? 'before' : 'after';
+              setHoverTarget({ id: node.id, position });
+              event.preventDefault();
+            }}
+            onDrop={(event: React.DragEvent<HTMLDivElement>) => {
+              if (!onMove || !draggingId || draggingId === node.id) return;
+              event.preventDefault();
+              const hover = hoverTarget?.position ?? 'after';
+              const intentPosition = isFolder && event.shiftKey ? 'into' : hover;
+              onMove({ sourceId: draggingId, targetId: node.id, position: intentPosition });
+              setDraggingId(null);
+              setHoverTarget(null);
+            }}
+          >
+            <LedgerItem
+              node={node}
+              depth={depth}
+              active={node.id === selectedId}
+              onSelect={onSelect}
+              formatTimestamp={formatTimestamp}
+              onToggleFolder={isFolder ? () => toggleFolder(node.id) : undefined}
+              expanded={isExpanded}
+            />
+          </div>
+          {hoverTarget?.id === node.id && hoverTarget.position === 'before' && (
+            <div className="h-1 rounded-full bg-[var(--accent)]/60" />
+          )}
+          {showChildren ? <div className="pl-4">{renderNodes(node.children!, depth + 1)}</div> : null}
+          {hoverTarget?.id === node.id && hoverTarget.position === 'after' && (
+            <div className="h-1 rounded-full bg-[var(--accent)]/60" />
+          )}
+        </div>
+      );
+    });
 
   return (
     <div className="ledger-list-card">
@@ -127,7 +200,7 @@ export const LedgerListCard = ({
                     onCreate(option.kind);
                     setMenuOpen(false);
                   }}
-                  className="flex w-full items-start gap-3 px-4 py-3 text-left transition hover:bg-[var(--accent)]/10"
+                  className="flex w-full items-start gap-3 px-4 py-3 text-left"
                 >
                   <option.icon className="mt-0.5 h-4 w-4 text-[var(--accent)]" />
                   <span>
@@ -142,7 +215,22 @@ export const LedgerListCard = ({
       )}
       <div className="mt-4 flex-1 overflow-y-auto pr-1">
         {filtered.length ? (
-          <div className="space-y-1">{renderNodes(filtered)}</div>
+          <div
+            className="space-y-1"
+            onDragOver={(event) => {
+              if (draggingId) {
+                event.preventDefault();
+              }
+            }}
+            onDrop={(event) => {
+              if (!onMove || !draggingId) return;
+              event.preventDefault();
+              onMove({ sourceId: draggingId, targetId: null, position: 'after' });
+              setDraggingId(null);
+            }}
+          >
+            {renderNodes(filtered)}
+          </div>
         ) : (
           <div className="rounded-2xl border border-dashed border-[var(--muted)]/30 bg-white/70 p-6 text-center text-sm text-[var(--muted)]">
             暂无匹配台账，尝试调整搜索或新建一个。

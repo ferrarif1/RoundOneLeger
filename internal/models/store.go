@@ -1607,6 +1607,12 @@ type WorkspaceUpdate struct {
 	SetParent       bool
 }
 
+// WorkspaceReorder defines a sibling ordering update under a parent.
+type WorkspaceReorder struct {
+	ParentID   string
+	OrderedIDs []string
+}
+
 // ListWorkspaces returns the collaborative workspaces in creation order.
 func (s *LedgerStore) ListWorkspaces() []*Workspace {
 	s.mu.RLock()
@@ -1735,6 +1741,65 @@ func (s *LedgerStore) UpdateWorkspace(id string, update WorkspaceUpdate, actor s
 	s.workspaces[workspace.ID] = workspace
 	s.appendAuditLocked(actor, "workspace_update", workspace.ID)
 	return workspace.Clone(), nil
+}
+
+// ReorderWorkspaces updates the order of workspaces under a parent (empty for root).
+func (s *LedgerStore) ReorderWorkspaces(parentID string, orderedIDs []string, actor string) error {
+	parent := strings.TrimSpace(parentID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Validate parent
+	if parent != "" {
+		parentWS, ok := s.workspaces[parent]
+		if !ok || NormalizeWorkspaceKind(parentWS.Kind) != WorkspaceKindFolder {
+			return ErrWorkspaceParentInvalid
+		}
+	}
+
+	// Collect children under parent according to current order.
+	expected := make([]string, 0)
+	for _, id := range s.workspaceOrder {
+		ws, ok := s.workspaces[id]
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(ws.ParentID) == parent {
+			expected = append(expected, id)
+		}
+	}
+	if len(expected) != len(orderedIDs) {
+		return ErrWorkspaceParentInvalid
+	}
+	childSet := make(map[string]struct{}, len(expected))
+	for _, id := range expected {
+		childSet[id] = struct{}{}
+	}
+	for _, id := range orderedIDs {
+		if _, ok := childSet[id]; !ok {
+			return ErrWorkspaceParentInvalid
+		}
+	}
+
+	// Rewrite workspaceOrder preserving other items.
+	newOrder := make([]string, 0, len(s.workspaceOrder))
+	inserted := false
+	for _, id := range s.workspaceOrder {
+		if _, ok := childSet[id]; ok {
+			if !inserted {
+				newOrder = append(newOrder, orderedIDs...)
+				inserted = true
+			}
+			continue
+		}
+		newOrder = append(newOrder, id)
+	}
+	s.workspaceOrder = newOrder
+	if parent != "" {
+		s.workspaceChildren[parent] = append([]string{}, orderedIDs...)
+	}
+	s.appendAuditLocked(actor, "workspace_reorder", parent)
+	return nil
 }
 
 // DeleteWorkspace removes a workspace and its data.

@@ -10,6 +10,8 @@ type LedgerItemProps = {
   active?: boolean;
   onSelect: (node: WorkspaceNode) => void;
   formatTimestamp?: (value?: string) => string;
+  onToggleFolder?: () => void;
+  expanded?: boolean;
 };
 
 const iconForKind = (kind: WorkspaceNode['kind']) => {
@@ -37,7 +39,9 @@ export const LedgerItem = ({
   depth = 0,
   active = false,
   onSelect,
-  formatTimestamp
+  formatTimestamp,
+  onToggleFolder,
+  expanded
 }: LedgerItemProps) => {
   const Icon = iconForKind(node.kind);
   const timeText = useMemo(() => (formatTimestamp ? formatTimestamp(node.updatedAt) : ''), [
@@ -47,6 +51,7 @@ export const LedgerItem = ({
   const paddingLeft = 12 + depth * 18;
   const label = labelForKind(node.kind);
   const displayName = node.name || '未命名台账';
+  const isFolder = node.kind === 'folder';
 
   return (
     <button
@@ -54,13 +59,28 @@ export const LedgerItem = ({
       onClick={() => onSelect(node)}
       style={{ paddingLeft }}
       className={clsx(
-        'ledger-item group mt-1 flex w-full items-center gap-3 rounded-2xl border px-4 py-2 text-left text-sm transition',
+        'ledger-item group mt-1 flex w-full items-center gap-3 rounded-2xl border px-4 py-2 text-left text-sm',
         active
           ? 'border-[var(--accent)] bg-[var(--card-bg)] text-[var(--accent)] shadow-[var(--shadow-sm)]'
-          : 'border-white/70 bg-white/50 text-[var(--muted)] hover:border-[var(--accent)]/40 hover:text-[var(--text)]'
+          : 'border-white/70 bg-white/50 text-[var(--muted)]'
       )}
     >
-      <Icon className="h-4 w-4 shrink-0 text-[var(--accent)] group-hover:scale-105 transition-transform" />
+      <span className="flex items-center gap-1">
+        {isFolder && (
+          <span
+            role="button"
+            aria-label={expanded ? '折叠' : '展开'}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleFolder?.();
+            }}
+            className="flex h-6 w-6 items-center justify-center rounded-full border border-[var(--muted)]/30 bg-white/70 text-[var(--muted)]"
+          >
+            {expanded ? '−' : '+'}
+          </span>
+        )}
+        <Icon className="h-4 w-4 shrink-0 text-[var(--accent)]" />
+      </span>
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="truncate font-medium text-[var(--text)]">{displayName}</span>
         <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-[var(--muted)]">

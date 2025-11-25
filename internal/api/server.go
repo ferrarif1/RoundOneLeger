@@ -71,6 +71,7 @@ func (s *Server) RegisterRoutes(router *gin.Engine) {
 		secured.POST("/workspaces/:id/import/text", s.handleImportWorkspaceText)
 		secured.POST("/workspaces/:id/import/docx", s.handleImportWorkspaceDocx)
 		secured.POST("/workspaces/:id/import/pdf", s.handleImportWorkspacePDF)
+		secured.POST("/workspaces/reorder", s.handleReorderWorkspaces)
 		secured.GET("/workspaces/:id/export", s.handleExportWorkspace)
 		secured.GET("/workspaces/:id/export/docx", s.handleExportWorkspaceDocx)
 		secured.POST("/workspaces/:id/export/selected", s.handleExportWorkspaceSelected)
@@ -387,6 +388,11 @@ type workspaceRequest struct {
 	Rows     []workspaceRowPayload    `json:"rows"`
 	Kind     string                   `json:"kind"`
 	ParentID string                   `json:"parentId"`
+}
+
+type workspaceReorderRequest struct {
+	ParentID   string   `json:"parentId"`
+	OrderedIDs []string `json:"orderedIds"`
 }
 
 type workspaceUpdateRequest struct {
@@ -776,6 +782,28 @@ func (s *Server) handleUpdateWorkspace(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"workspace": workspaceToResponse(workspace)})
+}
+
+func (s *Server) handleReorderWorkspaces(c *gin.Context) {
+	var req workspaceReorderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+		return
+	}
+	if len(req.OrderedIDs) == 0 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "ordered_ids_required"})
+		return
+	}
+	actor := currentSession(c, s.Sessions)
+	if err := s.Store.ReorderWorkspaces(strings.TrimSpace(req.ParentID), req.OrderedIDs, actor); err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, models.ErrWorkspaceParentInvalid) {
+			status = http.StatusBadRequest
+		}
+		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "reordered"})
 }
 
 func (s *Server) handleDeleteWorkspace(c *gin.Context) {
