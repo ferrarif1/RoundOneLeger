@@ -11,3 +11,4 @@ web/*.tsbuildinfo
 web/vite.config.js
 web/vite.config.d.ts
 data/snapshot-2025-11-05T08-12-28Z-00.json
+/dockerimgs
