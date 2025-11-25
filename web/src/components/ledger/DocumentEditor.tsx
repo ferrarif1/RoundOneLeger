@@ -385,12 +385,6 @@ export const DocumentEditor = ({ value, editable, onChange, onStatus, onSave, di
         type="file"
         accept="image/*"
         className="hidden"
-        onChange={(event) => handleMediaInsert(event, 'image')}
-      />
-      <input
-        type="file"
-        accept="image/*"
-        className="hidden"
         onChange={(event) => handleMediaInsert(event)}
       />
       {isFullscreen &&

@@ -22,6 +22,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: app
     environment:
       DB_HOST: db
       DB_PORT: "5433"
@@ -33,6 +34,15 @@ services:
         condition: service_healthy
     ports:
       - "8080:8080"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    depends_on:
+      - app
+    ports:
+      - "8081:80"
 
 volumes:
   pgdata:

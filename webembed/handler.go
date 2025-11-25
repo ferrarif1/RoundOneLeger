@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"io/fs"
+	"mime"
 	"net/http"
 	"path"
 	"strings"
@@ -59,6 +60,21 @@ func (h spaHandler) Serve(c *gin.Context) {
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "frontend_unavailable"})
 		return
+	}
+
+	// Explicitly set content type to avoid missing MIME mappings in minimal images.
+	if c.Writer.Header().Get("Content-Type") == "" {
+		if ext := path.Ext(name); ext != "" {
+			if typ := mime.TypeByExtension(ext); typ != "" {
+				c.Writer.Header().Set("Content-Type", typ)
+			} else {
+				if sniff := http.DetectContentType(data); sniff != "" {
+					c.Writer.Header().Set("Content-Type", sniff)
+				}
+			}
+		} else if sniff := http.DetectContentType(data); sniff != "" {
+			c.Writer.Header().Set("Content-Type", sniff)
+		}
 	}
 
 	reader := bytes.NewReader(data)
