@@ -1310,6 +1310,9 @@ setSaving(false);
             const insertAt = position === 'before' ? idx : idx + 1;
             nextOrder.splice(insertAt, 0, cleanedSourceId);
           }
+        } else {
+          // dropping to root/blank area, append to end
+          nextOrder.push(cleanedSourceId);
         }
 
         const oldOrder = getSiblings(oldParent).filter((id) => id !== cleanedSourceId);

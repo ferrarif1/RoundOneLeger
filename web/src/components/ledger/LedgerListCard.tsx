@@ -135,7 +135,8 @@ export const LedgerListCard = ({
               if (!onMove || !draggingId || draggingId === node.id) return;
               event.preventDefault();
               const hover = hoverTarget?.position ?? 'after';
-              const intentPosition = isFolder && event.shiftKey ? 'into' : hover;
+              // 默认落在文件夹时直接放入；按住 Alt 时维持同级前/后插入
+              const intentPosition = isFolder && !event.altKey ? 'into' : hover;
               onMove({ sourceId: draggingId, targetId: node.id, position: intentPosition });
               setDraggingId(null);
               setHoverTarget(null);
