@@ -40,7 +40,7 @@ type Server struct {
 // RegisterRoutes attaches handlers to the gin engine.
 func (s *Server) RegisterRoutes(router *gin.Engine) {
 	router.GET("/health", s.handleHealth)
-	router.GET("/assets/:name", s.handleAsset)
+	router.GET("/assets/*filepath", s.handleAsset)
 
 	authGroup := router.Group("/auth")
 	{
@@ -96,6 +96,7 @@ func (s *Server) RegisterRoutes(router *gin.Engine) {
 		secured.GET("/export/all", s.handleExportAll)
 		secured.POST("/import/all", s.handleImportAll)
 		secured.POST("/admin/save-snapshot", s.handleManualSave)
+		secured.POST("/media/upload", s.handleUploadMedia)
 	}
 }
 
@@ -116,12 +117,13 @@ func (s *Server) handleAsset(c *gin.Context) {
 		c.Status(http.StatusNotFound)
 		return
 	}
-	name := filepath.Base(c.Param("name"))
-	if name == "" || name == "." || name == ".." {
+	raw := strings.TrimPrefix(c.Param("filepath"), "/")
+	clean := filepath.Clean(raw)
+	if clean == "." || strings.HasPrefix(clean, "..") || clean == "" {
 		c.Status(http.StatusNotFound)
 		return
 	}
-	target := filepath.Join(s.DataDir, "assets", name)
+	target := filepath.Join(s.DataDir, "assets", clean)
 	if _, err := os.Stat(target); err != nil {
 		c.Status(http.StatusNotFound)
 		return
@@ -312,8 +314,21 @@ func (s *Server) handleListLedger(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "unknown_ledger"})
 		return
 	}
-	entries := s.Store.ListEntries(typ)
-	c.JSON(http.StatusOK, gin.H{"items": entries})
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "0"))
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize < 0 {
+		pageSize = 0
+	}
+	if pageSize == 0 {
+		entries := s.Store.ListEntries(typ)
+		c.JSON(http.StatusOK, gin.H{"items": entries, "total": len(entries)})
+		return
+	}
+	entries, total := s.Store.ListEntriesPaged(typ, page, pageSize)
+	c.JSON(http.StatusOK, gin.H{"items": entries, "total": total, "page": page, "pageSize": pageSize})
 }
 
 func (s *Server) handleOverview(c *gin.Context) {
@@ -735,6 +750,34 @@ func (s *Server) handleGetWorkspace(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"workspace": workspaceToResponse(workspace)})
+}
+
+func (s *Server) handleUploadMedia(c *gin.Context) {
+	if strings.TrimSpace(s.DataDir) == "" {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "data_dir_not_configured"})
+		return
+	}
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "missing_file"})
+		return
+	}
+	defer file.Close()
+	data, err := io.ReadAll(file)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "file_read_failed"})
+		return
+	}
+	if contentType := http.DetectContentType(data); !strings.HasPrefix(contentType, "image/") {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "unsupported_media_type"})
+		return
+	}
+	path, err := s.Store.WriteBinary(s.DataDir, header.Filename, data)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "asset_write_failed"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"url": "/" + path})
 }
 
 func (s *Server) handleUpdateWorkspace(c *gin.Context) {
@@ -1539,7 +1582,11 @@ func (s *Server) handleImportAll(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "import_stat_failed"})
 		return
 	}
-	if err := importSnapshotFromFile(fh, info.Size(), s.Store, s.DataDir); err != nil {
+	mode := strings.ToLower(strings.TrimSpace(c.Query("mode")))
+	if mode != "merge" && mode != "overwrite" {
+		mode = "overwrite"
+	}
+	if err := importSnapshotFromFile(fh, info.Size(), s.Store, s.DataDir, mode == "merge"); err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, errSnapshotMissing) || errors.Is(err, errSnapshotInvalid) {
 			status = http.StatusBadRequest
@@ -1623,7 +1670,7 @@ func spoolToTemp(r io.Reader) (string, error) {
 	return fh.Name(), nil
 }
 
-func importSnapshotFromFile(file *os.File, size int64, store *models.LedgerStore, dataDir string) error {
+func importSnapshotFromFile(file *os.File, size int64, store *models.LedgerStore, dataDir string, merge bool) error {
 	header := make([]byte, 4)
 	n, err := file.Read(header)
 	if err != nil && !errors.Is(err, io.EOF) {
@@ -1633,11 +1680,14 @@ func importSnapshotFromFile(file *os.File, size int64, store *models.LedgerStore
 		return err
 	}
 	if n == 4 && header[0] == 0x50 && header[1] == 0x4b && header[2] == 0x03 && header[3] == 0x04 {
-		return importSnapshotFromZip(file, size, store, dataDir)
+		return importSnapshotFromZip(file, size, store, dataDir, merge)
 	}
 	decoder := json.NewDecoder(file)
 	var snapshot models.Snapshot
 	if err := decoder.Decode(&snapshot); err == nil {
+		if merge {
+			return store.ImportSnapshotMerge(&snapshot)
+		}
 		return store.ImportSnapshot(&snapshot)
 	}
 	content, readErr := io.ReadAll(file)
@@ -1648,10 +1698,13 @@ func importSnapshotFromFile(file *os.File, size int64, store *models.LedgerStore
 	if sqlErr != nil {
 		return fmt.Errorf("%w: %v", errSnapshotInvalid, sqlErr)
 	}
+	if merge {
+		return store.ImportSnapshotMerge(snap)
+	}
 	return store.ImportSnapshot(snap)
 }
 
-func importSnapshotFromZip(readerAt io.ReaderAt, size int64, store *models.LedgerStore, dataDir string) error {
+func importSnapshotFromZip(readerAt io.ReaderAt, size int64, store *models.LedgerStore, dataDir string, merge bool) error {
 	zipReader, err := zip.NewReader(readerAt, size)
 	if err != nil {
 		return fmt.Errorf("%w: %v", errUnsupportedArchive, err)
@@ -1709,6 +1762,9 @@ func importSnapshotFromZip(readerAt io.ReaderAt, size int64, store *models.Ledge
 	}
 	if !found {
 		return errSnapshotMissing
+	}
+	if merge {
+		return store.ImportSnapshotMerge(&snapshot)
 	}
 	return store.ImportSnapshot(&snapshot)
 }

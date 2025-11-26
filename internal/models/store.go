@@ -623,6 +623,146 @@ func (s *LedgerStore) ImportSnapshot(snapshot *Snapshot) error {
 	return nil
 }
 
+// ImportSnapshotMerge merges snapshot data into current state (ID-based replace + append).
+func (s *LedgerStore) ImportSnapshotMerge(snapshot *Snapshot) error {
+	if snapshot == nil {
+		return errors.New("empty_snapshot")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Merge ledger entries
+	for typ, list := range snapshot.Entries {
+		existing := s.entries[typ]
+		index := make(map[string]LedgerEntry, len(existing))
+		for _, e := range existing {
+			index[e.ID] = e
+		}
+		for _, incoming := range list {
+			index[incoming.ID] = incoming
+		}
+		merged := make([]LedgerEntry, 0, len(index))
+		// keep existing order; append new ones
+		seen := make(map[string]struct{})
+		for _, e := range existing {
+			if updated, ok := index[e.ID]; ok {
+				merged = append(merged, updated)
+				seen[e.ID] = struct{}{}
+			}
+		}
+		for _, e := range index {
+			if _, ok := seen[e.ID]; !ok {
+				merged = append(merged, e)
+			}
+		}
+		sort.Slice(merged, func(i, j int) bool { return merged[i].Order < merged[j].Order })
+		s.entries[typ] = merged
+	}
+
+	// Merge workspaces by ID
+	for _, ws := range snapshot.Workspaces {
+		if ws == nil || strings.TrimSpace(ws.ID) == "" {
+			continue
+		}
+		id := strings.TrimSpace(ws.ID)
+		clone := ws.Clone()
+		if existing, ok := s.workspaces[id]; ok {
+			if clone.Version <= existing.Version {
+				clone.Version = existing.Version + 1
+			}
+		}
+		s.workspaces[id] = clone
+	}
+	// Merge workspace order (preserve existing order, append new ids)
+	existingOrder := make(map[string]struct{}, len(s.workspaceOrder))
+	for _, id := range s.workspaceOrder {
+		existingOrder[id] = struct{}{}
+	}
+	for _, id := range snapshot.WorkspaceOrder {
+		if strings.TrimSpace(id) != "" {
+			if _, ok := existingOrder[id]; !ok {
+				s.workspaceOrder = append(s.workspaceOrder, id)
+				existingOrder[id] = struct{}{}
+			}
+		}
+	}
+	// rebuild children
+	s.workspaceChildren = make(map[string][]string)
+	for _, ws := range s.workspaces {
+		parent := strings.TrimSpace(ws.ParentID)
+		s.workspaceChildren[parent] = append(s.workspaceChildren[parent], ws.ID)
+	}
+
+	// Allowlist merge
+	for _, entry := range snapshot.Allowlist {
+		if entry == nil || strings.TrimSpace(entry.ID) == "" {
+			continue
+		}
+		copy := *entry
+		s.allow[copy.ID] = &copy
+	}
+
+	// Audits append
+	for _, audit := range snapshot.Audits {
+		if audit == nil {
+			continue
+		}
+		copy := *audit
+		s.audits = append(s.audits, &copy)
+	}
+
+	// Users merge
+	for _, user := range snapshot.Users {
+		if user == nil || strings.TrimSpace(user.ID) == "" {
+			continue
+		}
+		copy := *user
+		s.users[copy.ID] = &copy
+		s.userByName[normalizeUsername(copy.Username)] = &copy
+	}
+	existingUserOrder := make(map[string]struct{}, len(s.userOrder))
+	for _, id := range s.userOrder {
+		existingUserOrder[id] = struct{}{}
+	}
+	for _, id := range snapshot.UserOrder {
+		if _, ok := existingUserOrder[id]; !ok {
+			s.userOrder = append(s.userOrder, id)
+		}
+	}
+
+	// Profiles merge
+	for _, profile := range snapshot.Profiles {
+		trimmed := strings.TrimSpace(profile.DID)
+		if trimmed == "" {
+			continue
+		}
+		copy := profile
+		copy.DID = trimmed
+		copy.Roles = append([]string{}, profile.Roles...)
+		s.profiles[trimmed] = copy
+	}
+
+	// Approvals merge
+	for _, approval := range snapshot.Approvals {
+		if approval == nil || strings.TrimSpace(approval.ID) == "" {
+			continue
+		}
+		clone := approval.Clone()
+		s.approvals[clone.ID] = clone
+		s.approvalByApplicant[strings.TrimSpace(clone.ApplicantDid)] = clone
+	}
+	s.approvalOrder = make([]*IdentityApproval, 0, len(s.approvals))
+	for _, approval := range s.approvals {
+		if approval != nil {
+			s.approvalOrder = append(s.approvalOrder, approval)
+		}
+	}
+	sort.Slice(s.approvalOrder, func(i, j int) bool { return s.approvalOrder[i].CreatedAt.Before(s.approvalOrder[j].CreatedAt) })
+
+	s.history.Reset(s.snapshotLocked())
+	return nil
+}
+
 // SaveTo persists a snapshot.json file atomically in dir.
 func (s *LedgerStore) SaveTo(dir string) error {
 	if strings.TrimSpace(dir) == "" {
@@ -1310,6 +1450,35 @@ func (s *LedgerStore) ListEntries(typ LedgerType) []LedgerEntry {
 	}
 	sort.Slice(cloned, func(i, j int) bool { return cloned[i].Order < cloned[j].Order })
 	return cloned
+}
+
+// ListEntriesPaged returns a slice for the requested page and total count.
+func (s *LedgerStore) ListEntriesPaged(typ LedgerType, page, pageSize int) ([]LedgerEntry, int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	entries := s.entries[typ]
+	total := len(entries)
+	if pageSize <= 0 {
+		return nil, total
+	}
+	start := (page - 1) * pageSize
+	if start < 0 {
+		start = 0
+	}
+	if start >= total {
+		return []LedgerEntry{}, total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	slice := entries[start:end]
+	cloned := make([]LedgerEntry, len(slice))
+	for i, e := range slice {
+		cloned[i] = e.Clone()
+	}
+	sort.Slice(cloned, func(i, j int) bool { return cloned[i].Order < cloned[j].Order })
+	return cloned, total
 }
 
 // OverviewStats aggregates counts, tags, links, and recents for dashboards.
