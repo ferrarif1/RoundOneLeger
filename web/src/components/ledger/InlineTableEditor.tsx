@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useMemo } from 'react';
 import {
   ArrowsPointingInIcon,
   ArrowsPointingOutIcon,
@@ -108,6 +109,8 @@ export const InlineTableEditor = ({
   const selectAllRef = useRef<HTMLInputElement>(null);
   const [displayMode, setDisplayMode] = useState<'default' | 'wide' | 'fullscreen'>('default');
   const autosaveRef = useRef<number | null>(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 200;
 
   const isWide = displayMode === 'wide';
   const isFullscreen = displayMode === 'fullscreen';
@@ -250,11 +253,23 @@ export const InlineTableEditor = ({
     </thead>
   );
 
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  const visibleRows = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredRows.slice(start, start + pageSize);
+  }, [filteredRows, page]);
+
   const renderTableBody = () => {
-    if (filteredRows.length) {
+    if (visibleRows.length) {
       return (
         <tbody>
-          {filteredRows.map((row) => {
+          {visibleRows.map((row) => {
             const rowSelected = selectedRowIds.includes(row.id);
             return (
               <tr
@@ -339,6 +354,27 @@ export const InlineTableEditor = ({
     ) : (
       <ArrowsPointingOutIcon className="h-4 w-4" />
     );
+    const pager = (
+      <div className="flex items-center gap-2">
+        <span className="text-[var(--muted)]">第 {page}/{totalPages} 页</span>
+        <button
+          type="button"
+          className={baseButtonClass}
+          onClick={() => setPage((p) => Math.max(1, p - 1))}
+          disabled={page <= 1}
+        >
+          上一页
+        </button>
+        <button
+          type="button"
+          className={baseButtonClass}
+          onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+          disabled={page >= totalPages}
+        >
+          下一页
+        </button>
+      </div>
+    );
 
     return (
       <div className={containerClass}>
@@ -354,6 +390,7 @@ export const InlineTableEditor = ({
           </button>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
+          {pager}
           <div className="relative">
             <input
               value={searchTerm}

@@ -1594,6 +1594,9 @@ func (s *Server) handleImportAll(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "overwrite_confirmation_required"})
 		return
 	}
+	if mode == "overwrite" && strings.TrimSpace(s.DataDir) != "" {
+		_ = os.RemoveAll(filepath.Join(s.DataDir, "assets"))
+	}
 	if err := importSnapshotFromFile(fh, info.Size(), s.Store, s.DataDir, mode == "merge"); err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, errSnapshotMissing) || errors.Is(err, errSnapshotInvalid) {
@@ -1710,6 +1713,7 @@ func (s *Server) handleAdminImport(c *gin.Context) {
 		return
 	}
 	if strings.TrimSpace(s.DataDir) != "" {
+		_ = os.RemoveAll(filepath.Join(s.DataDir, "assets"))
 		assetsSrc := filepath.Join(tmpDir, "assets")
 		assetsDst := filepath.Join(s.DataDir, "assets")
 		_ = copyDir(assetsSrc, assetsDst)
