@@ -1703,6 +1703,27 @@ func (s *LedgerStore) ReplaceEntries(typ LedgerType, entries []LedgerEntry, acto
 	s.commitLocked()
 }
 
+// AppendEntries appends entries with new IDs and timestamps.
+func (s *LedgerStore) AppendEntries(typ LedgerType, entries []LedgerEntry, actor string) []LedgerEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	start := len(s.entries[typ])
+	now := time.Now().UTC()
+	added := make([]LedgerEntry, len(entries))
+	for i, entry := range entries {
+		entry.ID = GenerateID(string(typ))
+		entry.Order = start + i
+		entry.Tags = normaliseStrings(entry.Tags)
+		entry.CreatedAt = now
+		entry.UpdatedAt = now
+		added[i] = entry.Clone()
+		s.entries[typ] = append(s.entries[typ], added[i])
+	}
+	s.appendAuditLocked(actor, fmt.Sprintf("append_%s", typ), fmt.Sprintf("count=%d", len(entries)))
+	s.commitLocked()
+	return added
+}
+
 // Undo reverts the store to the previous snapshot.
 func (s *LedgerStore) Undo() error {
 	s.mu.Lock()
@@ -2055,6 +2076,84 @@ func (s *LedgerStore) ReplaceWorkspaceData(id string, headers []string, records 
 
 	s.workspaces[workspace.ID] = workspace
 	s.appendAuditLocked(actor, "workspace_import", workspace.ID)
+	return workspace.Clone(), nil
+}
+
+// AppendWorkspaceData appends rows to a sheet without deleting existing data.
+func (s *LedgerStore) AppendWorkspaceData(id string, headers []string, records [][]string, actor string, expectedVersion int) (*Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	workspace, ok := s.workspaces[strings.TrimSpace(id)]
+	if !ok {
+		return nil, ErrWorkspaceNotFound
+	}
+	if !WorkspaceKindSupportsTable(workspace.Kind) {
+		return nil, ErrWorkspaceKindUnsupported
+	}
+	if expectedVersion > 0 && workspace.Version != expectedVersion {
+		return nil, ErrWorkspaceVersionConflict
+	}
+
+	now := time.Now().UTC()
+	normalizedHeaders := sanitizeHeaders(headers, records)
+
+	// Map existing columns by normalized title.
+	titleToID := make(map[string]string)
+	for _, col := range workspace.Columns {
+		key := strings.ToLower(strings.TrimSpace(col.Title))
+		if key != "" {
+			titleToID[key] = col.ID
+		}
+	}
+
+	columns := append([]WorkspaceColumn{}, workspace.Columns...)
+	for _, title := range normalizedHeaders {
+		key := strings.ToLower(strings.TrimSpace(title))
+		if key == "" {
+			continue
+		}
+		if _, exists := titleToID[key]; exists {
+			continue
+		}
+		id := GenerateID("col")
+		titleToID[key] = id
+		columns = append(columns, WorkspaceColumn{ID: id, Title: title})
+	}
+
+	rows := make([]WorkspaceRow, 0, len(records))
+	for _, record := range records {
+		cells := make(map[string]string, len(columns))
+		for idx, column := range columns {
+			val := ""
+			// populate from matching header if present
+			for hIdx, header := range normalizedHeaders {
+				if idx >= len(columns) {
+					break
+				}
+				if strings.EqualFold(header, column.Title) {
+					if hIdx < len(record) {
+						val = strings.TrimSpace(record[hIdx])
+					}
+					break
+				}
+			}
+			cells[column.ID] = val
+		}
+		rows = append(rows, WorkspaceRow{
+			ID:        GenerateID("row"),
+			Cells:     cells,
+			CreatedAt: now,
+			UpdatedAt: now,
+		})
+	}
+
+	workspace.Columns = columns
+	workspace.Rows = append(workspace.Rows, rows...)
+	workspace.Version++
+	workspace.UpdatedAt = now
+	s.workspaces[workspace.ID] = workspace
+	s.appendAuditLocked(actor, "workspace_import_append", workspace.ID)
 	return workspace.Clone(), nil
 }
 

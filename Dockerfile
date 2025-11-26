@@ -25,6 +25,7 @@ COPY --from=frontend /web/dist ./webembed/dist
 RUN go build -o server ./cmd/server
 
 FROM ${RUNTIME_BASE_IMAGE} AS app
+RUN apk add --no-cache postgresql-client
 
 WORKDIR /app
 

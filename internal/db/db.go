@@ -24,6 +24,10 @@ type Database struct {
 	SQL *sql.DB
 }
 
+func (d *Database) Config() Config {
+	return d.cfg
+}
+
 func ConnectFromEnv(ctx context.Context) (*Database, error) {
 	cfg := loadConfigFromEnv()
 	database := &Database{cfg: cfg}

@@ -2,6 +2,7 @@ package api
 
 import (
 	"archive/zip"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -95,6 +97,8 @@ func (s *Server) RegisterRoutes(router *gin.Engine) {
 		secured.GET("/audit-logs/verify", s.handleAuditLogsVerify)
 		secured.GET("/export/all", s.handleExportAll)
 		secured.POST("/import/all", s.handleImportAll)
+		secured.GET("/admin/export", s.handleAdminExport)
+		secured.POST("/admin/import", s.handleAdminImport)
 		secured.POST("/admin/save-snapshot", s.handleManualSave)
 		secured.POST("/media/upload", s.handleUploadMedia)
 	}
@@ -571,7 +575,7 @@ func (s *Server) handleImportLedger(c *gin.Context) {
 	}
 	entries := parseLedgerSheet(typ, sheet)
 	session := currentSession(c, s.Sessions)
-	s.Store.ReplaceEntries(typ, entries, session)
+	s.Store.AppendEntries(typ, entries, session)
 	c.JSON(http.StatusOK, gin.H{"items": s.Store.ListEntries(typ)})
 }
 
@@ -900,7 +904,7 @@ func (s *Server) handleImportWorkspaceExcel(c *gin.Context) {
 		c.Request.FormValue("version"),
 		c.Query("version"),
 	)
-	workspace, err := s.Store.ReplaceWorkspaceData(c.Param("id"), headers, rows, actor, expectedVersion)
+	workspace, err := s.Store.AppendWorkspaceData(c.Param("id"), headers, rows, actor, expectedVersion)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, models.ErrWorkspaceNotFound) {
@@ -938,7 +942,7 @@ func (s *Server) handleImportWorkspaceText(c *gin.Context) {
 	if req.Version != nil {
 		expectedVersion = *req.Version
 	}
-	workspace, err := s.Store.ReplaceWorkspaceData(c.Param("id"), headers, records, actor, expectedVersion)
+	workspace, err := s.Store.AppendWorkspaceData(c.Param("id"), headers, records, actor, expectedVersion)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, models.ErrWorkspaceNotFound) {
@@ -1582,9 +1586,13 @@ func (s *Server) handleImportAll(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "import_stat_failed"})
 		return
 	}
-	mode := strings.ToLower(strings.TrimSpace(c.Query("mode")))
+	mode := strings.ToLower(strings.TrimSpace(c.DefaultQuery("mode", "merge")))
 	if mode != "merge" && mode != "overwrite" {
-		mode = "overwrite"
+		mode = "merge"
+	}
+	if mode == "overwrite" && !confirmOverwrite(c) {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "overwrite_confirmation_required"})
+		return
 	}
 	if err := importSnapshotFromFile(fh, info.Size(), s.Store, s.DataDir, mode == "merge"); err != nil {
 		status := http.StatusInternalServerError
@@ -1618,6 +1626,95 @@ func (s *Server) handleManualSave(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "saved"})
+}
+
+func (s *Server) handleAdminExport(c *gin.Context) {
+	if s.Database == nil || s.Database.SQL == nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "database_not_configured"})
+		return
+	}
+	tmpDir, err := os.MkdirTemp("", "backup-*")
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "tempdir_failed"})
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dumpPath := filepath.Join(tmpDir, "db.dump")
+	if err := runPgDump(c.Request.Context(), s.Database.Config(), dumpPath); err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("pg_dump_failed:%v", err)})
+		return
+	}
+	if strings.TrimSpace(s.DataDir) != "" {
+		assetsSrc := filepath.Join(s.DataDir, "assets")
+		assetsDst := filepath.Join(tmpDir, "assets")
+		_ = copyDir(assetsSrc, assetsDst)
+	}
+
+	filename := fmt.Sprintf("backup-%s.zip", time.Now().UTC().Format("20060102-150405"))
+	zipPath := filepath.Join(tmpDir, filename)
+	if err := zipDirectory(tmpDir, zipPath); err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "zip_failed"})
+		return
+	}
+
+	c.Writer.Header().Set("Content-Type", "application/zip")
+	c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	file, err := os.Open(zipPath)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "open_zip_failed"})
+		return
+	}
+	defer file.Close()
+	_, _ = io.Copy(c.Writer, file)
+}
+
+func (s *Server) handleAdminImport(c *gin.Context) {
+	if s.Database == nil || s.Database.SQL == nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "database_not_configured"})
+		return
+	}
+	if !confirmOverwrite(c) {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "overwrite_confirmation_required"})
+		return
+	}
+	path, err := resolveSnapshotUpload(c)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, errImportFileMissing) || errors.Is(err, errUnsupportedArchive) {
+			status = http.StatusBadRequest
+		}
+		c.AbortWithStatusJSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	defer os.Remove(path)
+
+	tmpDir, err := os.MkdirTemp("", "import-*")
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "tempdir_failed"})
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+
+	if err := unzipFile(path, tmpDir); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "unzip_failed"})
+		return
+	}
+	dumpPath := filepath.Join(tmpDir, "db.dump")
+	if _, err := os.Stat(dumpPath); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "dump_missing"})
+		return
+	}
+	if err := runPgRestore(c.Request.Context(), s.Database.Config(), dumpPath); err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("pg_restore_failed:%v", err)})
+		return
+	}
+	if strings.TrimSpace(s.DataDir) != "" {
+		assetsSrc := filepath.Join(tmpDir, "assets")
+		assetsDst := filepath.Join(s.DataDir, "assets")
+		_ = copyDir(assetsSrc, assetsDst)
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "imported"})
 }
 func resolveSnapshotUpload(c *gin.Context) (string, error) {
 	if strings.HasPrefix(strings.ToLower(c.GetHeader("Content-Type")), "multipart/form-data") {
@@ -1823,11 +1920,11 @@ func persistAssetFromZip(file *zip.File, dataDir string) error {
 		return err
 	}
 	defer rc.Close()
-	targetName := filepath.Base(strings.TrimPrefix(strings.TrimPrefix(file.Name, "media/"), "assets/"))
-	if targetName == "." || targetName == "" {
+	cleanName := filepath.Clean(strings.TrimPrefix(strings.TrimPrefix(file.Name, "media/"), "assets/"))
+	if cleanName == "." || cleanName == "" || strings.HasPrefix(cleanName, "..") {
 		return nil
 	}
-	dest := filepath.Join(dataDir, "assets", targetName)
+	dest := filepath.Join(dataDir, "assets", cleanName)
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return err
 	}
@@ -1840,6 +1937,183 @@ func persistAssetFromZip(file *zip.File, dataDir string) error {
 		return err
 	}
 	return nil
+}
+
+func runPgDump(ctx context.Context, cfg db.Config, outPath string) error {
+	if strings.TrimSpace(outPath) == "" {
+		return errors.New("empty_output")
+	}
+	cmd := exec.CommandContext(
+		ctx,
+		"pg_dump",
+		"-Fc",
+		"-f", outPath,
+		"-h", cfg.Host,
+		"-p", cfg.Port,
+		"-U", cfg.User,
+		cfg.Name,
+	)
+	cmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", cfg.Password))
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%v: %s", err, string(output))
+	}
+	return nil
+}
+
+func runPgRestore(ctx context.Context, cfg db.Config, dumpPath string) error {
+	cmd := exec.CommandContext(
+		ctx,
+		"pg_restore",
+		"--clean",
+		"-h", cfg.Host,
+		"-p", cfg.Port,
+		"-U", cfg.User,
+		"-d", cfg.Name,
+		dumpPath,
+	)
+	cmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", cfg.Password))
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%v: %s", err, string(output))
+	}
+	return nil
+}
+
+func copyDir(src, dst string) error {
+	if strings.TrimSpace(src) == "" {
+		return nil
+	}
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return nil
+	}
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, relErr := filepath.Rel(src, path)
+		if relErr != nil {
+			return relErr
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		in, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+		out, err := os.Create(target)
+		if err != nil {
+			return err
+		}
+		defer out.Close()
+		if _, err := io.Copy(out, in); err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+func zipDirectory(root, zipPath string) error {
+	fh, err := os.Create(zipPath)
+	if err != nil {
+		return err
+	}
+	defer fh.Close()
+
+	writer := zip.NewWriter(fh)
+	defer writer.Close()
+
+	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == zipPath {
+			return nil
+		}
+		if info.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+		header.Name = filepath.ToSlash(rel)
+		header.Method = zip.Deflate
+		w, err := writer.CreateHeader(header)
+		if err != nil {
+			return err
+		}
+		src, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer src.Close()
+		_, err = io.Copy(w, src)
+		return err
+	})
+}
+
+func unzipFile(path, target string) error {
+	reader, err := zip.OpenReader(path)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	for _, f := range reader.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		clean := filepath.Clean(f.Name)
+		if strings.HasPrefix(clean, "..") || clean == "" {
+			continue
+		}
+		dest := filepath.Join(target, clean)
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return err
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+		out, err := os.Create(dest)
+		if err != nil {
+			_ = rc.Close()
+			return err
+		}
+		if _, err := io.Copy(out, rc); err != nil {
+			_ = rc.Close()
+			_ = out.Close()
+			return err
+		}
+		_ = rc.Close()
+		_ = out.Close()
+	}
+	return nil
+}
+
+func confirmOverwrite(c *gin.Context) bool {
+	const phrase = "我知晓该操作将覆盖当前数据，可能造成数据丢失"
+	if header := strings.TrimSpace(c.GetHeader("X-Import-Confirm")); header != "" {
+		return header == phrase
+	}
+	if v := strings.TrimSpace(c.Query("confirm")); v != "" {
+		return v == phrase
+	}
+	return false
 }
 
 func parseLedgerType(value string) (models.LedgerType, bool) {
