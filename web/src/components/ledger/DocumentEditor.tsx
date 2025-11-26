@@ -7,6 +7,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowsPointingInIcon, ArrowsPointingOutIcon } from '@heroicons/react/24/outline';
+import api from '../../api/client';
 
 const DOCUMENT_BLOCK_OPTIONS = [
   { value: 'paragraph', label: '正文', command: 'P' },
@@ -172,22 +173,30 @@ export const DocumentEditor = ({ value, editable, onChange, onStatus, onSave, di
   }, [insertHtml]);
 
   const handleMediaInsert = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => {
+    async (event: ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
       event.target.value = '';
       if (!file || !editable) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result;
-        if (typeof result === 'string') {
-          insertHtml(
-            `<figure class="doc-figure"><img src="${result}" alt="插入图片" /><figcaption>图片说明</figcaption></figure>`
-          );
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        const { data } = await api.post<{ url: string }>('/api/v1/media/upload', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        const url = data?.url || '';
+        if (!url) {
+          onStatus('上传失败：未返回路径');
+          return;
         }
-      };
-      reader.readAsDataURL(file);
+        insertHtml(
+          `<figure class="doc-figure"><img src="${url}" alt="${file.name}" /><figcaption>${file.name}</figcaption></figure>`
+        );
+      } catch (error) {
+        console.error('upload media failed', error);
+        onStatus('上传图片失败，请稍后重试。');
+      }
     },
-    [editable, insertHtml]
+    [editable, insertHtml, onStatus]
   );
 
   const applyHighlight = useCallback(() => {
