@@ -40,7 +40,7 @@ const SheetCell = ({
       rows={1}
       placeholder={placeholder}
       spellCheck={false}
-      className="w-full resize-none overflow-hidden rounded-xl border border-transparent bg-white/90 px-3 py-2 text-sm text-[var(--text)] outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/20 whitespace-pre-wrap break-words"
+      className="w-full resize-none overflow-hidden rounded-[6px] border border-[var(--line)] bg-white px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--line-strong)] whitespace-pre-wrap break-words"
     />
   );
 };
@@ -229,12 +229,12 @@ export const InlineTableEditor = ({
               <input
                 value={column.title}
                 onChange={(event) => onUpdateColumnTitle(column.id, event.target.value)}
-                className="w-full rounded-xl border border-transparent bg-transparent px-2 py-1 text-sm text-[var(--text)] focus:border-[var(--accent)] focus:outline-none"
+                className="w-full rounded-[6px] border border-transparent bg-transparent px-2 py-1 text-sm font-semibold text-[var(--text)] focus:border-[var(--line-strong)] focus:outline-none"
               />
               <button
                 type="button"
                 onClick={() => onRemoveColumn(column.id)}
-                className="rounded-full border border-[var(--muted)]/30 p-1 text-[var(--muted)] transition hover:text-red-500"
+                className="rounded-full border border-[var(--line)] bg-white p-1 text-[var(--muted)]"
                 aria-label="删除列"
               >
                 <TrashIcon className="h-4 w-4" />
@@ -244,7 +244,7 @@ export const InlineTableEditor = ({
               role="separator"
               tabIndex={-1}
               onMouseDown={(event) => handleResizeStart(event, column.id)}
-              className="absolute right-0 top-0 h-full w-2 cursor-col-resize select-none rounded-full bg-transparent transition hover:bg-[var(--accent)]/20"
+              className="absolute right-0 top-0 h-full w-2 cursor-col-resize select-none rounded-full bg-transparent"
             />
           </th>
         ))}
@@ -274,8 +274,8 @@ export const InlineTableEditor = ({
             return (
               <tr
                 key={row.id}
-                className={`align-top border-t border-black/5 transition ${
-                  rowSelected ? 'bg-[var(--accent)]/10' : 'bg-white/70 hover:bg-white'
+                className={`align-top border-t border-[var(--line)] ${
+                  rowSelected ? 'bg-[#f4f6f8]' : 'bg-white'
                 } ${highlightedRowIds.includes(row.id) ? 'font-semibold' : ''}`}
               >
                 <td className="px-2 py-3 align-top">
@@ -299,7 +299,7 @@ export const InlineTableEditor = ({
                   <button
                     type="button"
                     onClick={() => onRemoveRow(row.id)}
-                    className="rounded-full border border-[var(--muted)]/30 p-2 text-[var(--muted)] transition hover:text-red-500"
+                    className="rounded-full border border-[var(--line)] bg-white p-2 text-[var(--muted)]"
                     aria-label="删除行"
                   >
                     <TrashIcon className="h-4 w-4" />
@@ -308,6 +308,20 @@ export const InlineTableEditor = ({
               </tr>
             );
           })}
+          <tr className="border-t border-[var(--line)] bg-white">
+            <td className="px-2 py-3" />
+            <td colSpan={columns.length} className="px-3 py-3 text-sm text-[var(--muted)]">
+              <button type="button" onClick={onAddRow} className="flex items-center gap-2 text-[var(--accent)]">
+                <PlusIcon className="h-4 w-4" />
+                新增行
+              </button>
+            </td>
+            <td className="px-3 py-3 text-right">
+              <button type="button" onClick={onAddColumn} className="text-[var(--accent)]">
+                + 新增列
+              </button>
+            </td>
+          </tr>
         </tbody>
       );
     }
@@ -319,6 +333,20 @@ export const InlineTableEditor = ({
             {rows.length
               ? '未找到匹配的记录，尝试调整搜索条件或清空筛选。'
               : '暂无记录，使用“新增行”或导入功能开始填写内容。'}
+          </td>
+        </tr>
+        <tr className="border-t border-[var(--line)]">
+          <td className="px-2 py-3" />
+          <td colSpan={columns.length} className="px-3 py-3 text-sm text-[var(--accent)]">
+            <button type="button" onClick={onAddRow} className="flex items-center gap-2">
+              <PlusIcon className="h-4 w-4" />
+              新增行
+            </button>
+          </td>
+          <td className="px-3 py-3 text-right">
+            <button type="button" onClick={onAddColumn} className="text-[var(--accent)]">
+              + 新增列
+            </button>
           </td>
         </tr>
       </tbody>
@@ -334,13 +362,13 @@ export const InlineTableEditor = ({
   };
 
   const baseButtonClass =
-    'flex items-center gap-1 rounded-full border border-[var(--muted)]/30 bg-white/70 px-3 py-2 text-xs text-[var(--muted)] transition hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-60';
+    'flex items-center gap-1 rounded-full border border-[var(--line)] bg-white px-3 py-2 text-xs text-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-60';
   const dangerButtonClass =
-    'flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-500 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60';
+    'flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-500 disabled:cursor-not-allowed disabled:opacity-60';
 
   const renderToolbar = (fullscreen: boolean) => {
     const containerClass = fullscreen
-      ? 'sticky top-0 z-30 flex flex-wrap items-center justify-between gap-3 border-b border-black/5 bg-white/95 px-2 py-4 backdrop-blur'
+      ? 'sticky top-0 z-30 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] bg-white px-2 py-4'
       : 'flex flex-wrap items-center justify-between gap-3';
     const fullscreenLabel = isFullscreen ? '退出全屏' : '全屏编辑';
     const fullscreenIcon = isFullscreen ? (
@@ -396,13 +424,13 @@ export const InlineTableEditor = ({
               value={searchTerm}
               onChange={(event) => onSearchTermChange(event.target.value)}
               placeholder="搜索关键字"
-              className="w-44 rounded-full border border-[var(--muted)]/30 bg-white/80 px-3 py-2 text-sm text-[var(--text)] focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20"
+              className="w-44 rounded-full border border-[var(--line)] bg-white px-3 py-2 text-sm text-[var(--text)] focus:border-[var(--line-strong)] focus:outline-none"
             />
             {searchTerm && (
               <button
                 type="button"
                 onClick={() => onSearchTermChange('')}
-                className="absolute inset-y-0 right-2 flex items-center text-[var(--muted)] transition hover:text-[var(--text)]"
+                className="absolute inset-y-0 right-2 flex items-center text-[var(--muted)]"
                 aria-label="清空搜索"
               >
                 <XMarkIcon className="h-4 w-4" />
@@ -478,9 +506,7 @@ export const InlineTableEditor = ({
     }
     return (
       <div
-        className={`rounded-2xl bg-[var(--accent)]/10 px-3 py-2 text-xs text-[var(--accent)] ${
-          fullscreen ? 'mx-1' : ''
-        }`}
+        className={`rounded-lg bg-[#f4f6f8] px-3 py-2 text-xs text-[var(--accent)] ${fullscreen ? 'mx-1' : ''}`}
       >
         已选中 {selectedRowIds.length} 行，支持批量编辑或删除。
       </div>
@@ -489,8 +515,8 @@ export const InlineTableEditor = ({
 
   const renderTableShell = (fullscreen: boolean) => {
     const wrapperClass = [
-      'relative rounded-3xl shadow-inner ring-1 ring-black/5',
-      fullscreen ? 'flex-1 overflow-auto bg-white' : 'overflow-auto bg-white/80',
+      'relative rounded-lg',
+      fullscreen ? 'flex-1 overflow-auto bg-white' : 'overflow-auto bg-white',
       !fullscreen && isWide ? 'max-w-none' : ''
     ]
       .filter(Boolean)
@@ -518,7 +544,7 @@ export const InlineTableEditor = ({
         {renderToolbar(false)}
         {renderSelectionBanner(false)}
         {isFullscreen ? (
-          <div className="rounded-3xl border border-dashed border-[var(--muted)]/40 bg-white/70 p-6 text-center text-sm text-[var(--muted)]">
+          <div className="rounded-lg border border-dashed border-[var(--line)] bg-white p-6 text-center text-sm text-[var(--muted)]">
             正在全屏编辑表格，点击“退出全屏”返回当前视图。
           </div>
         ) : (
@@ -527,8 +553,8 @@ export const InlineTableEditor = ({
       </section>
       {isFullscreen &&
         createPortal(
-          <div className="fixed inset-0 z-[120] flex flex-col bg-white">
-            <div className="flex h-full flex-col">
+          <div className="fixed inset-0 z-[120] flex flex-col bg-[rgba(17,24,39,0.12)]">
+            <div className="flex h-full flex-col bg-white">
               {renderToolbar(true)}
               <div className="flex-1 overflow-hidden px-6 pb-6">
                 <div className="flex h-full flex-col gap-3">

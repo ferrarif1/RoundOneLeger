@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
-import { AnimatePresence, motion } from 'framer-motion';
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
 import Dashboard from './pages/Dashboard';
@@ -20,55 +19,69 @@ const App = () => {
   const { token } = useSession();
   const [navCollapsed, setNavCollapsed] = useState(false);
 
-  const renderProtectedPage = (key: string, className: string, content: JSX.Element) => (
-    <ProtectedRoute>
-      <motion.div
-        layout
-        key={key}
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -16 }}
-        transition={{ type: 'spring', stiffness: 220, damping: 28, mass: 0.9 }}
-        className={className}
-      >
-        {content}
-      </motion.div>
-    </ProtectedRoute>
-  );
-
   return (
-    <div className="flex min-h-screen bg-[var(--bg)] text-[var(--text)]">
-      {token && <Sidebar collapsed={navCollapsed} onToggle={() => setNavCollapsed((prev) => !prev)} />}
-      <div className="flex-1 flex flex-col">
-        {token && <TopBar />}
-        <main className="flex-1 overflow-y-auto bg-[var(--bg-subtle)]/80 p-6 md:p-10">
-          <AnimatePresence mode="wait">
+    <div className="eidos-ledger-root">
+      <div className="flex min-h-screen gap-6 bg-[var(--bg)] text-[var(--text)]">
+        {token && <Sidebar collapsed={navCollapsed} onToggle={() => setNavCollapsed((prev) => !prev)} />}
+        <div className="flex-1 flex flex-col eidos-ledger-wrapper">
+          {token && <TopBar />}
+          <main className="flex-1 overflow-y-auto bg-white p-6 md:p-8 rounded-lg border border-[var(--line)] shadow-none">
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route
                 path="/dashboard"
-                element={renderProtectedPage('dashboard', 'mx-auto max-w-5xl space-y-6', <Dashboard />)}
+                element={
+                  <ProtectedRoute>
+                    <div className="mx-auto max-w-5xl space-y-6">
+                      <Dashboard />
+                    </div>
+                  </ProtectedRoute>
+                }
               />
               <Route
                 path="/assets"
-                element={renderProtectedPage('assets', 'mx-auto w-full max-w-[1680px]', <Assets />)}
+                element={
+                  <ProtectedRoute>
+                    <div className="mx-auto w-full max-w-[1680px]">
+                      <Assets />
+                    </div>
+                  </ProtectedRoute>
+                }
               />
               <Route
                 path="/ip-allowlist"
-                element={renderProtectedPage('ip-allowlist', 'mx-auto max-w-5xl', <IPAllowlist />)}
+                element={
+                  <ProtectedRoute>
+                    <div className="mx-auto max-w-5xl">
+                      <IPAllowlist />
+                    </div>
+                  </ProtectedRoute>
+                }
               />
               <Route
                 path="/audit-logs"
-                element={renderProtectedPage('audit-logs', 'mx-auto max-w-5xl', <AuditLogs />)}
+                element={
+                  <ProtectedRoute>
+                    <div className="mx-auto max-w-5xl">
+                      <AuditLogs />
+                    </div>
+                  </ProtectedRoute>
+                }
               />
               <Route
                 path="/users"
-                element={renderProtectedPage('users', 'mx-auto max-w-5xl', <Users />)}
+                element={
+                  <ProtectedRoute>
+                    <div className="mx-auto max-w-5xl">
+                      <Users />
+                    </div>
+                  </ProtectedRoute>
+                }
               />
               <Route path="*" element={<Navigate to={token ? '/dashboard' : '/login'} replace />} />
             </Routes>
-          </AnimatePresence>
-        </main>
+          </main>
+        </div>
       </div>
     </div>
   );

@@ -108,7 +108,7 @@ const Dashboard = () => {
         </div>
       </div>
 
-      <section className="rounded-3xl border border-[var(--line)] bg-white/95 p-6 shadow-[0_22px_44px_rgba(0,0,0,0.08)]">
+      <section className="rounded-lg border border-[var(--line)] bg-white p-6 shadow-none">
         <div className="flex items-center gap-2 text-sm text-[rgba(20,20,20,0.55)]">
           <ChartPieIcon className="h-5 w-5 text-[var(--accent)]" />
           数据总览
@@ -117,7 +117,7 @@ const Dashboard = () => {
           {ledgerData.map((ledger) => (
             <div
               key={ledger.type}
-              className="rounded-2xl border border-[var(--line)] bg-[var(--bg-subtle)] p-4 shadow-sm"
+              className="rounded-md border border-[var(--line)] bg-[var(--bg-subtle)] p-4 shadow-none"
             >
               <div className="flex items-center justify-between">
                 <span
@@ -137,13 +137,13 @@ const Dashboard = () => {
       </section>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <section className="lg:col-span-2 rounded-3xl border border-[var(--line)] bg-white/95 p-6 shadow-[0_22px_44px_rgba(0,0,0,0.08)]">
+        <section className="lg:col-span-2 rounded-lg border border-[var(--line)] bg-white p-6 shadow-none">
           <div className="flex items-center gap-2 text-sm text-[rgba(20,20,20,0.55)]">
             <LinkIcon className="h-5 w-5 text-[var(--accent)]" />
             关联关系
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            <div className="rounded-2xl border border-[rgba(20,20,20,0.08)] bg-[var(--bg-subtle)] p-4">
+            <div className="rounded-md border border-[var(--line)] bg-[var(--bg-subtle)] p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-[rgba(20,20,20,0.55)]">总引用数</p>
               <p className="mt-2 text-2xl font-semibold text-[var(--text)]">
                 {stats?.relationships?.total ?? 0}
@@ -151,7 +151,7 @@ const Dashboard = () => {
               <p className="mt-1 text-xs text-[rgba(20,20,20,0.55)]">跨台账的链接关系数量</p>
             </div>
             {(['ips', 'personnel', 'systems'] as LedgerType[]).map((type) => (
-              <div key={type} className="rounded-2xl border border-[rgba(20,20,20,0.08)] bg-white p-4">
+              <div key={type} className="rounded-md border border-[var(--line)] bg-white p-4">
                 <p className="text-xs uppercase tracking-[0.18em] text-[rgba(20,20,20,0.55)]">
                   指向 {ledgerLabels[type]}
                 </p>
@@ -164,7 +164,7 @@ const Dashboard = () => {
           </div>
         </section>
 
-        <section className="rounded-3xl border border-[var(--line)] bg-white/95 p-6 shadow-[0_22px_44px_rgba(0,0,0,0.08)]">
+        <section className="rounded-lg border border-[var(--line)] bg-white p-6 shadow-none">
           <div className="flex items-center gap-2 text-sm text-[rgba(20,20,20,0.55)]">
             <TagIcon className="h-5 w-5 text-[var(--accent)]" />
             高频标签
@@ -174,7 +174,7 @@ const Dashboard = () => {
               <p className="text-sm text-[rgba(20,20,20,0.55)]">暂无标签分布，请先创建台账条目。</p>
             )}
             {(stats?.tag_top ?? []).map((tag) => (
-              <div key={tag.tag} className="rounded-2xl border border-[rgba(20,20,20,0.08)] bg-[var(--bg-subtle)] p-3">
+              <div key={tag.tag} className="rounded-md border border-[var(--line)] bg-[var(--bg-subtle)] p-3">
                 <div className="flex items-center justify-between text-sm font-semibold text-[var(--text)]">
                   <span className="truncate">{tag.tag}</span>
                   <span className="text-[rgba(20,20,20,0.65)]">{tag.count}</span>
@@ -191,7 +191,7 @@ const Dashboard = () => {
         </section>
       </div>
 
-      <section className="rounded-3xl border border-[var(--line)] bg-white/95 p-6 shadow-[0_22px_44px_rgba(0,0,0,0.08)]">
+      <section className="rounded-lg border border-[var(--line)] bg-white p-6 shadow-none">
         <div className="flex items-center gap-2 text-sm text-[rgba(20,20,20,0.55)]">
           <SignalIcon className="h-5 w-5 text-[var(--accent)]" />
           最近变更

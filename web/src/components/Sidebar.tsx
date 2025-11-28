@@ -1,6 +1,5 @@
 import { NavLink } from 'react-router-dom';
 import { clsx } from 'clsx';
-import { motion } from 'framer-motion';
 import {
   ChartPieIcon,
   ChevronDoubleLeftIcon,
@@ -29,18 +28,18 @@ const collapsedWidth = 80;
 
 const Sidebar = ({ collapsed, onToggle }: SidebarProps) => (
   <div
-    className="hidden lg:flex flex-col border-r border-[rgba(20,20,20,0.08)] bg-[var(--bg-subtle)]/80 backdrop-blur-md"
+    className="hidden lg:flex flex-col border-r border-[var(--line)] bg-[#f7f7f7]"
     style={{ width: collapsed ? collapsedWidth : expandedWidth }}
   >
-    <div className="px-6 py-8 border-b border-[rgba(20,20,20,0.08)]">
+    <div className="px-6 py-6 border-b border-[var(--line)]">
       <div className={clsx('flex items-center text-[var(--text)]', collapsed ? 'justify-center' : 'gap-3')}>
-        <div className="rounded-2xl border border-[rgba(20,20,20,0.12)] bg-white p-2.5 shadow-sm">
+        <div className="rounded-lg border border-[var(--line)] bg-white p-2.5">
           <SparklesIcon className="h-6 w-6 text-[var(--accent)]" />
         </div>
         {!collapsed && (
           <div className="min-w-0">
-            <p className="text-xs uppercase tracking-[0.32em] text-[rgba(20,20,20,0.45)]">RoundOneLeger</p>
-            <p className="mt-1 text-xl font-semibold tracking-tight text-[var(--text)]">RoundOneLeger</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-[var(--muted)]">RoundOneLeger</p>
+            <p className="mt-1 text-lg font-semibold tracking-tight text-[var(--text)]">RoundOneLeger</p>
           </div>
         )}
       </div>
@@ -50,31 +49,26 @@ const Sidebar = ({ collapsed, onToggle }: SidebarProps) => (
         aria-pressed={collapsed}
         aria-label={collapsed ? '展开菜单栏' : '折叠菜单栏'}
         className={clsx(
-          'mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full border-2 border-[#0f62fe] bg-white/95 px-5 py-2.5 text-sm font-semibold tracking-[0.32em] text-[#0f62fe] shadow-[0_12px_30px_rgba(15,98,254,0.18)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-white focus:outline-none focus-visible:ring-4 focus-visible:ring-[#0f62fe]/20',
-          collapsed && 'px-3 tracking-[0.2em]'
+          'mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full border border-[var(--line)] bg-white px-4 py-2 text-sm font-medium text-[var(--text)]',
+          collapsed && 'px-3'
         )}
       >
-        <ChevronDoubleLeftIcon
-          className={clsx(
-            'h-4 w-4 text-[#0f62fe]',
-            collapsed && 'rotate-180 transition-none'
-          )}
-        />
+        <ChevronDoubleLeftIcon className={clsx('h-4 w-4 text-[var(--muted)]', collapsed && 'rotate-180')} />
         {!collapsed && <span className="whitespace-nowrap">折叠菜单</span>}
       </button>
     </div>
-    <nav className={clsx('flex-1 space-y-2 px-4 py-6', collapsed && 'px-2')}>
+    <nav className={clsx('flex-1 space-y-2 px-4 py-5', collapsed && 'px-2')}>
       {links.map(({ to, label, icon: Icon }) => (
         <NavLink
           key={to}
           to={to}
           className={({ isActive }) =>
             clsx(
-              'group flex items-center gap-3 rounded-2xl border text-sm font-medium tracking-wide min-w-0',
-              collapsed ? 'justify-center px-2 py-3' : 'px-4 py-3',
+              'group flex items-center gap-3 rounded-lg border text-sm font-medium min-w-0',
+              collapsed ? 'justify-center px-2 py-2.5' : 'px-4 py-2.5',
               isActive
-                ? 'border-black bg-black text-white shadow-[0_16px_32px_rgba(0,0,0,0.18)]'
-                : 'border-[rgba(20,20,20,0.12)] bg-white hover:-translate-y-0.5 hover:border-black/80 hover:shadow-[0_18px_34px_rgba(0,0,0,0.12)]'
+                ? 'border-[var(--line-strong)] bg-[#eef1f5] text-[var(--text)]'
+                : 'border-[var(--line)] bg-white hover:border-[var(--line-strong)] hover:bg-[#f4f6f8]'
             )
           }
         >
@@ -83,7 +77,7 @@ const Sidebar = ({ collapsed, onToggle }: SidebarProps) => (
               <Icon
                 className={clsx(
                   'h-5 w-5',
-                  isActive ? 'text-white' : 'text-[rgba(20,20,20,0.55)] group-hover:text-black'
+                  isActive ? 'text-[var(--accent)]' : 'text-[var(--muted)] group-hover:text-[var(--accent)]'
                 )}
               />
               {!collapsed && <span className="truncate">{label}</span>}
@@ -93,8 +87,8 @@ const Sidebar = ({ collapsed, onToggle }: SidebarProps) => (
       ))}
     </nav>
     {!collapsed && (
-      <div className="px-6 pb-8 text-xs leading-relaxed text-[rgba(20,20,20,0.55)]">
-        采用黑白线框与圆角面板，构建类似 ChatGPT 控制台的沉浸式空间感。
+      <div className="px-6 pb-6 text-xs leading-relaxed text-[var(--muted)]">
+        浅色侧栏，简洁线框，呼应 Eidos 的极简风格。
       </div>
     )}
   </div>

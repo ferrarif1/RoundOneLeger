@@ -21,23 +21,23 @@ const TopBar = () => {
   };
 
   return (
-    <header className="sticky top-0 z-30 border-b border-[rgba(20,20,20,0.08)] bg-[var(--bg-subtle)]/90 backdrop-blur-md">
+    <header className="sticky top-0 z-30 border-b border-[var(--line)] bg-white">
       <div className="flex items-center justify-between px-6 py-4">
         <div className="min-w-0">
-          <p className="text-xs uppercase tracking-[0.28em] text-[rgba(20,20,20,0.45)]">控制中心</p>
-          <h1 className="mt-1 text-2xl font-semibold text-[var(--text)] truncate">{titles[pathname] ?? '控制台'}</h1>
+          <p className="text-xs uppercase tracking-[0.24em] text-[var(--muted)]">控制中心</p>
+          <h1 className="mt-1 text-xl font-semibold text-[var(--text)] truncate">{titles[pathname] ?? '控制台'}</h1>
         </div>
-        <div className="flex items-center gap-3 text-[rgba(20,20,20,0.65)]">
+        <div className="flex items-center gap-3 text-[var(--muted)]">
           <button
-            className="rounded-full border border-[rgba(20,20,20,0.14)] bg-white p-2.5 shadow-sm transition-all hover:-translate-y-0.5 hover:border-black/70 hover:text-black"
+            className="rounded-full border border-[var(--line)] bg-white p-2.5"
             aria-label="通知"
           >
             <BellIcon className="h-5 w-5" />
           </button>
-          <div className="flex min-w-0 items-center gap-2 rounded-full border border-[rgba(20,20,20,0.12)] bg-white px-3 py-2 shadow-sm">
+          <div className="flex min-w-0 items-center gap-2 rounded-full border border-[var(--line)] bg-white px-3 py-2">
             <UserCircleIcon className="h-6 w-6 text-[var(--accent)]" />
             <div className="min-w-0 text-left">
-              <p className="text-xs uppercase tracking-wider text-[rgba(20,20,20,0.45)] truncate">
+              <p className="text-xs uppercase tracking-wider text-[var(--muted)] truncate">
                 {admin ? '管理员' : '用户'}
               </p>
               <p className="text-sm font-semibold text-[var(--text)] truncate">{username || '未命名账户'}</p>

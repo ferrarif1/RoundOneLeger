@@ -1,15 +1,15 @@
 :root {
-  --bg-page: #f5f5f3;
+  --bg-page: #ffffff;
   --card-bg: #ffffff;
-  --card-elev: 0 24px 48px rgba(14, 14, 14, 0.08);
-  --card-elev-2: 0 14px 32px rgba(14, 14, 14, 0.05);
-  --accent: #141414;
-  --accent-2: linear-gradient(90deg, #141414, #000000);
-  --muted: #5b5f66;
-  --text: #141414;
-  --radius-lg: 20px;
-  --radius-md: 14px;
-  --gap: clamp(18px, 2.6vw, 38px);
+  --card-elev: 0 8px 22px rgba(17, 24, 39, 0.06);
+  --card-elev-2: 0 4px 12px rgba(17, 24, 39, 0.05);
+  --accent: #111111;
+  --accent-2: linear-gradient(90deg, #1f2933, #2b2f38);
+  --muted: #555555;
+  --text: #111111;
+  --radius-lg: 10px;
+  --radius-md: 8px;
+  --gap: 16px;
   --bg: var(--bg-page);
   --shadow-soft: var(--card-elev);
   --shadow-sm: var(--card-elev-2);
@@ -19,8 +19,8 @@
 .eidos-ledger-root {
   min-height: 100vh;
   background: var(--bg-page);
-  padding: clamp(24px, 4vw, 60px) clamp(16px, 4vw, 64px) clamp(40px, 6vw, 80px);
-  font-family: 'Inter', 'Noto Sans SC', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  padding: 20px clamp(16px, 3vw, 48px) 32px;
+  font-family: 'Inter', 'SF Pro Display', 'Roboto', system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
   color: var(--text);
   -webkit-font-smoothing: antialiased;
 }
@@ -75,11 +75,11 @@
 }
 
 .eidos-ledger-list {
-  background: var(--card-bg);
+  background: #f7f7f7;
   border-radius: var(--radius-md);
-  border: 1.5px solid rgba(20, 20, 20, 0.12);
-  box-shadow: var(--card-elev-2);
-  padding: clamp(20px, 2vw, 28px);
+  border: 1px solid var(--line);
+  box-shadow: none;
+  padding: 16px;
   height: min(calc(100vh - 160px), 920px);
   overflow: visible;
   display: block;
@@ -133,9 +133,9 @@
 .eidos-ledger-editor {
   background: var(--card-bg);
   border-radius: var(--radius-lg);
-  border: 1.5px solid rgba(20, 20, 20, 0.12);
-  box-shadow: var(--card-elev);
-  padding: clamp(24px, 2.6vw, 40px);
+  border: 1px solid var(--line);
+  box-shadow: var(--card-elev-2);
+  padding: 20px;
   height: min(calc(100vh - 140px), 960px);
   min-height: clamp(520px, 60vh, 720px);
   overflow: hidden;
@@ -152,8 +152,8 @@
 .eidos-card {
   background: var(--card-bg);
   border-radius: 18px;
-  border: 1.5px solid rgba(20, 20, 20, 0.12);
-  box-shadow: var(--card-elev-2);
+  border: 1px solid var(--line);
+  box-shadow: none;
   padding: 16px;
   margin-bottom: 18px;
 }
@@ -162,11 +162,11 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  background: rgba(255, 255, 255, 0.95);
+  background: #ffffff;
   border-radius: 999px;
-  border: 1.5px solid rgba(20, 20, 20, 0.12);
-  padding: 8px 18px;
-  box-shadow: var(--card-elev-2);
+  border: 1px solid var(--line);
+  padding: 8px 14px;
+  box-shadow: none;
 }
 
 .eidos-search input {
@@ -205,51 +205,46 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  background: var(--accent-2);
-  color: #ffffff;
-  border: 1.5px solid #000000;
-  border-radius: var(--radius-md);
-  padding: 12px 22px;
+  background: #ffffff;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 10px 18px;
   font-size: 14px;
   font-weight: 600;
   line-height: 1.2;
-  box-shadow: var(--card-elev-2);
+  box-shadow: none;
   cursor: pointer;
-  transition: transform 180ms ease, box-shadow 180ms ease, opacity 180ms ease;
 }
 
 .eidos-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
 }
 
 .eidos-btn:not(:disabled):hover {
-  transform: translateY(-2px);
-  box-shadow: 0 20px 36px rgba(14, 14, 14, 0.16);
+  background: #f5f6f8;
+  border-color: var(--line-strong);
 }
 
 .eidos-btn--ghost {
-  background: rgba(255, 255, 255, 0.9);
+  background: #ffffff;
   color: var(--text);
-  border: 1.5px solid rgba(20, 20, 20, 0.12);
+  border: 1px solid var(--line);
 }
 
 .eidos-btn--ghost:not(:disabled):hover {
-  background: #ffffff;
-  box-shadow: 0 18px 32px rgba(14, 14, 14, 0.12);
+  background: #f5f6f8;
 }
 
 .eidos-btn--danger {
   background: #fef2f2;
   color: #b91c1c;
-  border: 1.5px solid rgba(185, 28, 28, 0.2);
+  border: 1px solid rgba(185, 28, 28, 0.28);
 }
 
 .eidos-btn--danger:not(:disabled):hover {
   background: #fde5e5;
-  box-shadow: 0 18px 32px rgba(185, 28, 28, 0.16);
 }
 
 .eidos-btn.is-busy {
@@ -262,8 +257,9 @@
 }
 
 .eidos-ledger-list .ledger-item:hover {
-  transform: translateX(6px);
-  box-shadow: 0 18px 32px rgba(14, 14, 14, 0.12);
+  transform: none;
+  box-shadow: none;
+  background: #f2f4f7;
 }
 
 .eidos-ledger-editor-card {

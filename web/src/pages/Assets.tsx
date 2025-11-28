@@ -252,7 +252,7 @@ const PasteModal = ({
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-4">
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-[rgba(17,24,39,0.12)] px-4">
       <div className="w-full max-w-2xl rounded-[var(--radius-lg)] bg-white p-6 shadow-[var(--shadow-soft)]">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-semibold text-[var(--text)]">批量粘贴导入</h3>
@@ -375,7 +375,7 @@ const BatchEditModal = ({
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-4">
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-[rgba(17,24,39,0.12)] px-4">
       <div className="w-full max-w-lg rounded-[var(--radius-lg)] bg-white p-6 shadow-[var(--shadow-soft)]">
         <div className="mb-4 flex items-center justify-between">
           <div>
