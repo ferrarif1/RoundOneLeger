@@ -183,7 +183,17 @@ export const DocumentEditor = ({ value, editable, onChange, onStatus, onSave, di
         const { data } = await api.post<{ url: string }>('/api/v1/media/upload', formData, {
           headers: { 'Content-Type': 'multipart/form-data' }
         });
-        const url = data?.url || '';
+        const rawUrl = data?.url || '';
+        const resolveUrl = (value: string) => {
+          if (!value) return '';
+          if (/^https?:\/\//i.test(value)) return value;
+          const base = api.defaults.baseURL || '';
+          if (base && value.startsWith('/')) {
+            return `${base.replace(/\/$/, '')}${value}`;
+          }
+          return value;
+        };
+        const url = resolveUrl(rawUrl);
         if (!url) {
           onStatus('上传失败：未返回路径');
           return;
