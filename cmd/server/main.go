@@ -15,6 +15,7 @@ import (
 	"ledger/internal/auth"
 	"ledger/internal/db"
 	"ledger/internal/models"
+	"ledger/internal/services"
 )
 
 func main() {
@@ -48,6 +49,9 @@ func main() {
 	dataDir := *flagDataDir
 	if dataDir == "" {
 		dataDir = os.Getenv("LEDGER_DATA_DIR")
+	}
+	if dataDir == "" {
+		dataDir = "data"
 	}
 	useDB := database != nil && database.SQL != nil
 	retention := *flagRetention
@@ -132,7 +136,14 @@ func main() {
 
 	sessions := auth.NewManager(12 * time.Hour)
 
-	router := api.NewRouter(api.Config{Database: database, Store: store, Sessions: sessions, DataDir: dataDir, Retention: retention})
+	var rolegerSvc *services.RolegerService
+	var importSvc *services.ImportService
+	if database != nil && database.SQL != nil {
+		rolegerSvc = services.NewRolegerService(database.SQL)
+		importSvc = services.NewImportService(database.SQL)
+	}
+
+	router := api.NewRouter(api.Config{Database: database, Store: store, Sessions: sessions, DataDir: dataDir, Retention: retention, Roleger: rolegerSvc, Import: importSvc})
 
 	srv := &http.Server{
 		Addr:              ":8080",

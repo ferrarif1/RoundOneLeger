@@ -27,6 +27,7 @@ import (
 	"ledger/internal/docx"
 	"ledger/internal/middleware"
 	"ledger/internal/models"
+	"ledger/internal/services"
 	"ledger/internal/xlsx"
 )
 
@@ -37,6 +38,20 @@ type Server struct {
 	Sessions          *auth.Manager
 	DataDir           string
 	SnapshotRetention int
+	Roleger           interface {
+		ListTables(ctx context.Context) ([]models.Table, error)
+		ListViews(ctx context.Context, tableID string) ([]models.View, error)
+		ListRecords(ctx context.Context, tableID string, limit, offset int, filters []models.FilterClause, sorts []models.SortClause) ([]models.RecordItem, int, error)
+		UpdateRecordProperties(ctx context.Context, tableID, recordID string, props map[string]interface{}) (*models.RecordItem, error)
+		UpdateRecordsBulk(ctx context.Context, tableID string, updates map[string]map[string]interface{}) ([]models.RecordItem, error)
+		CreateTable(ctx context.Context, table models.Table) (*models.Table, error)
+		CreateRecord(ctx context.Context, tableID string, props map[string]interface{}, createdBy string) (*models.RecordItem, error)
+		DeleteRecord(ctx context.Context, tableID, recordID, actor string) error
+		CreateProperty(ctx context.Context, prop models.Property) (*models.Property, error)
+		CreateView(ctx context.Context, view models.View) (*models.View, error)
+		UpdateView(ctx context.Context, view models.View) (*models.View, error)
+	}
+	Import *services.ImportService
 }
 
 // RegisterRoutes attaches handlers to the gin engine.
@@ -54,6 +69,9 @@ func (s *Server) RegisterRoutes(router *gin.Engine) {
 	secured := router.Group("/api/v1")
 	secured.Use(middleware.RequireSession(s.Sessions))
 	{
+		s.registerRolegerRoutes(secured)
+		s.registerImportRoutes(secured)
+		s.registerImportRoutes(secured)
 		secured.GET("/ledgers/:type", s.handleListLedger)
 		secured.POST("/ledgers/:type", s.handleCreateLedger)
 		secured.PUT("/ledgers/:type/:id", s.handleUpdateLedger)
@@ -757,9 +775,9 @@ func (s *Server) handleGetWorkspace(c *gin.Context) {
 }
 
 func (s *Server) handleUploadMedia(c *gin.Context) {
-	if strings.TrimSpace(s.DataDir) == "" {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "data_dir_not_configured"})
-		return
+	dataDir := strings.TrimSpace(s.DataDir)
+	if dataDir == "" {
+		dataDir = "data"
 	}
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
@@ -776,12 +794,34 @@ func (s *Server) handleUploadMedia(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "unsupported_media_type"})
 		return
 	}
-	path, err := s.Store.WriteBinary(s.DataDir, header.Filename, data)
+	path, err := s.Store.WriteBinary(dataDir, header.Filename, data)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "asset_write_failed"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"url": "/" + path})
+	assetBase := strings.TrimSpace(os.Getenv("ASSET_BASE_URL"))
+	if assetBase == "" {
+		proto := c.GetHeader("X-Forwarded-Proto")
+		host := c.GetHeader("X-Forwarded-Host")
+		if proto == "" {
+			if c.Request.TLS != nil {
+				proto = "https"
+			} else {
+				proto = "http"
+			}
+		}
+		if host == "" {
+			host = c.Request.Host
+		}
+		if host != "" {
+			assetBase = fmt.Sprintf("%s://%s", proto, host)
+		}
+	}
+	assetBase = strings.TrimRight(assetBase, "/")
+	c.JSON(http.StatusOK, gin.H{
+		"url":         "/" + path,
+		"absoluteUrl": fmt.Sprintf("%s/%s", assetBase, path),
+	})
 }
 
 func (s *Server) handleUpdateWorkspace(c *gin.Context) {

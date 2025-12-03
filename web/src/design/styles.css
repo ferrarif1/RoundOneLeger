@@ -1,0 +1,97 @@
+:root {
+  --c-bg: #ffffff;
+  --c-surface: #ffffff;
+  --c-surface-subtle: #f7f7f7;
+  --c-line: #e5e7eb;
+  --c-line-strong: #d6d9e0;
+  --c-text: #111111;
+  --c-muted: #555555;
+  --c-accent: #2b2f38;
+  --c-hover: #f4f6f8;
+  --c-overlay: rgba(17, 24, 39, 0.12);
+  --shadow-popover: 0 12px 40px rgba(15, 23, 42, 0.12);
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 8px;
+  --r-xl: 10px;
+  --s-xs: 8px;
+  --s-sm: 12px;
+  --s-md: 16px;
+  --s-lg: 20px;
+  --transition-fast: 120ms ease;
+  --transition-default: 150ms ease;
+}
+
+.table-shell {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  color: var(--c-text);
+}
+
+.table-shell thead th {
+  font-weight: 600;
+  text-align: left;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--c-line);
+  background: var(--c-surface);
+}
+
+.table-shell tbody tr {
+  border-top: 1px solid var(--c-line);
+}
+
+.table-shell tbody tr:hover {
+  background: var(--c-hover);
+}
+
+.table-shell tbody tr.is-active {
+  background: #eef1f5;
+}
+
+.table-shell td {
+  padding: 10px 8px;
+  vertical-align: top;
+}
+
+.popover {
+  background: #ffffff;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-popover);
+}
+
+.input,
+.select {
+  width: 100%;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-md);
+  background: #ffffff;
+  padding: 10px 12px;
+  font-size: 14px;
+  color: var(--c-text);
+}
+
+.input:focus,
+.select:focus {
+  outline: none;
+  border-color: var(--c-line-strong);
+  box-shadow: 0 0 0 3px rgba(17, 24, 39, 0.06);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--c-line);
+  background: #ffffff;
+  color: var(--c-text);
+  font-weight: 600;
+}
+
+.btn:hover {
+  background: var(--c-hover);
+  border-color: var(--c-line-strong);
+}

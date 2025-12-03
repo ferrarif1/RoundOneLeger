@@ -1,4 +1,4 @@
-ARG GO_BASE_IMAGE=mirror.gcr.io/library/golang:1.23-alpine
+ARG GO_BASE_IMAGE=mirror.gcr.io/library/golang:1.24-alpine
 ARG RUNTIME_BASE_IMAGE=mirror.gcr.io/library/alpine:3.20
 ARG NODE_BASE_IMAGE=mirror.gcr.io/library/node:18-alpine
 
@@ -13,7 +13,8 @@ RUN npm run build
 # Build backend (embed frontend)
 FROM ${GO_BASE_IMAGE} AS builder
 
-ENV GOPROXY=https://goproxy.cn,direct
+ENV GOPROXY=https://goproxy.cn,direct \
+    GOCACHE=/tmp/.gocache
 
 WORKDIR /app
 

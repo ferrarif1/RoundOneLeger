@@ -15,7 +15,7 @@ import {
 } from '@heroicons/react/24/outline';
 import type { AxiosError } from 'axios';
 
-import '@/styles/eidos-ledger.css';
+import '@/styles/roleger-ledger.css';
 import api from '../api/client';
 import { LedgerLayout } from '../components/ledger/LedgerLayout';
 import { LedgerListCard } from '../components/ledger/LedgerListCard';
@@ -1507,8 +1507,8 @@ setSaving(false);
   );
 
   return (
-    <div className="eidos-ledger-root">
-      <div className="eidos-ledger-wrapper">
+    <div className="roleger-ledger-root">
+      <div className="roleger-ledger-wrapper">
         <LedgerLayout
           sidebar={sidebar}
           editor={

@@ -180,18 +180,23 @@ export const DocumentEditor = ({ value, editable, onChange, onStatus, onSave, di
       const formData = new FormData();
       formData.append('file', file);
       try {
-        const { data } = await api.post<{ url: string }>('/api/v1/media/upload', formData, {
+        const { data } = await api.post<{ url: string; absoluteUrl?: string }>('/api/v1/media/upload', formData, {
           headers: { 'Content-Type': 'multipart/form-data' }
         });
-        const rawUrl = data?.url || '';
+        const rawUrl = data?.absoluteUrl || data?.url || '';
+        const assetBase =
+          import.meta.env.VITE_ASSET_BASE_URL?.trim() ||
+          api.defaults.baseURL ||
+          (import.meta.env.DEV ? 'http://127.0.0.1:8080' : window.location.origin);
         const resolveUrl = (value: string) => {
           if (!value) return '';
           if (/^https?:\/\//i.test(value)) return value;
-          const base = api.defaults.baseURL || '';
-          if (base && value.startsWith('/')) {
-            return `${base.replace(/\/$/, '')}${value}`;
+          const base = assetBase || window.location.origin;
+          const trimmedBase = base.replace(/\/$/, '');
+          if (value.startsWith('/')) {
+            return `${trimmedBase}${value}`;
           }
-          return value;
+          return `${trimmedBase}/${value}`;
         };
         const url = resolveUrl(rawUrl);
         if (!url) {
@@ -199,11 +204,15 @@ export const DocumentEditor = ({ value, editable, onChange, onStatus, onSave, di
           return;
         }
         insertHtml(
-          `<figure class="doc-figure"><img src="${url}" alt="${file.name}" /><figcaption>${file.name}</figcaption></figure>`
+          `<figure class="doc-figure"><img src="${url}" alt="${file.name}" loading="lazy" decoding="async" referrerpolicy="no-referrer" style="max-height:420px;object-fit:contain;" /><figcaption>${file.name}</figcaption></figure>`
         );
       } catch (error) {
         console.error('upload media failed', error);
-        onStatus('上传图片失败，请稍后重试。');
+        const message =
+          (error as any)?.response?.data?.error ||
+          (error as any)?.message ||
+          '上传图片失败，请稍后重试。';
+        onStatus(message);
       }
     },
     [editable, insertHtml, onStatus]

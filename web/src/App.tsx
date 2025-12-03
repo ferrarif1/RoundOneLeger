@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState, type JSX } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
@@ -8,6 +8,7 @@ import Assets from './pages/Assets';
 import IPAllowlist from './pages/IPAllowlist';
 import AuditLogs from './pages/AuditLogs';
 import Users from './pages/Users';
+import Workspace from './pages/Workspace';
 import { useSession } from './hooks/useSession';
 
 const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
@@ -20,10 +21,10 @@ const App = () => {
   const [navCollapsed, setNavCollapsed] = useState(false);
 
   return (
-    <div className="eidos-ledger-root">
+    <div className="roleger-ledger-root">
       <div className="flex min-h-screen gap-6 bg-[var(--bg)] text-[var(--text)]">
         {token && <Sidebar collapsed={navCollapsed} onToggle={() => setNavCollapsed((prev) => !prev)} />}
-        <div className="flex-1 flex flex-col eidos-ledger-wrapper">
+        <div className="flex-1 flex flex-col roleger-ledger-wrapper">
           {token && <TopBar />}
           <main className="flex-1 overflow-y-auto bg-white p-6 md:p-8 rounded-lg border border-[var(--line)] shadow-none">
             <Routes>
@@ -75,6 +76,14 @@ const App = () => {
                     <div className="mx-auto max-w-5xl">
                       <Users />
                     </div>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/workspace/:tableId"
+                element={
+                  <ProtectedRoute>
+                    <Workspace />
                   </ProtectedRoute>
                 }
               />

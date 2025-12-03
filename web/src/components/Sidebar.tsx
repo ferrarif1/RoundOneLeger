@@ -88,7 +88,7 @@ const Sidebar = ({ collapsed, onToggle }: SidebarProps) => (
     </nav>
     {!collapsed && (
       <div className="px-6 pb-6 text-xs leading-relaxed text-[var(--muted)]">
-        浅色侧栏，简洁线框，呼应 Eidos 的极简风格。
+        浅色侧栏，简洁线框，呼应 Roleger 的极简风格。
       </div>
     )}
   </div>

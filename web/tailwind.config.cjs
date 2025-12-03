@@ -39,7 +39,7 @@ module.exports = {
         glow: '0 12px 30px rgba(26, 29, 45, 0.08)'
       },
       backgroundImage: {
-        'eidos-radial': 'radial-gradient(circle at 50% -20%, rgba(248, 155, 84, 0.18), transparent 65%)'
+        'roleger-radial': 'radial-gradient(circle at 50% -20%, rgba(248, 155, 84, 0.18), transparent 65%)'
       }
     }
   },

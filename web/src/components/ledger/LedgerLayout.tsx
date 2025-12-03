@@ -29,12 +29,12 @@ export const LedgerLayout = ({ sidebar, editor }: LedgerLayoutProps) => {
 
   return (
     <>
-      <div className="eidos-ledger-mobile-toggle">
+      <div className="roleger-ledger-mobile-toggle">
         <button
           type="button"
           onClick={() => setSidebarOpen((prev) => !prev)}
           aria-expanded={sidebarOpen}
-          className={clsx('eidos-btn eidos-btn--ghost eidos-ledger-toggle-button')}
+          className={clsx('roleger-btn roleger-btn--ghost roleger-ledger-toggle-button')}
         >
           {sidebarOpen ? <XMarkIcon className="h-4 w-4" /> : <Bars3Icon className="h-4 w-4" />}
           {sidebarOpen ? '收起台账列表' : '显示台账列表'}
@@ -42,15 +42,15 @@ export const LedgerLayout = ({ sidebar, editor }: LedgerLayoutProps) => {
       </div>
       <div
         className={clsx(
-          'eidos-ledger-container',
+          'roleger-ledger-container',
           sidebarOpen && 'sidebar-open',
           sidebarCollapsed && 'sidebar-collapsed'
         )}
       >
-        <aside className={clsx('eidos-ledger-list', sidebarOpen && 'is-open')}>
+        <aside className={clsx('roleger-ledger-list', sidebarOpen && 'is-open')}>
           <button
             type="button"
-            className={clsx('eidos-ledger-collapse-handle', sidebarCollapsed && 'is-collapsed')}
+            className={clsx('roleger-ledger-collapse-handle', sidebarCollapsed && 'is-collapsed')}
             onClick={() => setSidebarCollapsed((prev) => !prev)}
             aria-pressed={sidebarCollapsed}
             aria-expanded={!sidebarCollapsed}
@@ -58,9 +58,9 @@ export const LedgerLayout = ({ sidebar, editor }: LedgerLayoutProps) => {
           >
             <ChevronDoubleLeftIcon className={clsx('h-4 w-4', sidebarCollapsed && 'rotate-180')} />
           </button>
-          <div className="eidos-ledger-list-scroll">{sidebar}</div>
+          <div className="roleger-ledger-list-scroll">{sidebar}</div>
         </aside>
-        <section className="eidos-ledger-editor">{editor}</section>
+        <section className="roleger-ledger-editor">{editor}</section>
       </div>
     </>
   );

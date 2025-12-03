@@ -46,6 +46,8 @@ services:
       - app
     ports:
       - "8081:80"
+    volumes:
+      - appdata:/data:ro
 
 volumes:
   pgdata:

@@ -1,0 +1,354 @@
+:root {
+  --bg-page: #ffffff;
+  --card-bg: #ffffff;
+  --card-elev: 0 8px 22px rgba(17, 24, 39, 0.06);
+  --card-elev-2: 0 4px 12px rgba(17, 24, 39, 0.05);
+  --accent: #111111;
+  --accent-2: linear-gradient(90deg, #1f2933, #2b2f38);
+  --muted: #555555;
+  --text: #111111;
+  --radius-lg: 10px;
+  --radius-md: 8px;
+  --gap: 16px;
+  --bg: var(--bg-page);
+  --shadow-soft: var(--card-elev);
+  --shadow-sm: var(--card-elev-2);
+  --ledger-shell-max: 1680px;
+}
+
+.roleger-ledger-root {
+  min-height: 100vh;
+  background: var(--bg-page);
+  padding: 20px clamp(16px, 3vw, 48px) 32px;
+  font-family: 'Inter', 'SF Pro Display', 'Roboto', system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+.roleger-ledger-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: 100%;
+  max-width: var(--ledger-shell-max);
+  margin: 0 auto;
+}
+
+.roleger-ledger-mobile-toggle {
+  display: none;
+  justify-content: flex-end;
+  width: 100%;
+  max-width: var(--ledger-shell-max);
+  margin: 0 auto;
+}
+
+.roleger-ledger-toggle-button {
+  font-size: 13px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(20, 20, 20, 0.12);
+  background: #ffffff;
+  color: var(--text);
+  box-shadow: var(--card-elev-2);
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.roleger-ledger-toggle-button.is-active {
+  border-color: rgba(20, 20, 20, 0.3);
+  color: var(--accent);
+  box-shadow: 0 20px 36px rgba(14, 14, 14, 0.16);
+}
+
+.roleger-ledger-toggle-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 34px rgba(14, 14, 14, 0.1);
+}
+
+.roleger-ledger-container {
+  display: grid;
+  grid-template-columns: clamp(240px, 22vw, 320px) minmax(0, 1fr);
+  gap: var(--gap);
+  align-items: stretch;
+  width: 100%;
+  position: relative;
+  margin: 0 auto;
+}
+
+.roleger-ledger-list {
+  background: #f7f7f7;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  box-shadow: none;
+  padding: 16px;
+  height: min(calc(100vh - 160px), 920px);
+  overflow: visible;
+  display: block;
+  position: relative;
+}
+
+.roleger-ledger-collapse-handle {
+  position: absolute;
+  top: 20px;
+  right: -22px;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(15, 23, 42, 0.16);
+  background: radial-gradient(circle at 30% 30%, #ffffff, #f4f6fb);
+  color: rgba(20, 20, 20, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 20px 36px rgba(14, 14, 14, 0.18);
+  transition: transform 180ms ease, box-shadow 180ms ease, color 180ms ease, opacity 180ms ease;
+  z-index: 3;
+}
+
+.roleger-ledger-collapse-handle:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 34px rgba(14, 14, 14, 0.18);
+  color: var(--accent);
+}
+
+.roleger-ledger-collapse-handle.is-collapsed {
+  right: auto;
+  left: 50%;
+  transform: translate(-50%, 0);
+}
+
+.roleger-ledger-list-scroll {
+  height: 100%;
+  overflow-y: auto;
+  padding-right: 6px;
+  overflow-x: hidden;
+}
+
+.ledger-list-card {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  height: 100%;
+}
+
+.roleger-ledger-editor {
+  background: var(--card-bg);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  box-shadow: var(--card-elev-2);
+  padding: 20px;
+  height: min(calc(100vh - 140px), 960px);
+  min-height: clamp(520px, 60vh, 720px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.roleger-ledger-editor > * {
+  flex: 1;
+  min-height: 0;
+}
+
+.roleger-card {
+  background: var(--card-bg);
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  box-shadow: none;
+  padding: 16px;
+  margin-bottom: 18px;
+}
+
+.roleger-search {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #ffffff;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  padding: 8px 14px;
+  box-shadow: none;
+}
+
+.roleger-search input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 6px 0;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.roleger-search svg {
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.roleger-search input:focus {
+  outline: none;
+}
+
+.roleger-muted {
+  color: rgba(20, 20, 20, 0.55);
+  font-size: 13px;
+}
+
+.roleger-table {
+  background: #ffffff;
+  border-radius: 18px;
+  border: 1.5px solid rgba(20, 20, 20, 0.1);
+  padding: 16px;
+  box-shadow: var(--card-elev-2);
+}
+
+.roleger-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #ffffff;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.roleger-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.roleger-btn:not(:disabled):hover {
+  background: #f5f6f8;
+  border-color: var(--line-strong);
+}
+
+.roleger-btn--ghost {
+  background: #ffffff;
+  color: var(--text);
+  border: 1px solid var(--line);
+}
+
+.roleger-btn--ghost:not(:disabled):hover {
+  background: #f5f6f8;
+}
+
+.roleger-btn--danger {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid rgba(185, 28, 28, 0.28);
+}
+
+.roleger-btn--danger:not(:disabled):hover {
+  background: #fde5e5;
+}
+
+.roleger-btn.is-busy {
+  pointer-events: none;
+}
+
+.roleger-ledger-list .ledger-item,
+.roleger-card {
+  transition: transform 180ms ease, box-shadow 180ms ease, opacity 180ms ease;
+}
+
+.roleger-ledger-list .ledger-item:hover {
+  transform: none;
+  box-shadow: none;
+  background: #f2f4f7;
+}
+
+.roleger-ledger-editor-card {
+  height: 100%;
+}
+
+@media (max-width: 1439px) {
+  .roleger-ledger-container {
+    grid-template-columns: clamp(220px, 28vw, 280px) minmax(0, 1fr);
+  }
+}
+
+@media (min-width: 1440px) {
+  .roleger-ledger-container {
+    grid-template-columns: minmax(260px, 320px) minmax(900px, 1fr);
+  }
+}
+
+@media (max-width: 1023px) {
+  .roleger-ledger-collapse-handle {
+    display: none;
+  }
+  .roleger-ledger-root {
+    padding: 24px 20px 36px;
+  }
+  .roleger-ledger-mobile-toggle {
+    display: flex;
+  }
+  .roleger-ledger-container {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .roleger-ledger-list {
+    display: none;
+    height: auto;
+    max-height: 65vh;
+    overflow: hidden;
+  }
+  .roleger-ledger-container.sidebar-open .roleger-ledger-list {
+    display: block;
+    animation: rolegerFadeIn 160ms ease;
+  }
+  .roleger-ledger-editor {
+    height: auto;
+    min-height: 60vh;
+  }
+}
+
+@media (max-width: 640px) {
+  .roleger-ledger-root {
+    padding: 18px 14px 30px;
+  }
+  .roleger-ledger-editor {
+    padding: 20px;
+  }
+  .roleger-ledger-list {
+    padding: 18px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .roleger-ledger-container.sidebar-collapsed {
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 24px;
+  }
+  .roleger-ledger-container.sidebar-collapsed .roleger-ledger-list {
+    padding: 8px 4px;
+    border: none;
+    box-shadow: none;
+    background: transparent;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+  }
+  .roleger-ledger-container.sidebar-collapsed .roleger-ledger-list-scroll {
+    display: none;
+  }
+  .roleger-ledger-container.sidebar-collapsed .roleger-ledger-collapse-handle {
+    position: static;
+    transform: none;
+  }
+}
+
+@keyframes rolegerFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

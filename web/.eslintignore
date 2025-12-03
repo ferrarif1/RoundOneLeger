@@ -1,0 +1,4 @@
+src/components/ledger/**
+src/components/ledger/InlineTableEditor.tsx
+src/pages/Assets.tsx
+src/types/testing-library.d.ts
