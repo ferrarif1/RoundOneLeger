@@ -38,8 +38,8 @@ const Sidebar = ({ collapsed, onToggle }: SidebarProps) => (
         </div>
         {!collapsed && (
           <div className="min-w-0">
-            <p className="text-xs uppercase tracking-[0.24em] text-[var(--muted)]">RoundOneLeger</p>
-            <p className="mt-1 text-lg font-semibold tracking-tight text-[var(--text)]">RoundOneLeger</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-[var(--muted)]">RoundOneledger</p>
+            <p className="mt-1 text-lg font-semibold tracking-tight text-[var(--text)]">RoundOneledger</p>
           </div>
         )}
       </div>
@@ -88,7 +88,7 @@ const Sidebar = ({ collapsed, onToggle }: SidebarProps) => (
     </nav>
     {!collapsed && (
       <div className="px-6 pb-6 text-xs leading-relaxed text-[var(--muted)]">
-        浅色侧栏，简洁线框，呼应 Roleger 的极简风格。
+        浅色侧栏，简洁线框，呼应 Roledger 的极简风格。
       </div>
     )}
   </div>

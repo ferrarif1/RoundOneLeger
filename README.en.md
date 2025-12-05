@@ -1,7 +1,7 @@
-# RoundOneLeger
+# RoundOneledger
 
 ## Overview
-RoundOneLeger is a full-stack asset ledger system that centralizes inventory for IP addresses, personnel, systems, and supporting audit data while layering on collaborative workspace tooling. The backend is written in Go with a Gin-compatible router while the frontend uses React and Tailwind-style utilities.
+RoundOneledger is a full-stack asset ledger system that centralizes inventory for IP addresses, personnel, systems, and supporting audit data while layering on collaborative workspace tooling. The backend is written in Go with a Gin-compatible router while the frontend uses React and Tailwind-style utilities.
 
 ## Key Features
 - **Ledger management APIs** for IPs, personnel, and systems with support for manual CRUD, ordering, and tag metadata.

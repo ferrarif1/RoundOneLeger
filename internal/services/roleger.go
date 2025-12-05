@@ -11,17 +11,17 @@ import (
 	"ledger/internal/models"
 )
 
-// RolegerService provides CRUD for tables/views/records/blocks.
+// RoledgerService provides CRUD for tables/views/records/blocks.
 // This is a draft skeleton; wire SQL queries and validations before use.
-type RolegerService struct {
+type RoledgerService struct {
 	DB *sql.DB
 }
 
-func NewRolegerService(db *sql.DB) *RolegerService {
-	return &RolegerService{DB: db}
+func NewRoledgerService(db *sql.DB) *RoledgerService {
+	return &RoledgerService{DB: db}
 }
 
-func (s *RolegerService) ListTables(ctx context.Context) ([]models.Table, error) {
+func (s *RoledgerService) ListTables(ctx context.Context) ([]models.Table, error) {
 	rows, err := s.DB.QueryContext(ctx, `SELECT id, name, description, created_by, updated_at, version FROM tables ORDER BY name`)
 	if err != nil {
 		return nil, err
@@ -38,7 +38,7 @@ func (s *RolegerService) ListTables(ctx context.Context) ([]models.Table, error)
 	return out, rows.Err()
 }
 
-func (s *RolegerService) ListViews(ctx context.Context, tableID string) ([]models.View, error) {
+func (s *RoledgerService) ListViews(ctx context.Context, tableID string) ([]models.View, error) {
 	rows, err := s.DB.QueryContext(ctx, `SELECT id, table_id, name, layout, filters, sorts, "group", columns FROM views WHERE table_id=$1 ORDER BY name`, tableID)
 	if err != nil {
 		return nil, err
@@ -65,7 +65,7 @@ func (s *RolegerService) ListViews(ctx context.Context, tableID string) ([]model
 	return out, rows.Err()
 }
 
-func (s *RolegerService) ListRecords(ctx context.Context, tableID string, limit, offset int, filters []models.FilterClause, sorts []models.SortClause) ([]models.RecordItem, int, error) {
+func (s *RoledgerService) ListRecords(ctx context.Context, tableID string, limit, offset int, filters []models.FilterClause, sorts []models.SortClause) ([]models.RecordItem, int, error) {
 	where := "table_id=$1 AND trashed_at IS NULL"
 	args := []interface{}{tableID}
 	argPos := 2
@@ -128,7 +128,7 @@ func (s *RolegerService) ListRecords(ctx context.Context, tableID string, limit,
 	return out, total, nil
 }
 
-func (s *RolegerService) ListProperties(ctx context.Context, tableID string) ([]models.Property, error) {
+func (s *RoledgerService) ListProperties(ctx context.Context, tableID string) ([]models.Property, error) {
 	rows, err := s.DB.QueryContext(ctx, `SELECT id, table_id, name, type, options, relation, formula, rollup, sort_order FROM properties WHERE table_id=$1 ORDER BY sort_order`, tableID)
 	if err != nil {
 		return nil, err
@@ -159,7 +159,7 @@ func (s *RolegerService) ListProperties(ctx context.Context, tableID string) ([]
 	return out, rows.Err()
 }
 
-func (s *RolegerService) CreateTable(ctx context.Context, table models.Table) (*models.Table, error) {
+func (s *RoledgerService) CreateTable(ctx context.Context, table models.Table) (*models.Table, error) {
 	if table.ID == "" {
 		table.ID = generateID()
 	}
@@ -179,7 +179,7 @@ func generateID() string {
 	return time.Now().Format("20060102150405.000000000")
 }
 
-func (s *RolegerService) UpdateView(ctx context.Context, view models.View) (*models.View, error) {
+func (s *RoledgerService) UpdateView(ctx context.Context, view models.View) (*models.View, error) {
 	filters, _ := json.Marshal(view.Filters)
 	sorts, _ := json.Marshal(view.Sorts)
 	groupRaw, _ := json.Marshal(view.Group)
@@ -194,7 +194,7 @@ func (s *RolegerService) UpdateView(ctx context.Context, view models.View) (*mod
 	return &view, nil
 }
 
-func (s *RolegerService) UpdateRecordProperties(ctx context.Context, tableID, recordID string, props map[string]interface{}) (*models.RecordItem, error) {
+func (s *RoledgerService) UpdateRecordProperties(ctx context.Context, tableID, recordID string, props map[string]interface{}) (*models.RecordItem, error) {
 	propsJSON, err := json.Marshal(props)
 	if err != nil {
 		return nil, err
@@ -215,7 +215,7 @@ func (s *RolegerService) UpdateRecordProperties(ctx context.Context, tableID, re
 }
 
 // UpdateRecordsBulk updates multiple records using a single SQL with unnest.
-func (s *RolegerService) UpdateRecordsBulk(ctx context.Context, tableID string, updates map[string]map[string]interface{}) ([]models.RecordItem, error) {
+func (s *RoledgerService) UpdateRecordsBulk(ctx context.Context, tableID string, updates map[string]map[string]interface{}) ([]models.RecordItem, error) {
 	if len(updates) == 0 {
 		return nil, nil
 	}
@@ -278,7 +278,7 @@ func (s *RolegerService) UpdateRecordsBulk(ctx context.Context, tableID string, 
 	return results, nil
 }
 
-func (s *RolegerService) CreateRecord(ctx context.Context, tableID string, props map[string]interface{}, createdBy string) (*models.RecordItem, error) {
+func (s *RoledgerService) CreateRecord(ctx context.Context, tableID string, props map[string]interface{}, createdBy string) (*models.RecordItem, error) {
 	if tableID == "" {
 		return nil, sql.ErrNoRows
 	}
@@ -309,7 +309,7 @@ func (s *RolegerService) CreateRecord(ctx context.Context, tableID string, props
 	}, nil
 }
 
-func (s *RolegerService) DeleteRecord(ctx context.Context, tableID, recordID, actor string) error {
+func (s *RoledgerService) DeleteRecord(ctx context.Context, tableID, recordID, actor string) error {
 	_, err := s.DB.ExecContext(ctx, `
 		UPDATE records
 		SET trashed_at = $1, updated_by = $2, version = version + 1
@@ -318,7 +318,7 @@ func (s *RolegerService) DeleteRecord(ctx context.Context, tableID, recordID, ac
 	return err
 }
 
-func (s *RolegerService) CreateProperty(ctx context.Context, prop models.Property) (*models.Property, error) {
+func (s *RoledgerService) CreateProperty(ctx context.Context, prop models.Property) (*models.Property, error) {
 	if prop.ID == "" {
 		prop.ID = generateID()
 	}
@@ -335,7 +335,7 @@ func (s *RolegerService) CreateProperty(ctx context.Context, prop models.Propert
 	return &prop, nil
 }
 
-func (s *RolegerService) CreateView(ctx context.Context, view models.View) (*models.View, error) {
+func (s *RoledgerService) CreateView(ctx context.Context, view models.View) (*models.View, error) {
 	if view.ID == "" {
 		view.ID = generateID()
 	}

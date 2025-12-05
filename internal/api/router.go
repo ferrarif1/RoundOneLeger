@@ -18,7 +18,7 @@ type Config struct {
 	Sessions  *auth.Manager
 	DataDir   string
 	Retention int
-	Roleger   *services.RolegerService
+	Roledger  *services.RoledgerService
 	Import    *services.ImportService
 }
 
@@ -33,7 +33,7 @@ func NewRouter(cfg Config) *gin.Engine {
 		Sessions:          cfg.Sessions,
 		DataDir:           cfg.DataDir,
 		SnapshotRetention: cfg.Retention,
-		Roleger:           cfg.Roleger,
+		Roledger:          cfg.Roledger,
 		Import:            cfg.Import,
 	}
 	server.RegisterRoutes(r)

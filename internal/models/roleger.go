@@ -2,7 +2,7 @@ package models
 
 import "time"
 
-// Roleger-style database models (draft) for multi-view, property-driven data.
+// Roledger-style database models (draft) for multi-view, property-driven data.
 
 type PropertyType string
 

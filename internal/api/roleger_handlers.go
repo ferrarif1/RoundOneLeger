@@ -12,15 +12,15 @@ import (
 	"ledger/internal/models"
 )
 
-// registerRolegerRoutes attaches Roleger-style DB endpoints when service available.
-func (s *Server) registerRolegerRoutes(group *gin.RouterGroup) {
-	if s.Roleger == nil {
+// registerRoledgerRoutes attaches Roledger-style DB endpoints when service available.
+func (s *Server) registerRoledgerRoutes(group *gin.RouterGroup) {
+	if s.Roledger == nil {
 		group.GET("/tables", func(c *gin.Context) { c.Status(http.StatusNotImplemented) })
 		return
 	}
 
 	group.GET("/tables", func(c *gin.Context) {
-		tables, err := s.Roleger.ListTables(c.Request.Context())
+		tables, err := s.Roledger.ListTables(c.Request.Context())
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -38,7 +38,7 @@ func (s *Server) registerRolegerRoutes(group *gin.RouterGroup) {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
 			return
 		}
-		table, err := s.Roleger.CreateTable(c.Request.Context(), models.Table{
+		table, err := s.Roledger.CreateTable(c.Request.Context(), models.Table{
 			ID:          payload.ID,
 			Name:        payload.Name,
 			Description: payload.Description,
@@ -54,7 +54,7 @@ func (s *Server) registerRolegerRoutes(group *gin.RouterGroup) {
 	})
 
 	group.GET("/tables/:id/views", func(c *gin.Context) {
-		views, err := s.Roleger.ListViews(c.Request.Context(), c.Param("id"))
+		views, err := s.Roledger.ListViews(c.Request.Context(), c.Param("id"))
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -73,7 +73,7 @@ func (s *Server) registerRolegerRoutes(group *gin.RouterGroup) {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "table_required"})
 			return
 		}
-		view, err := s.Roleger.CreateView(c.Request.Context(), payload)
+		view, err := s.Roledger.CreateView(c.Request.Context(), payload)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -89,7 +89,7 @@ func (s *Server) registerRolegerRoutes(group *gin.RouterGroup) {
 		}
 		payload.TableID = c.Param("id")
 		payload.ID = c.Param("viewId")
-		view, err := s.Roleger.UpdateView(c.Request.Context(), payload)
+		view, err := s.Roledger.UpdateView(c.Request.Context(), payload)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -98,7 +98,7 @@ func (s *Server) registerRolegerRoutes(group *gin.RouterGroup) {
 	})
 
 	group.GET("/tables/:id/properties", func(c *gin.Context) {
-		propsProvider, ok := s.Roleger.(interface {
+		propsProvider, ok := s.Roledger.(interface {
 			ListProperties(ctx context.Context, tableID string) ([]models.Property, error)
 		})
 		if !ok {
@@ -114,7 +114,7 @@ func (s *Server) registerRolegerRoutes(group *gin.RouterGroup) {
 	})
 
 	group.POST("/tables/:id/properties", func(c *gin.Context) {
-		propsProvider, ok := s.Roleger.(interface {
+		propsProvider, ok := s.Roledger.(interface {
 			CreateProperty(ctx context.Context, prop models.Property) (*models.Property, error)
 		})
 		if !ok {
@@ -141,7 +141,7 @@ func (s *Server) registerRolegerRoutes(group *gin.RouterGroup) {
 		if !ok {
 			return
 		}
-		records, total, err := s.Roleger.ListRecords(c.Request.Context(), c.Param("id"), limit, offset, filters, sorts)
+		records, total, err := s.Roledger.ListRecords(c.Request.Context(), c.Param("id"), limit, offset, filters, sorts)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -159,7 +159,7 @@ func (s *Server) registerRolegerRoutes(group *gin.RouterGroup) {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
 			return
 		}
-		record, err := s.Roleger.UpdateRecordProperties(c.Request.Context(), c.Param("id"), c.Param("recordId"), payload.Properties)
+		record, err := s.Roledger.UpdateRecordProperties(c.Request.Context(), c.Param("id"), c.Param("recordId"), payload.Properties)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -181,7 +181,7 @@ func (s *Server) registerRolegerRoutes(group *gin.RouterGroup) {
 		tableID := c.Param("id")
 		var updated []models.RecordItem
 		for _, upd := range payload.Updates {
-			record, err := s.Roleger.UpdateRecordProperties(c.Request.Context(), tableID, upd.ID, upd.Properties)
+			record, err := s.Roledger.UpdateRecordProperties(c.Request.Context(), tableID, upd.ID, upd.Properties)
 			if err != nil {
 				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "failed_id": upd.ID})
 				return
@@ -197,7 +197,7 @@ func (s *Server) registerRolegerRoutes(group *gin.RouterGroup) {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
 			return
 		}
-		record, err := s.Roleger.CreateRecord(c.Request.Context(), c.Param("id"), payload.Properties, currentSession(c, s.Sessions))
+		record, err := s.Roledger.CreateRecord(c.Request.Context(), c.Param("id"), payload.Properties, currentSession(c, s.Sessions))
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -206,7 +206,7 @@ func (s *Server) registerRolegerRoutes(group *gin.RouterGroup) {
 	})
 
 	group.DELETE("/tables/:id/records/:recordId", func(c *gin.Context) {
-		if err := s.Roleger.DeleteRecord(c.Request.Context(), c.Param("id"), c.Param("recordId"), currentSession(c, s.Sessions)); err != nil {
+		if err := s.Roledger.DeleteRecord(c.Request.Context(), c.Param("id"), c.Param("recordId"), currentSession(c, s.Sessions)); err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}

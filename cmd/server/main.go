@@ -136,14 +136,14 @@ func main() {
 
 	sessions := auth.NewManager(12 * time.Hour)
 
-	var rolegerSvc *services.RolegerService
+	var roledgerSvc *services.RoledgerService
 	var importSvc *services.ImportService
 	if database != nil && database.SQL != nil {
-		rolegerSvc = services.NewRolegerService(database.SQL)
+		roledgerSvc = services.NewRoledgerService(database.SQL)
 		importSvc = services.NewImportService(database.SQL)
 	}
 
-	router := api.NewRouter(api.Config{Database: database, Store: store, Sessions: sessions, DataDir: dataDir, Retention: retention, Roleger: rolegerSvc, Import: importSvc})
+	router := api.NewRouter(api.Config{Database: database, Store: store, Sessions: sessions, DataDir: dataDir, Retention: retention, Roledger: roledgerSvc, Import: importSvc})
 
 	srv := &http.Server{
 		Addr:              ":8080",

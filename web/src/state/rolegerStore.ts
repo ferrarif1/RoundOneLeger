@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars, no-unused-vars */
 import { create, type StateCreator } from 'zustand';
-import type { Property, RecordItem, Table, View } from '../types/roleger';
+import type { Property, RecordItem, Table, View } from '../types/roledger';
 import {
   createProperty,
   createRecord,
@@ -14,9 +14,9 @@ import {
   updateRecord,
   saveRecordsBulk,
   updateView
-} from '../api/roleger';
+} from '../api/roledger';
 
-type RolegerState = {
+type RoledgerState = {
   tables: Table[];
   views: Record<string, View[]>;
   properties: Record<string, Property[]>;
@@ -43,7 +43,7 @@ type RolegerState = {
 
 const AUTO_SAVE_DELAY = 1800;
 
-const creator: StateCreator<RolegerState> = (set, get) => {
+const creator: StateCreator<RoledgerState> = (set, get) => {
   const autoSaveTimers: Record<string, number | undefined> = {};
 
   const scheduleAutoSave = (tableId: string) => {
@@ -266,4 +266,4 @@ const creator: StateCreator<RolegerState> = (set, get) => {
   };
 };
 
-export const useRolegerStore = create<RolegerState>(creator);
+export const useRoledgerStore = create<RoledgerState>(creator);

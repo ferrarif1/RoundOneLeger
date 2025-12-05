@@ -48,21 +48,21 @@ See `openapi.yaml` for the full API surface.
 ## Docker image export/import
 - Export:
   ```bash
-  docker save -o roundoneleger-frontend.tar roundoneleger-frontend:latest
-  docker save -o roundoneleger-app.tar roundoneleger-app:latest
+  docker save -o roundoneledger-frontend.tar roundoneledger-frontend:latest
+  docker save -o roundoneledger-app.tar roundoneledger-app:latest
   docker save -o postgres-15-alpine.tar mirror.gcr.io/library/postgres:15-alpine
   ```
   Expected files:
   ```
   dockerimgs/
-  ├── roundoneleger-frontend.tar
-  ├── roundoneleger-app.tar
+  ├── roundoneledger-frontend.tar
+  ├── roundoneledger-app.tar
   └── postgres-15-alpine.tar
   ```
 - Import on a new machine:
   ```bash
-  docker load -i roundoneleger-frontend.tar
-  docker load -i roundoneleger-app.tar
+  docker load -i roundoneledger-frontend.tar
+  docker load -i roundoneledger-app.tar
   docker load -i postgres-15-alpine.tar
   ```
 - Run (compose recommended):
@@ -72,6 +72,6 @@ See `openapi.yaml` for the full API surface.
   Or manually:
   ```bash
   docker run -d --name db -e POSTGRES_USER=ledger -e POSTGRES_PASSWORD=ledger123 -e POSTGRES_DB=ledgerdb -p 5433:5432 mirror.gcr.io/library/postgres:15-alpine
-  docker run -d --name app -p 8080:8080 --link db:db roundoneleger-app:latest
-  docker run -d --name frontend -p 5173:80 roundoneleger-frontend:latest
+  docker run -d --name app -p 8080:8080 --link db:db roundoneledger-app:latest
+  docker run -d --name frontend -p 5173:80 roundoneledger-frontend:latest
   ```

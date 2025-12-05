@@ -1,5 +1,5 @@
 @import './design-tokens.css';
-@import './roleger-ledger.css';
+@import './roledger-ledger.css';
 @import '../design/styles.css';
 
 @tailwind base;

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars, no-unused-vars */
 import { useMemo, useState } from 'react';
 import { PlusIcon } from '@heroicons/react/24/outline';
-import type { Block } from '../../types/roleger';
+import type { Block } from '../../types/roledger';
 import { BlockRenderer } from './BlockRenderer';
 
 type BlockEditorProps = {

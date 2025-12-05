@@ -38,7 +38,7 @@ type Server struct {
 	Sessions          *auth.Manager
 	DataDir           string
 	SnapshotRetention int
-	Roleger           interface {
+	Roledger          interface {
 		ListTables(ctx context.Context) ([]models.Table, error)
 		ListViews(ctx context.Context, tableID string) ([]models.View, error)
 		ListRecords(ctx context.Context, tableID string, limit, offset int, filters []models.FilterClause, sorts []models.SortClause) ([]models.RecordItem, int, error)
@@ -69,7 +69,7 @@ func (s *Server) RegisterRoutes(router *gin.Engine) {
 	secured := router.Group("/api/v1")
 	secured.Use(middleware.RequireSession(s.Sessions))
 	{
-		s.registerRolegerRoutes(secured)
+		s.registerRoledgerRoutes(secured)
 		s.registerImportRoutes(secured)
 		s.registerImportRoutes(secured)
 		secured.GET("/ledgers/:type", s.handleListLedger)

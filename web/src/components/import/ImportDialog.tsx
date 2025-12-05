@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars, no-unused-vars */
 import { useEffect, useState } from 'react';
 import { ArrowUpTrayIcon, XMarkIcon } from '@heroicons/react/24/outline';
-import { createTable, type ImportTask } from '../../api/roleger';
+import { createTable, type ImportTask } from '../../api/roledger';
 
 type ImportDialogProps = {
   open: boolean;
@@ -23,7 +23,7 @@ export const ImportDialog = ({ open, onClose, onUploaded }: ImportDialogProps) =
     if (!taskId) return;
     const timer = setInterval(async () => {
       try {
-        const task = await import('../../api/roleger').then((m) => m.getImportTask(taskId));
+        const task = await import('../../api/roledger').then((m) => m.getImportTask(taskId));
         setProgress(task.progress || 0);
         if (task.status === 'success') {
           setStatus('导入完成');
@@ -62,7 +62,7 @@ export const ImportDialog = ({ open, onClose, onUploaded }: ImportDialogProps) =
       const form = new FormData();
       form.append('tableName', table.name || tableName.trim());
       form.append('file', file);
-      const { taskId: createdTaskId } = await import('../../api/roleger').then((m) => m.startImport(form));
+      const { taskId: createdTaskId } = await import('../../api/roledger').then((m) => m.startImport(form));
       setTaskId(createdTaskId);
       setStatus('任务已提交，正在后台导入...');
     } catch (err: any) {

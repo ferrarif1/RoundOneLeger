@@ -2709,7 +2709,7 @@ func (s *LedgerStore) VerifyAuditChain() bool {
 }
 
 func loginMessage(nonce string) string {
-	return fmt.Sprintf("Sign in to RoundOneLeger with nonce %s", nonce)
+	return fmt.Sprintf("Sign in to RoundOneledger with nonce %s", nonce)
 }
 
 // CreateLoginChallenge issues a one-time nonce for SDID authentication.

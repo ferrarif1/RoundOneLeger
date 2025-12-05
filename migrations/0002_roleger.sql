@@ -1,4 +1,4 @@
--- Draft schema for Roleger-style database/blocks/views system.
+-- Draft schema for Roledger-style database/blocks/views system.
 -- Adjust types / constraints as needed before applying in production.
 BEGIN;
 

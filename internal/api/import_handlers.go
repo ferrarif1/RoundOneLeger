@@ -42,7 +42,7 @@ func (s *Server) registerImportRoutes(group *gin.RouterGroup) {
 			return
 		}
 		// Create table first
-		table, err := s.Roleger.CreateTable(c.Request.Context(), models.Table{
+		table, err := s.Roledger.CreateTable(c.Request.Context(), models.Table{
 			Name: tableName,
 		})
 		if err != nil {

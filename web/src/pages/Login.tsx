@@ -63,14 +63,14 @@ const Login = () => {
   };
 
   return (
-    <div className="auth-shell roleger-ledger-root">
+    <div className="auth-shell roledger-ledger-root">
       <div className="auth-panel glass-panel">
         <header className="auth-header">
           <div className="auth-icon">
             <LockClosedIcon />
           </div>
           <div>
-            <p className="auth-eyebrow">Roleger Ledger</p>
+            <p className="auth-eyebrow">Roledger Ledger</p>
             <h1>登录台账系统</h1>
             <p className="auth-subtext">使用分配的账号密码完成认证</p>
           </div>
@@ -128,7 +128,7 @@ const Login = () => {
         </form>
         <footer className="auth-meta">
           <p>仅限授权用户访问，所有操作都会被记录以保障合规。</p>
-          <span>Roleger Ledger · 内部版本</span>
+          <span>Roledger Ledger · 内部版本</span>
         </footer>
       </div>
     </div>

@@ -33,7 +33,7 @@ const ActionButton = ({
     onClick={onClick}
     disabled={disabled}
     className={clsx(
-      'roleger-btn roleger-btn--ghost text-xs font-medium',
+      'roledger-btn roledger-btn--ghost text-xs font-medium',
       disabled && 'opacity-60'
     )}
   >
@@ -84,7 +84,7 @@ export const ToolbarActions = ({
       )}
       {onExportAll && <ActionButton icon={ArrowDownTrayIcon} label="导出全部数据" onClick={onExportAll} />}
       {onImportAll && (
-        <button type="button" onClick={onImportAll} className="roleger-btn roleger-btn--ghost text-xs font-medium">
+        <button type="button" onClick={onImportAll} className="roledger-btn roledger-btn--ghost text-xs font-medium">
           <ArrowUpTrayIcon className="h-4 w-4" />
           <span>导入全部数据</span>
         </button>
@@ -93,14 +93,14 @@ export const ToolbarActions = ({
         type="button"
         onClick={onSave}
         disabled={busy}
-        className={clsx('roleger-btn', busy && 'is-busy')}
+        className={clsx('roledger-btn', busy && 'is-busy')}
       >
         {busy ? '保存中…' : dirty ? '保存更改' : '保存'}
       </button>
       <button
         type="button"
         onClick={onDelete}
-        className="roleger-btn roleger-btn--danger"
+        className="roledger-btn roledger-btn--danger"
       >
         <TrashIcon className="h-4 w-4" />
         删除内容

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Prepare an offline-ready environment for the RoundOneLeger application on Windows.
+    Prepare an offline-ready environment for the RoundOneledger application on Windows.
 .DESCRIPTION
     Detects Go, Node.js, npm, PostgreSQL, and Docker Desktop, installs them from the
     offline artifact directory when missing, restores the vendor and node_modules caches,

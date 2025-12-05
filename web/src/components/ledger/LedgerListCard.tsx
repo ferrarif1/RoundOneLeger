@@ -170,7 +170,7 @@ export const LedgerListCard = ({
         <button
           ref={menuButtonRef}
           type="button"
-          className="roleger-btn"
+          className="roledger-btn"
           onClick={() => setMenuOpen((prev) => !prev)}
         >
           <PlusIcon className="h-4 w-4" />
@@ -178,7 +178,7 @@ export const LedgerListCard = ({
         </button>
       </div>
       <div className="mt-4">
-        <div className="roleger-search">
+        <div className="roledger-search">
           <MagnifyingGlassIcon className="h-4 w-4 text-[var(--muted)]" />
           <input
             value={search}

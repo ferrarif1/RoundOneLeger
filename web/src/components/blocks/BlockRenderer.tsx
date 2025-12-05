@@ -1,4 +1,4 @@
-import type { Block } from '../../types/roleger';
+import type { Block } from '../../types/roledger';
 
 type BlockRendererProps = {
   block: Block;

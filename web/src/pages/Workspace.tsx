@@ -7,8 +7,8 @@ import { DataTable } from '../components/table/DataTable';
 import { ViewToolbar } from '../components/table/ViewToolbar';
 import { ColumnVisibility } from '../components/table/ColumnVisibility';
 import { ImportDialog } from '../components/import/ImportDialog';
-import { useRolegerStore } from '../state/rolegerStore';
-import type { Table, View, RecordItem, Property } from '../types/roleger';
+import { useRoledgerStore } from '../state/roledgerStore';
+import type { Table, View, RecordItem, Property } from '../types/roledger';
 
 const WorkspacePage = () => {
   const { tableId } = useParams<{ tableId: string }>();
@@ -29,7 +29,7 @@ const WorkspacePage = () => {
     editLocalCell,
     applyDirty,
     dirty
-  } = useRolegerStore();
+  } = useRoledgerStore();
   const navigate = useNavigate();
   const [activeViewId, setActiveViewId] = useState<string | undefined>(undefined);
   const [activeRecordId, setActiveRecordId] = useState<string | undefined>(undefined);
@@ -68,11 +68,11 @@ const WorkspacePage = () => {
   }, [activeViewId, viewList]);
   const currentColumns = currentView?.columns ?? [];
   const currentProperties = (properties[tableId || ''] as Property[]) || [];
-  const recordIds = useRolegerStore((state) => state.recordIds[tableId || ''] || []);
-  const recordMap = useRolegerStore((state) => state.recordMap[tableId || ''] || {});
+  const recordIds = useRoledgerStore((state) => state.recordIds[tableId || ''] || []);
+  const recordMap = useRoledgerStore((state) => state.recordMap[tableId || ''] || {});
   const currentRecords = recordIds.map((id) => recordMap[id]).filter(Boolean) as RecordItem[];
   const activeRecord = currentRecords.find((r: RecordItem) => r.id === activeRecordId);
-  const total = tableId ? useRolegerStore.getState().totals?.[tableId] || currentRecords.length : currentRecords.length;
+  const total = tableId ? useRoledgerStore.getState().totals?.[tableId] || currentRecords.length : currentRecords.length;
   const totalPages = Math.max(1, Math.ceil((total || 1) / pageLimit));
   const currentPage = Math.floor(pageOffset / pageLimit) + 1;
   const [jumpPage, setJumpPage] = useState<string>('');
@@ -106,7 +106,7 @@ const WorkspacePage = () => {
     const viewIndex = viewList.findIndex((v) => v.id === currentView.id);
     const nextViewList = [...viewList];
     nextViewList[viewIndex] = { ...currentView, columns: nextColumns };
-    useRolegerStore.setState((state) => ({
+    useRoledgerStore.setState((state) => ({
       views: { ...state.views, [tableId]: nextViewList }
     }));
     updateView(tableId, currentView.id, { columns: nextColumns });
@@ -161,7 +161,7 @@ const WorkspacePage = () => {
                   const viewIndex = viewList.findIndex((v) => v.id === currentView.id);
                   const nextViewList = [...viewList];
                   nextViewList[viewIndex] = { ...currentView, columns: nextColumns };
-                  useRolegerStore.setState((state) => ({
+                  useRoledgerStore.setState((state) => ({
                     views: { ...state.views, [tableId]: nextViewList }
                   }));
                   updateView(tableId, currentView.id, { columns: nextColumns });

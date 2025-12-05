@@ -1,4 +1,4 @@
-import type { Property, RecordItem, Table, View } from '../types/roleger';
+import type { Property, RecordItem, Table, View } from '../types/roledger';
 import api from './client';
 
 export const listTables = async () => {
