@@ -87,7 +87,8 @@ export type ImportTask = {
 };
 
 export const startImport = async (form: FormData): Promise<{ taskId: string; tableId: string }> => {
-  const { data } = await api.post('/api/v1/import', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+  // 让浏览器自动设置 multipart 边界，避免手动设置 Header 触发编码问题
+  const { data } = await api.post('/api/v1/import', form);
   return data as { taskId: string; tableId: string };
 };
 

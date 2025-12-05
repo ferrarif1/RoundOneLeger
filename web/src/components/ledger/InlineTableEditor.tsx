@@ -8,7 +8,6 @@ import {
   TrashIcon,
   XMarkIcon
 } from '@heroicons/react/24/outline';
-import { FixedSizeList as List, type ListChildComponentProps } from 'react-window';
 
 import type { WorkspaceColumn, WorkspaceRow } from './types';
 
@@ -294,77 +293,62 @@ export const InlineTableEditor = ({
       );
     }
 
-    const Item = ({ index, style }: ListChildComponentProps) => {
-      if (index === visibleRows.length) {
-        return (
-          <tr className="border-t border-[var(--line)] bg-white" style={{ ...style, position: 'relative' }}>
-            <td className="px-2 py-3" />
-            <td colSpan={columns.length} className="px-3 py-3 text-sm text-[var(--muted)]">
-              <button type="button" onClick={onAddRow} className="flex items-center gap-2 text-[var(--accent)]">
-                <PlusIcon className="h-4 w-4" />
-                新增行
-              </button>
-            </td>
-            <td className="px-3 py-3 text-right">
-              <button type="button" onClick={onAddColumn} className="text-[var(--accent)]">
-                + 新增列
-              </button>
-            </td>
-          </tr>
-        );
-      }
-      const row = visibleRows[index];
-      const rowSelected = selectedRowIds.includes(row.id);
-      return (
-        <tr
-          key={row.id}
-          style={{ ...style, position: 'relative' }}
-          className={`align-top border-t border-[var(--line)] ${rowSelected ? 'bg-[#f4f6f8]' : 'bg-white'} ${
-            highlightedRowIds.includes(row.id) ? 'font-semibold' : ''
-          }`}
-        >
-          <td className="px-2 py-3 align-top">
-            <input
-              type="checkbox"
-              checked={rowSelected}
-              onChange={() => onToggleRowSelection(row.id)}
-              className="h-4 w-4 rounded border-[var(--muted)]/40 text-[var(--accent)] focus:ring-[var(--accent)]"
-            />
-          </td>
-          {columns.map((column) => (
-            <td key={column.id} className="px-3 py-2 align-top">
-              <SheetCell
-                value={row.cells[column.id] ?? ''}
-                onChange={(next) => onUpdateCell(row.id, column.id, next)}
-                placeholder={column.title}
-              />
-            </td>
-          ))}
-          <td className="px-3 py-2 text-right align-top">
-            <button
-              type="button"
-              onClick={() => onRemoveRow(row.id)}
-              className="rounded-full border border-[var(--line)] bg-white p-2 text-[var(--muted)]"
-              aria-label="删除行"
+    return (
+      <tbody>
+        {visibleRows.map((row) => {
+          const rowSelected = selectedRowIds.includes(row.id);
+          return (
+            <tr
+              key={row.id}
+              className={`align-top border-t border-[var(--line)] ${rowSelected ? 'bg-[#f4f6f8]' : 'bg-white'} ${
+                highlightedRowIds.includes(row.id) ? 'font-semibold' : ''
+              }`}
             >
-              <TrashIcon className="h-4 w-4" />
+              <td className="px-2 py-3 align-top">
+                <input
+                  type="checkbox"
+                  checked={rowSelected}
+                  onChange={() => onToggleRowSelection(row.id)}
+                  className="h-4 w-4 rounded border-[var(--muted)]/40 text-[var(--accent)] focus:ring-[var(--accent)]"
+                />
+              </td>
+              {columns.map((column) => (
+                <td key={column.id} className="px-3 py-2 align-top">
+                  <SheetCell
+                    value={row.cells[column.id] ?? ''}
+                    onChange={(next) => onUpdateCell(row.id, column.id, next)}
+                    placeholder={column.title}
+                  />
+                </td>
+              ))}
+              <td className="px-3 py-2 text-right align-top">
+                <button
+                  type="button"
+                  onClick={() => onRemoveRow(row.id)}
+                  className="rounded-full border border-[var(--line)] bg-white p-2 text-[var(--muted)]"
+                  aria-label="删除行"
+                >
+                  <TrashIcon className="h-4 w-4" />
+                </button>
+              </td>
+            </tr>
+          );
+        })}
+        <tr className="border-t border-[var(--line)] bg-white">
+          <td className="px-2 py-3" />
+          <td colSpan={columns.length} className="px-3 py-3 text-sm text-[var(--muted)]">
+            <button type="button" onClick={onAddRow} className="flex items-center gap-2 text-[var(--accent)]">
+              <PlusIcon className="h-4 w-4" />
+              新增行
+            </button>
+          </td>
+          <td className="px-3 py-3 text-right">
+            <button type="button" onClick={onAddColumn} className="text-[var(--accent)]">
+              + 新增列
             </button>
           </td>
         </tr>
-      );
-    };
-
-    return (
-      <List
-        height={480}
-        itemCount={visibleRows.length + 1}
-        itemSize={56}
-        width="100%"
-        outerElementType="tbody"
-        itemKey={(index) => (index === visibleRows.length ? 'add-row' : visibleRows[index].id)}
-      >
-        {Item}
-      </List>
+      </tbody>
     );
   };
 
@@ -540,7 +524,10 @@ export const InlineTableEditor = ({
 
     return (
       <div className={wrapperClass}>
-        <table className={`${minWidthClass} w-full text-sm leading-snug text-[var(--text)]`}>
+        <table
+          className={`${minWidthClass} w-full table-fixed text-sm leading-snug text-[var(--text)]`}
+          style={{ tableLayout: 'fixed' }}
+        >
           {renderColumnSizing()}
           {renderTableHeader()}
           {renderTableBody()}

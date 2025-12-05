@@ -1545,7 +1545,6 @@ setSaving(false);
           try {
             const phrase = '我知晓该操作将覆盖当前数据,可能造成数据丢失';
             let mode: 'merge' | 'overwrite' = 'merge';
-            let confirmHeader: Record<string, string> | undefined;
             const overwrite = window.confirm('选择“确定”将执行覆盖导入（可能导致数据丢失），取消则执行增量导入。');
             if (overwrite) {
               const input = window.prompt('请输入确认语句以继续覆盖：' + phrase);
@@ -1553,7 +1552,6 @@ setSaving(false);
                 setStatus('已取消导入：确认语句不匹配，已切换为增量导入。');
               } else {
                 mode = 'overwrite';
-                confirmHeader = { 'X-Import-Confirm': phrase };
               }
             }
             const isZip =
@@ -1563,11 +1561,11 @@ setSaving(false);
             if (isZip) {
               const formData = new FormData();
               formData.append('file', file);
-              await api.post(`/api/v1/import/all?mode=${mode}`, formData, { headers: confirmHeader });
+              await api.post(`/api/v1/import/all?mode=${mode}`, formData);
             } else {
               const text = await file.text();
               const payload = JSON.parse(text);
-              await api.post(`/api/v1/import/all?mode=${mode}`, payload, { headers: confirmHeader });
+              await api.post(`/api/v1/import/all?mode=${mode}`, payload);
             }
             setStatus('已导入全部数据。');
             await refreshList();
