@@ -814,6 +814,10 @@ func (s *Server) handleUploadMedia(c *gin.Context) {
 			host = c.Request.Host
 		}
 		if host != "" {
+			// 如果转发 Host 无端口且原始 Host 有端口，补齐原始端口
+			if !strings.Contains(host, ":") && strings.Contains(c.Request.Host, ":") {
+				host = c.Request.Host
+			}
 			assetBase = fmt.Sprintf("%s://%s", proto, host)
 		}
 	}

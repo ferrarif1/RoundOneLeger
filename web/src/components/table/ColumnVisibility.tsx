@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars, no-unused-vars */
 import { useMemo } from 'react';
-import type { Property, ViewColumn } from '../../types/roledger';
+import type { Property, ViewColumn } from '../../types/roleger';
 
 type ColumnVisibilityProps = {
   properties: Property[];

@@ -7,8 +7,8 @@ import { DataTable } from '../components/table/DataTable';
 import { ViewToolbar } from '../components/table/ViewToolbar';
 import { ColumnVisibility } from '../components/table/ColumnVisibility';
 import { ImportDialog } from '../components/import/ImportDialog';
-import { useRoledgerStore } from '../state/roledgerStore';
-import type { Table, View, RecordItem, Property } from '../types/roledger';
+import { useRoledgerStore } from '../state/rolegerStore';
+import type { Table, View, RecordItem, Property } from '../types/roleger';
 
 const WorkspacePage = () => {
   const { tableId } = useParams<{ tableId: string }>();

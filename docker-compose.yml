@@ -30,6 +30,7 @@ services:
       DB_USER: postgres
       DB_PASS: postgres
       LEDGER_DATA_DIR: /data
+      ASSET_BASE_URL: http://localhost:8080
     depends_on:
       db:
         condition: service_healthy

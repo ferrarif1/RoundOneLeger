@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars, no-unused-vars */
 import { create, type StateCreator } from 'zustand';
-import type { Property, RecordItem, Table, View } from '../types/roledger';
+import type { Property, RecordItem, Table, View } from '../types/roleger';
 import {
   createProperty,
   createRecord,
@@ -14,7 +14,7 @@ import {
   updateRecord,
   saveRecordsBulk,
   updateView
-} from '../api/roledger';
+} from '../api/roleger';
 
 type RoledgerState = {
   tables: Table[];

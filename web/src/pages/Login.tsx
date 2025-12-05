@@ -63,7 +63,7 @@ const Login = () => {
   };
 
   return (
-    <div className="auth-shell roledger-ledger-root">
+    <div className="auth-shell roleger-ledger-root">
       <div className="auth-panel glass-panel">
         <header className="auth-header">
           <div className="auth-icon">

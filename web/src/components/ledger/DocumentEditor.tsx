@@ -184,14 +184,28 @@ export const DocumentEditor = ({ value, editable, onChange, onStatus, onSave, di
           headers: { 'Content-Type': 'multipart/form-data' }
         });
         const rawUrl = data?.absoluteUrl || data?.url || '';
+        // 统一使用后端基址（优先显式配置或 API base），避免落到前端端口
         const assetBase =
           import.meta.env.VITE_ASSET_BASE_URL?.trim() ||
           api.defaults.baseURL ||
-          (import.meta.env.DEV ? 'http://127.0.0.1:8080' : window.location.origin);
+          'http://127.0.0.1:8080';
         const resolveUrl = (value: string) => {
           if (!value) return '';
-          if (/^https?:\/\//i.test(value)) return value;
-          const base = assetBase || window.location.origin;
+          // Absolute URL with possible missing port
+          if (/^https?:\/\//i.test(value)) {
+            try {
+              const parsed = new URL(value);
+              // 如果没有端口或端口与后端不同，则使用后端基址重建
+              const base = new URL(assetBase);
+              if (!parsed.port || parsed.port !== base.port || parsed.hostname === base.hostname) {
+                return `${base.origin}${parsed.pathname}${parsed.search || ''}${parsed.hash || ''}`;
+              }
+            } catch {
+              /* ignore */
+            }
+            return value;
+          }
+          const base = assetBase;
           const trimmedBase = base.replace(/\/$/, '');
           if (value.startsWith('/')) {
             return `${trimmedBase}${value}`;

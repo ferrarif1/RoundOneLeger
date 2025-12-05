@@ -21,10 +21,10 @@ const App = () => {
   const [navCollapsed, setNavCollapsed] = useState(false);
 
   return (
-    <div className="roledger-ledger-root">
+    <div className="roleger-ledger-root">
       <div className="flex min-h-screen gap-6 bg-[var(--bg)] text-[var(--text)]">
         {token && <Sidebar collapsed={navCollapsed} onToggle={() => setNavCollapsed((prev) => !prev)} />}
-        <div className="flex-1 flex flex-col roledger-ledger-wrapper">
+        <div className="flex-1 flex flex-col roleger-ledger-wrapper">
           {token && <TopBar />}
           <main className="flex-1 overflow-y-auto bg-white p-6 md:p-8 rounded-lg border border-[var(--line)] shadow-none">
             <Routes>

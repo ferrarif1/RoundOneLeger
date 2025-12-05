@@ -2,7 +2,7 @@
 import React, { useMemo, useState } from 'react';
 import { ArrowsUpDownIcon, PlusIcon } from '@heroicons/react/24/outline';
 import { FixedSizeList as List, type ListChildComponentProps } from 'react-window';
-import type { Property, RecordItem, ViewColumn } from '../../types/roledger';
+import type { Property, RecordItem, ViewColumn } from '../../types/roleger';
 
 export type DataTableProps = {
   properties: Property[];

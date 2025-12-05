@@ -16,7 +16,7 @@
   --ledger-shell-max: 1680px;
 }
 
-.roledger-ledger-root {
+.roleger-ledger-root {
   min-height: 100vh;
   background: var(--bg-page);
   padding: 20px clamp(16px, 3vw, 48px) 32px;
@@ -25,7 +25,7 @@
   -webkit-font-smoothing: antialiased;
 }
 
-.roledger-ledger-wrapper {
+.roleger-ledger-wrapper {
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -34,7 +34,7 @@
   margin: 0 auto;
 }
 
-.roledger-ledger-mobile-toggle {
+.roleger-ledger-mobile-toggle {
   display: none;
   justify-content: flex-end;
   width: 100%;
@@ -42,7 +42,7 @@
   margin: 0 auto;
 }
 
-.roledger-ledger-toggle-button {
+.roleger-ledger-toggle-button {
   font-size: 13px;
   padding: 10px 16px;
   border-radius: 999px;
@@ -53,18 +53,18 @@
   transition: transform 180ms ease, box-shadow 180ms ease;
 }
 
-.roledger-ledger-toggle-button.is-active {
+.roleger-ledger-toggle-button.is-active {
   border-color: rgba(20, 20, 20, 0.3);
   color: var(--accent);
   box-shadow: 0 20px 36px rgba(14, 14, 14, 0.16);
 }
 
-.roledger-ledger-toggle-button:hover {
+.roleger-ledger-toggle-button:hover {
   transform: translateY(-1px);
   box-shadow: 0 18px 34px rgba(14, 14, 14, 0.1);
 }
 
-.roledger-ledger-container {
+.roleger-ledger-container {
   display: grid;
   grid-template-columns: clamp(240px, 22vw, 320px) minmax(0, 1fr);
   gap: var(--gap);
@@ -74,7 +74,7 @@
   margin: 0 auto;
 }
 
-.roledger-ledger-list {
+.roleger-ledger-list {
   background: #f7f7f7;
   border-radius: var(--radius-md);
   border: 1px solid var(--line);
@@ -86,7 +86,7 @@
   position: relative;
 }
 
-.roledger-ledger-collapse-handle {
+.roleger-ledger-collapse-handle {
   position: absolute;
   top: 20px;
   right: -22px;
@@ -104,19 +104,19 @@
   z-index: 3;
 }
 
-.roledger-ledger-collapse-handle:hover {
+.roleger-ledger-collapse-handle:hover {
   transform: translateY(-1px);
   box-shadow: 0 18px 34px rgba(14, 14, 14, 0.18);
   color: var(--accent);
 }
 
-.roledger-ledger-collapse-handle.is-collapsed {
+.roleger-ledger-collapse-handle.is-collapsed {
   right: auto;
   left: 50%;
   transform: translate(-50%, 0);
 }
 
-.roledger-ledger-list-scroll {
+.roleger-ledger-list-scroll {
   height: 100%;
   overflow-y: auto;
   padding-right: 6px;
@@ -130,7 +130,7 @@
   height: 100%;
 }
 
-.roledger-ledger-editor {
+.roleger-ledger-editor {
   background: var(--card-bg);
   border-radius: var(--radius-lg);
   border: 1px solid var(--line);
@@ -144,12 +144,12 @@
   min-width: 0;
 }
 
-.roledger-ledger-editor > * {
+.roleger-ledger-editor > * {
   flex: 1;
   min-height: 0;
 }
 
-.roledger-card {
+.roleger-card {
   background: var(--card-bg);
   border-radius: 18px;
   border: 1px solid var(--line);
@@ -158,7 +158,7 @@
   margin-bottom: 18px;
 }
 
-.roledger-search {
+.roleger-search {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -169,7 +169,7 @@
   box-shadow: none;
 }
 
-.roledger-search input {
+.roleger-search input {
   flex: 1;
   border: none;
   background: transparent;
@@ -178,21 +178,21 @@
   color: var(--text);
 }
 
-.roledger-search svg {
+.roleger-search svg {
   flex-shrink: 0;
   pointer-events: none;
 }
 
-.roledger-search input:focus {
+.roleger-search input:focus {
   outline: none;
 }
 
-.roledger-muted {
+.roleger-muted {
   color: rgba(20, 20, 20, 0.55);
   font-size: 13px;
 }
 
-.roledger-table {
+.roleger-table {
   background: #ffffff;
   border-radius: 18px;
   border: 1.5px solid rgba(20, 20, 20, 0.1);
@@ -200,7 +200,7 @@
   box-shadow: var(--card-elev-2);
 }
 
-.roledger-btn {
+.roleger-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -217,114 +217,114 @@
   cursor: pointer;
 }
 
-.roledger-btn:disabled {
+.roleger-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-.roledger-btn:not(:disabled):hover {
+.roleger-btn:not(:disabled):hover {
   background: #f5f6f8;
   border-color: var(--line-strong);
 }
 
-.roledger-btn--ghost {
+.roleger-btn--ghost {
   background: #ffffff;
   color: var(--text);
   border: 1px solid var(--line);
 }
 
-.roledger-btn--ghost:not(:disabled):hover {
+.roleger-btn--ghost:not(:disabled):hover {
   background: #f5f6f8;
 }
 
-.roledger-btn--danger {
+.roleger-btn--danger {
   background: #fef2f2;
   color: #b91c1c;
   border: 1px solid rgba(185, 28, 28, 0.28);
 }
 
-.roledger-btn--danger:not(:disabled):hover {
+.roleger-btn--danger:not(:disabled):hover {
   background: #fde5e5;
 }
 
-.roledger-btn.is-busy {
+.roleger-btn.is-busy {
   pointer-events: none;
 }
 
-.roledger-ledger-list .ledger-item,
-.roledger-card {
+.roleger-ledger-list .ledger-item,
+.roleger-card {
   transition: transform 180ms ease, box-shadow 180ms ease, opacity 180ms ease;
 }
 
-.roledger-ledger-list .ledger-item:hover {
+.roleger-ledger-list .ledger-item:hover {
   transform: none;
   box-shadow: none;
   background: #f2f4f7;
 }
 
-.roledger-ledger-editor-card {
+.roleger-ledger-editor-card {
   height: 100%;
 }
 
 @media (max-width: 1439px) {
-  .roledger-ledger-container {
+  .roleger-ledger-container {
     grid-template-columns: clamp(220px, 28vw, 280px) minmax(0, 1fr);
   }
 }
 
 @media (min-width: 1440px) {
-  .roledger-ledger-container {
+  .roleger-ledger-container {
     grid-template-columns: minmax(260px, 320px) minmax(900px, 1fr);
   }
 }
 
 @media (max-width: 1023px) {
-  .roledger-ledger-collapse-handle {
+  .roleger-ledger-collapse-handle {
     display: none;
   }
-  .roledger-ledger-root {
+  .roleger-ledger-root {
     padding: 24px 20px 36px;
   }
-  .roledger-ledger-mobile-toggle {
+  .roleger-ledger-mobile-toggle {
     display: flex;
   }
-  .roledger-ledger-container {
+  .roleger-ledger-container {
     grid-template-columns: minmax(0, 1fr);
   }
-  .roledger-ledger-list {
+  .roleger-ledger-list {
     display: none;
     height: auto;
     max-height: 65vh;
     overflow: hidden;
   }
-  .roledger-ledger-container.sidebar-open .roledger-ledger-list {
+  .roleger-ledger-container.sidebar-open .roleger-ledger-list {
     display: block;
-    animation: roledgerFadeIn 160ms ease;
+    animation: rolegerFadeIn 160ms ease;
   }
-  .roledger-ledger-editor {
+  .roleger-ledger-editor {
     height: auto;
     min-height: 60vh;
   }
 }
 
 @media (max-width: 640px) {
-  .roledger-ledger-root {
+  .roleger-ledger-root {
     padding: 18px 14px 30px;
   }
-  .roledger-ledger-editor {
+  .roleger-ledger-editor {
     padding: 20px;
   }
-  .roledger-ledger-list {
+  .roleger-ledger-list {
     padding: 18px;
   }
 }
 
 @media (min-width: 1024px) {
-  .roledger-ledger-container.sidebar-collapsed {
+  .roleger-ledger-container.sidebar-collapsed {
     grid-template-columns: 72px minmax(0, 1fr);
     gap: 24px;
   }
-  .roledger-ledger-container.sidebar-collapsed .roledger-ledger-list {
+  .roleger-ledger-container.sidebar-collapsed .roleger-ledger-list {
     padding: 8px 4px;
     border: none;
     box-shadow: none;
@@ -333,16 +333,16 @@
     align-items: flex-start;
     justify-content: center;
   }
-  .roledger-ledger-container.sidebar-collapsed .roledger-ledger-list-scroll {
+  .roleger-ledger-container.sidebar-collapsed .roleger-ledger-list-scroll {
     display: none;
   }
-  .roledger-ledger-container.sidebar-collapsed .roledger-ledger-collapse-handle {
+  .roleger-ledger-container.sidebar-collapsed .roleger-ledger-collapse-handle {
     position: static;
     transform: none;
   }
 }
 
-@keyframes roledgerFadeIn {
+@keyframes rolegerFadeIn {
   from {
     opacity: 0;
     transform: translateY(-4px);

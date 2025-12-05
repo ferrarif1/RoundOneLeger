@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars, no-unused-vars */
 import { FunnelIcon, Squares2X2Icon, SwatchIcon, PlusIcon } from '@heroicons/react/24/outline';
-import type { View } from '../../types/roledger';
+import type { View } from '../../types/roleger';
 
 type ViewToolbarProps = {
   views: View[];
