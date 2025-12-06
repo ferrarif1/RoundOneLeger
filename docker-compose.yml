@@ -29,7 +29,7 @@ services:
       DB_NAME: ledger
       DB_USER: postgres
       DB_PASS: postgres
-      LEDGER_DATA_DIR: /data
+      LEDGER_DATA_DIR: /app/data
       ASSET_BASE_URL: http://localhost:8080
     depends_on:
       db:
@@ -37,7 +37,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - appdata:/data
+      - ./data/assets:/app/data/assets
 
   frontend:
     build:
@@ -48,8 +48,7 @@ services:
     ports:
       - "8081:80"
     volumes:
-      - appdata:/data:ro
+      - ./data/assets:/usr/share/nginx/html/assets:ro
 
 volumes:
   pgdata:
-  appdata:

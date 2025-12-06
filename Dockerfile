@@ -4,9 +4,12 @@ ARG NODE_BASE_IMAGE=mirror.gcr.io/library/node:18-alpine
 
 # Build frontend
 FROM ${NODE_BASE_IMAGE} AS frontend
+ENV ROLLUP_DISABLE_NATIVE=1
 WORKDIR /web
 COPY web/package*.json ./
-RUN npm install --prefer-offline --no-audit --progress=false
+RUN npm install --prefer-offline --no-audit --progress=false --no-optional
+# Workaround rollup optional native binary resolution on musl
+RUN npm install @rollup/rollup-linux-x64-musl --no-audit --progress=false --no-optional || true
 COPY web .
 RUN npm run build
 

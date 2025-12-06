@@ -794,11 +794,15 @@ func (s *Server) handleUploadMedia(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "unsupported_media_type"})
 		return
 	}
-	path, err := s.Store.WriteBinary(dataDir, header.Filename, data)
-	if err != nil {
+	assetsDir := filepath.Join(dataDir, "assets")
+	_ = os.MkdirAll(assetsDir, 0o755)
+	filename := filepath.Base(header.Filename)
+	target := filepath.Join(assetsDir, filename)
+	if err := os.WriteFile(target, data, 0o644); err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "asset_write_failed"})
 		return
 	}
+	publicPath := filepath.ToSlash(filepath.Join("assets", filename))
 	assetBase := strings.TrimSpace(os.Getenv("ASSET_BASE_URL"))
 	if assetBase == "" {
 		proto := c.GetHeader("X-Forwarded-Proto")
@@ -814,17 +818,19 @@ func (s *Server) handleUploadMedia(c *gin.Context) {
 			host = c.Request.Host
 		}
 		if host != "" {
-			// 如果转发 Host 无端口且原始 Host 有端口，补齐原始端口
 			if !strings.Contains(host, ":") && strings.Contains(c.Request.Host, ":") {
 				host = c.Request.Host
 			}
 			assetBase = fmt.Sprintf("%s://%s", proto, host)
 		}
 	}
+	if assetBase == "" {
+		assetBase = "http://localhost:8080"
+	}
 	assetBase = strings.TrimRight(assetBase, "/")
 	c.JSON(http.StatusOK, gin.H{
-		"url":         "/" + path,
-		"absoluteUrl": fmt.Sprintf("%s/%s", assetBase, path),
+		"url":         "/" + publicPath,
+		"absoluteUrl": fmt.Sprintf("%s/%s", assetBase, publicPath),
 	})
 }
 
