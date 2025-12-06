@@ -37,7 +37,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./data/uploads:/app/data/uploads
+      - ./data/assets:/app/data/assets
 
   frontend:
     build:
@@ -48,7 +48,7 @@ services:
     ports:
       - "8081:80"
     volumes:
-      - ./data/uploads:/usr/share/nginx/html/uploads:ro
+      - ./data/assets:/usr/share/nginx/html/assets:ro
 
 volumes:
   pgdata:
