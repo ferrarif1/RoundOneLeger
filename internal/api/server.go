@@ -2160,7 +2160,7 @@ func unzipFile(path, target string) error {
 }
 
 func confirmOverwrite(c *gin.Context) bool {
-	const phrase = "我知晓该操作将覆盖当前数据,可能造成数据丢失"
+	const phrase = "，可能造成数据丢失"
 	if header := strings.TrimSpace(c.GetHeader("X-Import-Confirm")); header != "" {
 		return header == phrase
 	}

@@ -1543,7 +1543,7 @@ setSaving(false);
           e.target.value = '';
           if (!file) return;
           try {
-            const phrase = '我知晓该操作将覆盖当前数据,可能造成数据丢失';
+            const phrase = '我知晓该操作将覆盖当前数据';
             let mode: 'merge' | 'overwrite' = 'merge';
             const overwrite = window.confirm('选择“确定”将执行覆盖导入（可能导致数据丢失），取消则执行增量导入。');
             if (overwrite) {
